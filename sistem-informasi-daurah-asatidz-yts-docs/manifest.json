@@ -1,0 +1,27 @@
+{
+  "project": "Sistem Informasi Daurah Asatidz YTS",
+  "version": "0.1.0",
+  "generated_at": "2026-07-30",
+  "files": [
+    "00-README.md",
+    "01-PRD.md",
+    "02-STACK.md",
+    "03-SYSTEM_ARCHITECTURE.md",
+    "04-DATABASE_SCHEMA.md",
+    "05-RBAC_ACCESS_CONTROL.md",
+    "06-API_SPEC.md",
+    "07-EMAIL_AUTOMATION.md",
+    "08-CHECKIN_ATTENDANCE.md",
+    "09-UI_UX_GUIDE.md",
+    "10-SECURITY_PRIVACY.md",
+    "11-ROADMAP.md",
+    "12-ACCEPTANCE_CRITERIA.md",
+    "13-DEPLOYMENT_OPERATIONS.md",
+    "14-AGENTS.md",
+    "15-PROMPT_LOG.md",
+    "16-DECISION_LOG.md",
+    "17-TEST_PLAN.md",
+    "18-SEED_DATA.md",
+    "ALL-IN-ONE.md"
+  ]
+}
