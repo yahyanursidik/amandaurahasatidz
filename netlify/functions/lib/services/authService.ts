@@ -4,45 +4,45 @@ import { users, userRoleAssignments, roles, ustadzProfiles } from "../db/schema"
 import { eq, or } from "drizzle-orm";
 import { RoleCode } from "../../../../src/config/permissions";
 import { parseCookies } from "../utils/cookie";
-import { randomBytes } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { verifyPassword } from "../utils/password";
 import { UnauthorizedError, ForbiddenError } from "../utils/errors";
 
-interface SessionStoreRecord {
-  sessionId: string;
-  userId: string;
-  email: string;
-  createdAt: number;
-  expiresAt: number;
-  userContext?: UserContext;
+const SESSION_SECRET = process.env.JWT_SECRET || process.env.SESSION_SECRET || "fallback_yts_secret_dev_2026_!@#";
+
+function signToken(payload: any): string {
+  const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = createHmac("sha256", SESSION_SECRET).update(data).digest("base64url");
+  return `${data}.${signature}`;
 }
 
-const activeSessions = new Map<string, SessionStoreRecord>();
+function verifyToken(token: string): any | null {
+  const parts = token.split(".");
+  if (parts.length !== 2) return null;
+  const [data, signature] = parts;
+  const expectedSignature = createHmac("sha256", SESSION_SECRET).update(data).digest("base64url");
+  if (signature !== expectedSignature) return null;
+  try {
+    return JSON.parse(Buffer.from(data, "base64url").toString("utf-8"));
+  } catch {
+    return null;
+  }
+}
 
 export function createSessionToken(
   email: string,
   userContext?: UserContext
 ): { sessionId: string; expiresAt: Date } {
-  // Session rotation: revoke previous session if existing for this email
-  for (const [sId, sRecord] of activeSessions.entries()) {
-    if (sRecord.email === email.trim().toLowerCase()) {
-      activeSessions.delete(sId);
-    }
-  }
-
   const timestamp = Date.now();
-  const random = randomBytes(32).toString("hex");
-  const sessionId = `sess_${random}`;
   const expiresAtMs = timestamp + 7 * 24 * 60 * 60 * 1000; // 7 days
 
-  activeSessions.set(sessionId, {
-    sessionId,
-    userId: userContext?.userId || "00000000-0000-0000-0000-000000000001",
+  const payload = {
     email: email.trim().toLowerCase(),
-    createdAt: timestamp,
     expiresAt: expiresAtMs,
     userContext,
-  });
+  };
+
+  const sessionId = signToken(payload);
 
   return {
     sessionId,
@@ -122,7 +122,8 @@ export async function authenticatePasswordService(
 }
 
 export function revokeSessionToken(sessionId: string): void {
-  activeSessions.delete(sessionId);
+  // Stateless token revocation relies on client-side cookie clearing for now.
+  // In the future, a Redis blocklist or DB sessions table could be implemented here.
 }
 
 export async function getUserSession(
@@ -133,34 +134,26 @@ export async function getUserSession(
   const cookies = parseCookies(cookieHeader);
   const cookieSessionId = cookies["yts_session"];
   if (cookieSessionId) {
-    const cookieSession = activeSessions.get(cookieSessionId);
-    if (cookieSession && Date.now() <= cookieSession.expiresAt) {
-      return cookieSession.userContext || resolveUserContextFromEmail(cookieSession.email);
+    const payload = verifyToken(cookieSessionId);
+    if (payload && Date.now() <= payload.expiresAt) {
+      return payload.userContext || resolveUserContextFromEmail(payload.email);
     }
-    // A local server restart clears the in-memory session store while the browser
-    // may still retain its cookie. Remove the stale server-side record and allow
-    // the development Authorization fallback below to resolve the current user.
-    activeSessions.delete(cookieSessionId);
   }
 
   // 2. Fallback to Authorization when the cookie is absent or no longer valid.
   if (authorizationHeader) {
     const token = authorizationHeader.replace(/^Bearer\s+/i, "").trim();
     if (token) {
-      if (token.startsWith("sess_")) {
-        const tokenSession = activeSessions.get(token);
-        if (!tokenSession) return null;
-        if (Date.now() > tokenSession.expiresAt) {
-          activeSessions.delete(token);
-          return null;
+      if (token.includes(".")) {
+        const payload = verifyToken(token);
+        if (payload && Date.now() <= payload.expiresAt) {
+          return payload.userContext || resolveUserContextFromEmail(payload.email);
         }
-        return tokenSession.userContext || resolveUserContextFromEmail(tokenSession.email);
       } else {
         // Direct email fallback for local development and mock compatibility.
         if (process.env.APP_ENV !== "production") {
           return resolveUserContextFromEmail(token.includes("@") ? token : "admin@yts.or.id");
         }
-        return null;
       }
     }
   }
