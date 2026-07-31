@@ -22,15 +22,7 @@ export function validateEventDeadlines(data: DeadlineEvent) {
   if (registrationOpen && registrationClose && registrationOpen >= registrationClose) {
     throw new ValidationError("Pembukaan pendaftaran harus lebih awal daripada penutupannya.");
   }
-  if (start && registrationClose && registrationClose > start) {
-    throw new ValidationError("Batas pendaftaran tidak boleh melewati tanggal mulai event.");
-  }
-  if (start && invitationDeadline && invitationDeadline > start) {
-    throw new ValidationError("Batas respons undangan tidak boleh melewati tanggal mulai event.");
-  }
-  if (start && attendanceDeadline && attendanceDeadline > start) {
-    throw new ValidationError("Batas konfirmasi kehadiran tidak boleh melewati tanggal mulai event.");
-  }
+  // (Removed constraints: registration, invitation, and attendance deadlines are now allowed to pass the event start date to support on-the-spot registrations)
 }
 
 export function assertAttendanceConfirmationAllowed(event: DeadlineEvent, now = new Date()) {
