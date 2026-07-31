@@ -4,6 +4,7 @@ import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { StatusBadge, StatusVariant } from "@/components/common/StatusBadge";
 import { ENV } from "@/config/env";
 import { AlertCircle, Calendar, Clock, ExternalLink, MapPin, RefreshCw } from "lucide-react";
+import { DEFAULT_EVENT_POSTER, posterObjectPosition } from "@/lib/eventPoster";
 
 type EventDay = {
   id: string;
@@ -31,6 +32,9 @@ type PublicEvent = {
   name: string;
   subtitle: string | null;
   description: string | null;
+  posterUrl: string | null;
+  posterAlt: string | null;
+  posterFocalPoint: string | null;
   timezone: string;
   startDate: string;
   endDate: string;
@@ -50,6 +54,9 @@ const previewEvent: PublicEvent = {
   subtitle: "Pratinjau tampilan informasi event",
   description:
     "Data pada halaman ini hanya contoh karena API lokal belum tersambung. Informasi event sebenarnya akan mengikuti data yang dibuat oleh admin.",
+  posterUrl: DEFAULT_EVENT_POSTER,
+  posterAlt: "Interior perpustakaan sebagai poster contoh daurah",
+  posterFocalPoint: "CENTER",
   timezone: "Asia/Jakarta",
   startDate: "2026-08-15",
   endDate: "2026-08-16",
@@ -173,10 +180,17 @@ export const EventPublicPage: React.FC = () => {
               </div>
             )}
 
-            <header className="overflow-hidden rounded-2xl bg-emerald-950 text-white shadow-lg">
-              <div className="border-b border-emerald-800/70 p-6 sm:p-8">
+            <header className="event-public-hero">
+              <div className="event-public-hero__poster">
+                <img
+                  src={eventData.posterUrl || DEFAULT_EVENT_POSTER}
+                  alt={eventData.posterAlt || `Poster ${eventData.name}`}
+                  style={{ objectPosition: posterObjectPosition(eventData.posterFocalPoint) }}
+                />
+              </div>
+              <div className="event-public-hero__identity">
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded bg-white/10 px-2.5 py-1 font-mono text-[10px] font-black tracking-wide text-emerald-100">
+                  <span className="rounded bg-emerald-900 px-2.5 py-1 font-mono text-xs font-black tracking-wide text-emerald-100">
                     {eventData.code}
                   </span>
                   <StatusBadge
@@ -185,13 +199,12 @@ export const EventPublicPage: React.FC = () => {
                     className="border-white/20"
                   />
                 </div>
-                <h1 className="mt-5 max-w-3xl text-2xl font-black leading-tight sm:text-4xl">{eventData.name}</h1>
+                <h1 className="mt-5 max-w-3xl text-3xl font-black leading-tight sm:text-4xl">{eventData.name}</h1>
                 {eventData.subtitle && (
                   <p className="mt-3 max-w-2xl text-sm leading-6 text-emerald-100/80">{eventData.subtitle}</p>
                 )}
-              </div>
-              <dl className="grid gap-px bg-emerald-800/60 sm:grid-cols-2">
-                <div className="flex gap-3 bg-emerald-950/80 p-5">
+                <dl className="mt-6 grid gap-px border-t border-emerald-800 sm:grid-cols-2">
+                <div className="flex gap-3 py-5 sm:pr-5">
                   <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
                   <div>
                     <dt className="text-[10px] font-black uppercase tracking-wider text-emerald-300">Tanggal</dt>
@@ -200,7 +213,7 @@ export const EventPublicPage: React.FC = () => {
                     </dd>
                   </div>
                 </div>
-                <div className="flex gap-3 bg-emerald-950/80 p-5">
+                <div className="flex gap-3 py-5 sm:border-l sm:border-emerald-800 sm:pl-5">
                   <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
                   <div>
                     <dt className="text-[10px] font-black uppercase tracking-wider text-emerald-300">Lokasi</dt>
@@ -209,7 +222,8 @@ export const EventPublicPage: React.FC = () => {
                     </dd>
                   </div>
                 </div>
-              </dl>
+                </dl>
+              </div>
             </header>
 
             {(eventData.description || eventData.venueName || eventData.venueAddress) && (

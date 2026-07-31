@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge, StatusVariant } from "@/components/common/StatusBadge";
 import { Calendar, Plus, Search, MapPin, Eye, Edit, ExternalLink, RefreshCw, ClipboardList, UserRoundCheck } from "lucide-react";
 import { eventApi } from "@/lib/eventApi";
+import { DEFAULT_EVENT_POSTER, posterObjectPosition } from "@/lib/eventPoster";
 
 type EventSummary = {
   id: string;
@@ -17,6 +18,9 @@ type EventSummary = {
   venueName: string | null;
   venueAddress: string | null;
   mapsUrl: string | null;
+  posterUrl: string | null;
+  posterAlt: string | null;
+  posterFocalPoint: string | null;
   status: string;
 };
 
@@ -32,6 +36,9 @@ const previewEvents: EventSummary[] = [
     venueName: "Lokasi contoh",
     venueAddress: "Alamat akan mengikuti data event.",
     mapsUrl: null,
+    posterUrl: DEFAULT_EVENT_POSTER,
+    posterAlt: "Interior perpustakaan sebagai poster event contoh",
+    posterFocalPoint: "CENTER",
     status: "DRAFT",
   },
 ];
@@ -188,8 +195,16 @@ export const EventListPage: React.FC = () => {
           {filtered.map((item) => (
             <article
               key={item.id}
-              className="flex flex-col justify-between rounded-xl border border-slate-200 bg-white p-5 shadow-sm transition hover:border-emerald-200 hover:shadow-md"
+              className="event-list-card"
             >
+              <div className="event-list-card__poster">
+                <img
+                  src={item.posterUrl || DEFAULT_EVENT_POSTER}
+                  alt={item.posterAlt || `Poster ${item.name}`}
+                  style={{ objectPosition: posterObjectPosition(item.posterFocalPoint) }}
+                />
+              </div>
+              <div className="flex flex-1 flex-col justify-between p-5">
               <div>
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -264,6 +279,7 @@ export const EventListPage: React.FC = () => {
                     Edit
                   </Link>
                 </div>
+              </div>
               </div>
             </article>
           ))}

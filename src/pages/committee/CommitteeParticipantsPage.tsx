@@ -4,13 +4,14 @@
  * privacy: participant contact data is shown only inside the protected committee portal
  */
 import React, { useEffect, useMemo, useState } from "react";
-import { AlertCircle, CheckCircle2, Contact, Mail, MapPin, RefreshCw, Search, Smartphone, Users } from "lucide-react";
+import { AlertCircle, CalendarClock, CheckCircle2, Contact, Mail, MapPin, RefreshCw, Search, Smartphone, Users } from "lucide-react";
 import { CommitteeLayout } from "@/components/layouts/CommitteeLayout";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { ParticipantCommunicationPanel } from "@/components/communications/ParticipantCommunicationPanel";
 import { eventApi } from "@/lib/eventApi";
 import { getMissingParticipantContactFields } from "@/lib/participantCommunication";
+import { ParticipantProfileDialog } from "@/components/participants/ParticipantProfileDialog";
 
 type EventSummary = {
   id: string;
@@ -25,6 +26,7 @@ type EventSummary = {
 
 type CommitteeParticipant = {
   id: string;
+  ustadzId: string;
   ustadzName: string;
   ustadzEmail: string | null;
   ustadzPhone: string | null;
@@ -39,6 +41,8 @@ type CommitteeParticipant = {
   eventEndDate?: string | null;
   eventVenueName?: string | null;
   eventVenueAddress?: string | null;
+  registrationSource: string | null;
+  registeredAt: string | null;
 };
 
 const previewEvent: EventSummary = {
@@ -55,6 +59,7 @@ const previewEvent: EventSummary = {
 const previewParticipants: CommitteeParticipant[] = [
   {
     id: "committee-preview-participant-1",
+    ustadzId: "ustadz-preview-1",
     ustadzName: "Ustadz Abdullah, Lc.",
     ustadzEmail: "abdullah@example.org",
     ustadzPhone: "0812 9999 0000",
@@ -64,9 +69,12 @@ const previewParticipants: CommitteeParticipant[] = [
     institutionName: "Ma’had Ilmu Sunnah Bandung",
     approvalStatus: "APPROVED",
     confirmationStatus: "CONFIRMED",
+    registrationSource: "INSTITUTION_INVITATION",
+    registeredAt: "2026-07-22T10:30:00+07:00",
   },
   {
     id: "committee-preview-participant-2",
+    ustadzId: "ustadz-preview-2",
     ustadzName: "Ustadz Hasan Basri",
     ustadzEmail: null,
     ustadzPhone: "0812 8888 1111",
@@ -76,6 +84,8 @@ const previewParticipants: CommitteeParticipant[] = [
     institutionName: "Ma’had Ilmu Sunnah Bandung",
     approvalStatus: "PENDING_REVIEW",
     confirmationStatus: "CONFIRMED",
+    registrationSource: "INSTITUTION_INVITATION",
+    registeredAt: "2026-07-22T10:42:00+07:00",
   },
 ];
 
@@ -295,19 +305,39 @@ export const CommitteeParticipantsPage: React.FC = () => {
                     <h2 className="mt-1 truncate text-lg font-black text-slate-950">{participant.ustadzName}</h2>
                     <p className="mt-1 truncate text-sm text-slate-600">{participant.institutionName || "Peserta individu"}</p>
                   </div>
-                  <ParticipantCommunicationPanel
-                    participant={contact}
-                    senderRole="committee"
-                    event={{
-                      name: participant.eventName || selectedEvent?.name,
-                      startDate: participant.eventStartDate || selectedEvent?.startDate,
-                      endDate: participant.eventEndDate || selectedEvent?.endDate,
-                      venueName: participant.eventVenueName || selectedEvent?.venueName,
-                      venueAddress: participant.eventVenueAddress || selectedEvent?.venueAddress,
-                    }}
-                  />
+                  <div className="flex flex-wrap gap-2">
+                    <ParticipantProfileDialog
+                      participant={{
+                        id: participant.id,
+                        ustadzId: participant.ustadzId,
+                        name: participant.ustadzName,
+                        participantCode: participant.participantCode,
+                        institutionName: participant.institutionName,
+                        email: participant.ustadzEmail,
+                        phone: participant.ustadzPhone,
+                        whatsapp: participant.ustadzWhatsapp,
+                        address: participant.ustadzAddress,
+                        approvalStatus: participant.approvalStatus,
+                        confirmationStatus: participant.confirmationStatus,
+                        registrationSource: participant.registrationSource,
+                        registeredAt: participant.registeredAt,
+                        eventName: participant.eventName || selectedEvent?.name,
+                      }}
+                    />
+                    <ParticipantCommunicationPanel
+                      participant={contact}
+                      senderRole="committee"
+                      event={{
+                        name: participant.eventName || selectedEvent?.name,
+                        startDate: participant.eventStartDate || selectedEvent?.startDate,
+                        endDate: participant.eventEndDate || selectedEvent?.endDate,
+                        venueName: participant.eventVenueName || selectedEvent?.venueName,
+                        venueAddress: participant.eventVenueAddress || selectedEvent?.venueAddress,
+                      }}
+                    />
+                  </div>
                 </div>
-                <div className="mt-4 grid gap-3 border-t border-slate-200 pt-4 sm:grid-cols-3">
+                <div className="mt-4 grid gap-3 border-t border-slate-200 pt-4 sm:grid-cols-2 xl:grid-cols-4">
                   <p className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
                     <Smartphone className="h-4 w-4 shrink-0 text-teal-800" />
                     <span className="truncate">{participant.ustadzWhatsapp || participant.ustadzPhone || "Belum diisi"}</span>
@@ -319,6 +349,21 @@ export const CommitteeParticipantsPage: React.FC = () => {
                   <p className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
                     <MapPin className="h-4 w-4 shrink-0 text-teal-800" />
                     <span className="truncate">{participant.ustadzAddress || "Belum diisi"}</span>
+                  </p>
+                  <p className="flex min-w-0 items-center gap-2 text-sm text-slate-700">
+                    <CalendarClock className="h-4 w-4 shrink-0 text-teal-800" />
+                    <time dateTime={participant.registeredAt || undefined} className="truncate">
+                      {participant.registeredAt
+                        ? new Intl.DateTimeFormat("id-ID", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                            hour: "2-digit",
+                            minute: "2-digit",
+                            timeZone: "Asia/Jakarta",
+                          }).format(new Date(participant.registeredAt))
+                        : "Waktu daftar belum tersedia"}
+                    </time>
                   </p>
                 </div>
                 <div className="mt-4 flex flex-wrap items-center gap-2">

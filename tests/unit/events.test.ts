@@ -39,6 +39,25 @@ describe("Event, Sesi & State Transition Machine Unit Tests", () => {
     expect(parsed.success).toBe(true);
   });
 
+  it("validates optimized event poster sources and rejects unsupported sources", () => {
+    const base = {
+      code: "DAURAH-POSTER",
+      slug: "daurah-poster",
+      name: "Daurah dengan Poster",
+      startDate: "2026-08-15",
+      endDate: "2026-08-16",
+    };
+
+    expect(createEventSchema.safeParse({
+      ...base,
+      posterUrl: "/images/event-poster-library-interior.png",
+      posterAlt: "Interior perpustakaan sebagai poster daurah",
+      posterFocalPoint: "TOP",
+    }).success).toBe(true);
+    expect(createEventSchema.safeParse({ ...base, posterUrl: "javascript:alert(1)" }).success).toBe(false);
+    expect(createEventSchema.safeParse({ ...base, posterFocalPoint: "LEFT" }).success).toBe(false);
+  });
+
   it("should validate event session schema with checkin window", () => {
     const sessionPayload = {
       eventDayId: "00000000-0000-0000-0000-000000000001",

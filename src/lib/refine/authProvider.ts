@@ -5,12 +5,12 @@ const DEV_ACCOUNTS: Record<string, { password: string; portal: string; name: str
   "admin@yts.or.id": {
     password: "DemoAsatidz2026!",
     portal: "admin",
-    name: "Super Admin YTS",
+    name: "Super Admin Aman Daurah",
   },
   "panitia@yts.or.id": {
     password: "DemoAsatidz2026!",
     portal: "committee",
-    name: "Panitia Daurah YTS",
+    name: "Panitia Aman Daurah",
   },
   "ustadz.demo@yts.or.id": {
     password: "DemoAsatidz2026!",

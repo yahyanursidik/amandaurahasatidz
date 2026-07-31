@@ -14,6 +14,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:migrate:committee": "node scripts/apply-committee-deadline-migration.mjs",
+    "db:migrate:event-poster": "node scripts/apply-event-poster-migration.mjs",
     "db:seed": "node --loader ts-node/register netlify/functions/lib/db/seed.ts"
   },
   "dependencies": {
@@ -39,14 +40,14 @@
     "@types/nodemailer": "^8.0.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "4.7.0",
     "autoprefixer": "^10.4.20",
     "drizzle-kit": "^0.30.4",
     "postcss": "^8.5.1",
     "shadcn": "^4.16.0",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.7.3",
-    "vite": "^8.1.5",
+    "vite": "7.3.6",
     "vitest": "^3.0.5"
   }
 }

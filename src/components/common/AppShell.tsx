@@ -4,6 +4,7 @@ import { Sidebar, SidebarNavItem } from "./Sidebar";
 import { MobileNavigation } from "./MobileNavigation";
 import { useLocation } from "react-router-dom";
 import { useEffect } from "react";
+import { AppFooter } from "./AppFooter";
 
 export interface AppShellProps {
   portalName: string;
@@ -61,6 +62,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         </main>
       </div>
 
+      <AppFooter className="flex flex-col items-center justify-center gap-1 border-t border-slate-200 bg-white px-4 py-5 text-center text-xs text-slate-500 sm:flex-row sm:gap-2" />
       <MobileNavigation items={navItems} />
     </div>
   );

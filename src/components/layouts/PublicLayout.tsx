@@ -1,4 +1,5 @@
 import React from "react";
+import { AppFooter } from "@/components/common/AppFooter";
 
 interface PublicLayoutProps {
   children: React.ReactNode;
@@ -11,14 +12,14 @@ export const PublicLayout: React.FC<PublicLayoutProps> = ({ children }) => {
         <div className="max-w-4xl mx-auto px-4 flex items-center justify-between">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-sm">
-              YTS
+              ADA
             </div>
             <span className="font-semibold text-slate-800 text-base">
-              Yayasan Tarbiyah Sunnah
+              Aman Daurah Asatidz
             </span>
           </div>
           <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2.5 py-1 rounded">
-            Daurah Asatidz System
+            Portal Daurah
           </span>
         </div>
       </header>
@@ -27,9 +28,7 @@ export const PublicLayout: React.FC<PublicLayoutProps> = ({ children }) => {
         {children}
       </main>
 
-      <footer className="bg-white border-t border-slate-200 py-4 text-center text-xs text-slate-500">
-        &copy; 2026 Yayasan Tarbiyah Sunnah (YTS). All rights reserved.
-      </footer>
+      <AppFooter className="flex flex-col items-center justify-center gap-1 border-t border-slate-200 bg-white px-4 py-5 text-center text-xs text-slate-500 sm:flex-row sm:gap-2" />
     </div>
   );
 };

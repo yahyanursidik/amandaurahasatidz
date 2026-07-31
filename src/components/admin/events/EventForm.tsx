@@ -1,5 +1,10 @@
+/* Hallmark · macrostructure: Poster-Led Wayfinding · theme: existing emerald-slate
+ * enrichment: generated faceless library interior · motion: image reveal + control feedback
+ */
 import React, { useState } from "react";
-import { CalendarClock, CalendarDays, MapPin, Save, Settings2 } from "lucide-react";
+import { CalendarClock, CalendarDays, Image, MapPin, Save, Settings2 } from "lucide-react";
+import { EventPosterField } from "./EventPosterField";
+import { DEFAULT_EVENT_POSTER } from "@/lib/eventPoster";
 
 export type EventFormValues = {
   code: string;
@@ -7,6 +12,9 @@ export type EventFormValues = {
   name: string;
   subtitle: string;
   description: string;
+  posterUrl: string;
+  posterAlt: string;
+  posterFocalPoint: string;
   audienceMode: string;
   attendanceMode: string;
   timezone: string;
@@ -31,6 +39,9 @@ const emptyValues: EventFormValues = {
   name: "",
   subtitle: "",
   description: "",
+  posterUrl: DEFAULT_EVENT_POSTER,
+  posterAlt: "Interior perpustakaan sebagai poster event daurah",
+  posterFocalPoint: "CENTER",
   audienceMode: "INSTITUTION_INVITATION",
   attendanceMode: "DAILY_AND_SESSION",
   timezone: "Asia/Jakarta",
@@ -79,22 +90,50 @@ export const EventForm: React.FC<Props> = ({ initialValues, submitting, submitLa
   };
 
   return (
-    <form onSubmit={submit} className="max-w-5xl space-y-5">
-      <section className="border border-slate-200 bg-white">
+    <form onSubmit={submit} className="event-form-shell max-w-6xl space-y-5">
+      <nav aria-label="Bagian formulir event" className={`event-form-section-nav ${lockIdentity ? "top-32" : "top-16"}`}>
+        {[
+          ["identity", "Identitas", CalendarDays],
+          ["poster", "Poster", Image],
+          ["deadlines", "Konfirmasi", CalendarClock],
+          ["configuration", "Jadwal & jalur", Settings2],
+          ["location", "Lokasi", MapPin],
+        ].map(([target, label, Icon]) => {
+          const SectionIcon = Icon as React.ComponentType<{ className?: string }>;
+          return (
+            <a key={String(target)} href={`#${target}`} className="event-form-section-nav__item">
+              <SectionIcon className="h-4 w-4" />
+              {String(label)}
+            </a>
+          );
+        })}
+      </nav>
+
+      <section id="identity" className="scroll-mt-28 border border-slate-200 bg-white">
         <header className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 p-4">
           <CalendarDays className="h-4 w-4 text-emerald-700" />
-          <div><h2 className="text-xs font-black text-slate-900">Identitas event</h2><p className="mt-1 text-[11px] text-slate-500">Nama, kode, halaman publik, dan informasi utama.</p></div>
+          <div><h2 className="text-base font-black text-slate-900">Identitas event</h2><p className="mt-1 text-sm text-slate-600">Nama, kode, halaman publik, dan informasi utama.</p></div>
         </header>
         <div className="grid gap-4 p-4 sm:grid-cols-2">
-          <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-700">Kode event *</span><input value={values.code} onChange={(event) => update("code", event.target.value.toUpperCase())} disabled={lockIdentity} required placeholder="DAURAH-2026-BDG" className={fieldClass} /></label>
-          <label className="block"><span className="mb-1.5 block text-xs font-bold text-slate-700">Slug halaman publik *</span><input value={values.slug} onChange={(event) => update("slug", event.target.value)} disabled={lockIdentity} required placeholder="daurah-asatidz-bandung" className={fieldClass} /></label>
-          <label className="block sm:col-span-2"><span className="mb-1.5 block text-xs font-bold text-slate-700">Nama event *</span><input value={values.name} onChange={(event) => update("name", event.target.value)} required className={fieldClass} /></label>
-          <label className="block sm:col-span-2"><span className="mb-1.5 block text-xs font-bold text-slate-700">Subjudul</span><input value={values.subtitle} onChange={(event) => update("subtitle", event.target.value)} className={fieldClass} /></label>
-          <label className="block sm:col-span-2"><span className="mb-1.5 block text-xs font-bold text-slate-700">Deskripsi</span><textarea value={values.description} onChange={(event) => update("description", event.target.value)} rows={4} className={`${fieldClass} min-h-28 py-3`} /></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-bold text-slate-700">Kode event *</span><input value={values.code} onChange={(event) => update("code", event.target.value.toUpperCase())} disabled={lockIdentity} required placeholder="DAURAH-2026-BDG" className={fieldClass} /></label>
+          <label className="block"><span className="mb-1.5 block text-sm font-bold text-slate-700">Slug halaman publik *</span><input value={values.slug} onChange={(event) => update("slug", event.target.value)} disabled={lockIdentity} required placeholder="daurah-asatidz-bandung" className={fieldClass} /></label>
+          <label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-bold text-slate-700">Nama event *</span><input value={values.name} onChange={(event) => update("name", event.target.value)} required className={fieldClass} /></label>
+          <label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-bold text-slate-700">Subjudul</span><input value={values.subtitle} onChange={(event) => update("subtitle", event.target.value)} className={fieldClass} /></label>
+          <label className="block sm:col-span-2"><span className="mb-1.5 block text-sm font-bold text-slate-700">Deskripsi</span><textarea value={values.description} onChange={(event) => update("description", event.target.value)} rows={4} className={`${fieldClass} min-h-28 py-3`} /></label>
         </div>
       </section>
 
-      <section className="border border-slate-200 bg-white">
+      <EventPosterField
+        source={values.posterUrl}
+        altText={values.posterAlt}
+        focalPoint={values.posterFocalPoint}
+        eventName={values.name}
+        onSourceChange={(value) => update("posterUrl", value)}
+        onAltTextChange={(value) => update("posterAlt", value)}
+        onFocalPointChange={(value) => update("posterFocalPoint", value)}
+      />
+
+      <section id="deadlines" className="scroll-mt-28 border border-slate-200 bg-white">
         <header className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 p-4">
           <CalendarClock className="h-4 w-4 text-emerald-700" />
           <div><h2 className="text-sm font-black text-slate-900">Batas konfirmasi dan kebijakan terlambat</h2><p className="mt-1 text-xs text-slate-500">Tenggat ini menjadi acuan undangan, peserta, dan kelayakan check-in.</p></div>
@@ -112,10 +151,10 @@ export const EventForm: React.FC<Props> = ({ initialValues, submitting, submitLa
         </div>
       </section>
 
-      <section className="border border-slate-200 bg-white">
+      <section id="configuration" className="scroll-mt-28 border border-slate-200 bg-white">
         <header className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 p-4">
           <Settings2 className="h-4 w-4 text-emerald-700" />
-          <div><h2 className="text-xs font-black text-slate-900">Periode dan konfigurasi</h2><p className="mt-1 text-[11px] text-slate-500">Tentukan jadwal, jalur peserta, dan model presensi.</p></div>
+          <div><h2 className="text-base font-black text-slate-900">Periode dan konfigurasi</h2><p className="mt-1 text-sm text-slate-600">Tentukan jadwal, jalur peserta, dan model presensi.</p></div>
         </header>
         <div className="grid gap-4 p-4 sm:grid-cols-2 lg:grid-cols-3">
           <label><span className="mb-1.5 block text-xs font-bold text-slate-700">Tanggal mulai *</span><input type="date" value={values.startDate} onChange={(event) => update("startDate", event.target.value)} required className={fieldClass} /></label>
@@ -128,10 +167,10 @@ export const EventForm: React.FC<Props> = ({ initialValues, submitting, submitLa
         </div>
       </section>
 
-      <section className="border border-slate-200 bg-white">
+      <section id="location" className="scroll-mt-28 border border-slate-200 bg-white">
         <header className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 p-4">
           <MapPin className="h-4 w-4 text-emerald-700" />
-          <div><h2 className="text-xs font-black text-slate-900">Lokasi kegiatan</h2><p className="mt-1 text-[11px] text-slate-500">Informasi yang akan dilihat peserta dan lembaga.</p></div>
+          <div><h2 className="text-base font-black text-slate-900">Lokasi kegiatan</h2><p className="mt-1 text-sm text-slate-600">Informasi yang akan dilihat peserta dan lembaga.</p></div>
         </header>
         <div className="grid gap-4 p-4 sm:grid-cols-2">
           <label><span className="mb-1.5 block text-xs font-bold text-slate-700">Nama tempat</span><input value={values.venueName} onChange={(event) => update("venueName", event.target.value)} className={fieldClass} /></label>

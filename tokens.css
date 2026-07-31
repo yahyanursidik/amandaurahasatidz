@@ -1,7 +1,7 @@
-/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · macrostructure: Catalogue
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 · macrostructure: Poster-Led Wayfinding
  * genre: modern-minimal · theme: existing emerald-slate · nav: N3 · footer: Ft4
- * audience: admin operasional · use: kelola lembaga, PIC, afiliasi, undangan, dan delegasi
- * contrast: pass (40–41) · slop: pass (42–49) · mobile: pass by CSS review (34, 49–57)
+ * audience: admin event dan penerima undangan · use: cover, identitas event, dan konfirmasi lembaga
+ * contrast: pass (40–41) · slop: pass (42–49) · mobile: pass by render and CSS review (34, 49–57)
  */
 :root {
   --color-event-paper: oklch(98% 0.006 160);
@@ -136,4 +136,17 @@
   --dur-committee-micro: 120ms;
   --dur-committee-short: 220ms;
   --ease-committee-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --color-poster-night: oklch(19% 0.035 160);
+  --color-poster-night-soft: oklch(26% 0.05 160);
+  --color-poster-paper: oklch(98% 0.006 160);
+  --color-poster-rule: oklch(84% 0.014 160);
+  --color-poster-accent: oklch(52% 0.13 160);
+  --color-poster-muted: oklch(46% 0.02 160);
+  --radius-poster-control: 0.625rem;
+  --dur-poster-reveal: 420ms;
+  --ease-poster-reveal: cubic-bezier(0.16, 1, 0.3, 1);
+  --shadow-poster-card: 0 8px 24px rgb(15 23 42 / 0.05);
+  --shadow-poster-card-hover: 0 14px 34px rgb(15 23 42 / 0.1);
+  --shadow-poster-hero: 0 18px 46px rgb(15 23 42 / 0.16);
 }

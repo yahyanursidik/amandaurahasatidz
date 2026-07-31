@@ -32,7 +32,7 @@ describe("participant communication", () => {
       event: { name: "Daurah Fikih", startDate: "2026-08-15" },
     });
 
-    expect(message).toContain("Panitia Daurah Asatidz YTS");
+    expect(message).toContain("Panitia Aman Daurah Asatidz");
     expect(message).toContain("Daurah Fikih");
     expect(message).toContain("YTS-001");
     expect(message).toContain("Check-in tetap dilakukan per individu");

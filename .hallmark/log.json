@@ -1,6 +1,13 @@
 [
   {
     "date": "2026-07-31",
+    "macrostructure": "Poster-Led Wayfinding",
+    "theme": "existing emerald-slate system",
+    "enrichment": "generated faceless library interior",
+    "brief": "Event cover upload, poster-led admin and public identity, institution invitation context, and progressive form navigation"
+  },
+  {
+    "date": "2026-07-31",
     "macrostructure": "Triage Board",
     "theme": "existing emerald-slate system",
     "enrichment": "none",

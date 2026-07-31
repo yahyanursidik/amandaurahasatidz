@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { useLocation, useParams } from "react-router-dom";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
-import { Calendar, UserCheck, ShieldCheck, Save, Send, CheckCircle2, Plus, Trash2, Search, UserPlus } from "lucide-react";
+import { Calendar, UserCheck, ShieldCheck, Save, Send, CheckCircle2, Plus, Trash2, Search, UserPlus, Building2, MapPin } from "lucide-react";
 import { ENV } from "@/config/env";
+import { DEFAULT_EVENT_POSTER, posterObjectPosition } from "@/lib/eventPoster";
 
 export const InvitationPage: React.FC = () => {
   const { token } = useParams<{ token: string }>();
@@ -55,6 +56,12 @@ export const InvitationPage: React.FC = () => {
     institutionCode: "MISB-01",
     representativeEmail: "kontak@mahadsunnah.or.id",
     responseDeadline: "2026-08-05T16:59:00Z",
+    eventSubtitle: "Penguatan ilmu dan silaturahmi antar lembaga",
+    venueName: "Aula Markaz",
+    venueAddress: "Bandung, Jawa Barat",
+    posterUrl: DEFAULT_EVENT_POSTER,
+    posterAlt: "Interior perpustakaan sebagai poster Daurah Asatidz",
+    posterFocalPoint: "CENTER",
   });
 
   useEffect(() => {
@@ -80,6 +87,12 @@ export const InvitationPage: React.FC = () => {
           institutionCode: data.institution?.code || "INDIVIDU",
           representativeEmail: data.institution?.email || "",
           responseDeadline: data.invitation.responseDeadline || "",
+          eventSubtitle: data.event.subtitle || "",
+          venueName: data.event.venueName || "",
+          venueAddress: data.event.venueAddress || "",
+          posterUrl: data.event.posterUrl || DEFAULT_EVENT_POSTER,
+          posterAlt: data.event.posterAlt || `Poster ${data.event.name}`,
+          posterFocalPoint: data.event.posterFocalPoint || "CENTER",
         }));
         setDelegates([]);
       } catch (error) {
@@ -224,7 +237,7 @@ export const InvitationPage: React.FC = () => {
 
   return (
     <PublicLayout>
-      <div className="max-w-3xl mx-auto space-y-6">
+      <div className="invitation-page mx-auto max-w-5xl space-y-6">
         {isLoading && (
           <div className="space-y-3" aria-label="Memuat undangan">
             <div className="h-44 animate-pulse rounded-2xl bg-slate-200" />
@@ -238,31 +251,62 @@ export const InvitationPage: React.FC = () => {
         )}
         {!isLoading && (
         <>
-        {/* Banner Card */}
-        <div className="bg-gradient-to-r from-emerald-800 to-emerald-950 text-white rounded-2xl p-6 shadow-lg space-y-3">
+        <header className="invitation-event-hero">
+          <div className="invitation-event-hero__poster">
+            <img
+              src={mockData.posterUrl || DEFAULT_EVENT_POSTER}
+              alt={mockData.posterAlt || `Poster ${mockData.eventName}`}
+              style={{ objectPosition: posterObjectPosition(mockData.posterFocalPoint) }}
+            />
+          </div>
+          <div className="invitation-event-hero__content">
           <div className="flex items-center space-x-2">
             <span className="bg-emerald-700/80 text-emerald-100 text-xs font-mono font-bold px-2.5 py-1 rounded">
               {mockData.invitationNumber}
             </span>
             <span className="bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 text-xs px-2.5 py-1 rounded font-semibold">
-              Kuota Lembaga: {mockData.quota} Peserta
+              {invitationType === "institution" ? `Kuota ${mockData.quota} asatidz` : "Undangan individu"}
             </span>
           </div>
 
-          <h1 className="text-xl sm:text-2xl font-extrabold">{mockData.eventName}</h1>
-          <p className="text-xs text-emerald-100/90">
-            Formulir Konfirmasi Undangan & Pendataan Delegasi Ustadz Perwakilan Lembaga.
-          </p>
+          <p className="text-xs font-black uppercase tracking-[0.16em] text-emerald-300">Undangan resmi</p>
+          <h1 className="text-2xl font-black leading-tight sm:text-3xl">{mockData.eventName}</h1>
+          {mockData.eventSubtitle && <p className="text-sm leading-6 text-emerald-100">{mockData.eventSubtitle}</p>}
 
           <div className="pt-3 border-t border-emerald-700/50 flex items-center space-x-2 text-xs text-emerald-200">
             <Calendar className="w-4 h-4 text-emerald-400" />
             <span>Pelaksanaan: {mockData.eventDates}</span>
           </div>
+          <div className="flex items-start gap-2 text-xs text-emerald-200">
+            <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+            <span>{[mockData.venueName, mockData.venueAddress].filter(Boolean).join(" · ") || "Lokasi akan diumumkan"}</span>
+          </div>
+          <div className="flex items-start gap-2 text-xs text-emerald-200">
+            <Building2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-400" />
+            <span>{mockData.institutionName}</span>
+          </div>
           <div className={`border-t pt-3 text-sm font-bold ${deadlineExpired ? "border-rose-400/40 text-rose-200" : "border-emerald-700/50 text-emerald-100"}`}>
             Batas konfirmasi: {mockData.responseDeadline ? new Date(mockData.responseDeadline).toLocaleString("id-ID") : "Tidak dibatasi"}
             {deadlineExpired && " · Telah berakhir, hubungi panitia"}
           </div>
-        </div>
+          </div>
+        </header>
+
+        <nav aria-label="Progres konfirmasi undangan" className="invitation-progress">
+          {[
+            ["1", "Verifikasi", emailVerified || isSubmittedFinal],
+            ["2", "Respons & delegasi", isSubmittedFinal],
+            ["3", "Konfirmasi", isSubmittedFinal],
+          ].map(([number, label, completed], index) => {
+            const active = (!emailVerified && index === 0) || (emailVerified && !isSubmittedFinal && index === 1) || (isSubmittedFinal && index === 2);
+            return (
+              <div key={String(number)} className={active ? "is-active" : completed ? "is-complete" : ""} aria-current={active ? "step" : undefined}>
+                <span>{completed ? "✓" : number}</span>
+                <strong>{String(label)}</strong>
+              </div>
+            );
+          })}
+        </nav>
 
         {/* STEP 1: Email Verification Modal/Section */}
         {!emailVerified && (
@@ -594,7 +638,7 @@ export const InvitationPage: React.FC = () => {
             </div>
             <h2 className="text-lg font-bold text-slate-900">Konfirmasi Final Berhasil Disimpan!</h2>
             <p className="text-xs text-slate-600 max-w-md mx-auto">
-              Terima kasih. Respon konfirmasi delegasi untuk <strong>{mockData.institutionName}</strong> telah berhasil dicatat secara resmi oleh sistem panitia YTS.
+              Terima kasih. Respons konfirmasi delegasi untuk <strong>{mockData.institutionName}</strong> telah berhasil dicatat oleh panitia Aman Daurah Asatidz.
             </p>
           </div>
         )}

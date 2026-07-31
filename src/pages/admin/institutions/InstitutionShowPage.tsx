@@ -221,7 +221,7 @@ export const InstitutionShowPage: React.FC = () => {
             <span>Riwayat Keikutsertaan Daurah</span>
           </h3>
           <p className="text-xs text-slate-600">
-            Lembaga ini telah diundang pada 2 kegiatan Daurah Asatidz YTS sebelumnya.
+            Lembaga ini telah diundang pada 2 kegiatan Aman Daurah Asatidz sebelumnya.
           </p>
         </div>
       )}

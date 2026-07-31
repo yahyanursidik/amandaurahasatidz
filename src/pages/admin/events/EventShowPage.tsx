@@ -21,6 +21,7 @@ import { StatusBadge, StatusVariant } from "@/components/common/StatusBadge";
 import { EventWorkspaceNav } from "@/components/admin/events/EventWorkspaceNav";
 import { eventApi } from "@/lib/eventApi";
 import { CommitteeMember as DirectoryMember, COMMITTEE_ROLES, roleLabel } from "@/lib/committeeApi";
+import { DEFAULT_EVENT_POSTER, posterObjectPosition } from "@/lib/eventPoster";
 
 type EventDay = {
   id: string;
@@ -62,6 +63,9 @@ type EventDetail = {
   name: string;
   subtitle: string | null;
   description: string | null;
+  posterUrl: string | null;
+  posterAlt: string | null;
+  posterFocalPoint: string | null;
   timezone: string;
   startDate: string;
   endDate: string;
@@ -89,6 +93,9 @@ const previewEvent: EventDetail = {
   name: "Contoh Daurah Asatidz",
   subtitle: "Pratinjau ruang kerja event",
   description: "Data ini hanya ditampilkan saat API lokal belum berjalan.",
+  posterUrl: DEFAULT_EVENT_POSTER,
+  posterAlt: "Interior perpustakaan sebagai poster event contoh",
+  posterFocalPoint: "CENTER",
   timezone: "Asia/Jakarta",
   startDate: "2026-08-15",
   endDate: "2026-08-16",
@@ -350,6 +357,14 @@ export const EventShowPage: React.FC = () => {
       {section === "overview" && (
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_20rem]">
           <section className="border border-slate-200 bg-white">
+            <figure className="event-workspace-poster">
+              <img
+                src={data.posterUrl || DEFAULT_EVENT_POSTER}
+                alt={data.posterAlt || `Poster ${data.name}`}
+                style={{ objectPosition: posterObjectPosition(data.posterFocalPoint) }}
+              />
+              <figcaption>Poster yang tampil pada halaman publik dan undangan</figcaption>
+            </figure>
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 p-5">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
@@ -385,6 +400,7 @@ export const EventShowPage: React.FC = () => {
                   { label: "Hari kegiatan", ready: data.days.length > 0 },
                   { label: "Sesi kegiatan", ready: data.sessions.length > 0 },
                   { label: "Panitia", ready: data.committee.length > 0 },
+                  { label: "Poster event", ready: Boolean(data.posterUrl) },
                 ].map((item) => (
                   <li key={item.label} className="flex items-center justify-between gap-2 border-b border-slate-100 py-2">
                     <span>{item.label}</span>

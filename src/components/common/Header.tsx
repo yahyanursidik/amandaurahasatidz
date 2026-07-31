@@ -34,8 +34,8 @@ export const Header: React.FC<HeaderProps> = ({
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
           )}
-          <div className="w-9 h-9 rounded-lg bg-emerald-500 flex items-center justify-center font-bold text-emerald-950 text-lg shadow-sm">
-            YTS
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500 text-xs font-black tracking-tight text-emerald-950 shadow-sm">
+            ADA
           </div>
           <div>
             <h1 className="text-sm font-semibold leading-none sm:text-lg">Aman Daurah Asatidz</h1>

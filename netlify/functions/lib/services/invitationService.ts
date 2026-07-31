@@ -179,9 +179,14 @@ export async function getPublicInstitutionInvitationService(rawToken: string, re
     },
     event: {
       name: event.name,
+      subtitle: event.subtitle,
       startDate: event.startDate,
       endDate: event.endDate,
       venueName: event.venueName,
+      venueAddress: event.venueAddress,
+      posterUrl: event.posterUrl,
+      posterAlt: event.posterAlt,
+      posterFocalPoint: event.posterFocalPoint,
     },
     institution: institution
       ? {
@@ -277,9 +282,14 @@ export async function getPublicIndividualInvitationService(rawToken: string, req
     },
     event: {
       name: event.name,
+      subtitle: event.subtitle,
       startDate: event.startDate,
       endDate: event.endDate,
       venueName: event.venueName,
+      venueAddress: event.venueAddress,
+      posterUrl: event.posterUrl,
+      posterAlt: event.posterAlt,
+      posterFocalPoint: event.posterFocalPoint,
     },
   };
 }

@@ -22,6 +22,7 @@ import {
   Mail,
   ShieldCheck,
 } from "lucide-react";
+import { AppFooter } from "@/components/common/AppFooter";
 
 type PortalCode = "admin" | "committee" | "ustadz";
 
@@ -136,10 +137,10 @@ export const LoginPage: React.FC = () => {
             className="login-brand"
             aria-label="Aman Daurah Asatidz, kembali ke beranda"
           >
-            <span className="login-brand__mark">YTS</span>
+            <span className="login-brand__mark">ADA</span>
             <span className="login-brand__copy">
               <strong>Aman Daurah Asatidz</strong>
-              <span>Yayasan Tarbiyah Sunnah</span>
+              <span>Sistem pengelolaan daurah</span>
             </span>
           </Link>
           <span className="login-nav__portal">
@@ -305,10 +306,7 @@ export const LoginPage: React.FC = () => {
         </section>
       </main>
 
-      <footer className="login-footer">
-        <span>© 2026 Yayasan Tarbiyah Sunnah</span>
-        <span>Koneksi aman · Portal terpisah sesuai peran</span>
-      </footer>
+      <AppFooter className="login-footer" />
     </div>
   );
 };

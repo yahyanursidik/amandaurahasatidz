@@ -1,11 +1,26 @@
 import { z } from "zod";
 
+const posterSourceSchema = z
+  .string()
+  .max(900_000, "Ukuran poster setelah optimasi terlalu besar")
+  .refine(
+    (value) =>
+      value === "" ||
+      value.startsWith("/images/") ||
+      /^https?:\/\//i.test(value) ||
+      /^data:image\/(?:jpeg|png|webp);base64,/i.test(value),
+    "Sumber poster harus berupa unggahan gambar, URL HTTPS, atau aset gambar aplikasi"
+  );
+
 export const createEventSchema = z.object({
   code: z.string().min(2, "Kode event minimal 2 karakter"),
   slug: z.string().min(2, "Slug event minimal 2 karakter"),
   name: z.string().min(3, "Nama event minimal 3 karakter"),
   subtitle: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
+  posterUrl: posterSourceSchema.optional().nullable(),
+  posterAlt: z.string().max(180, "Teks alternatif maksimal 180 karakter").optional().nullable(),
+  posterFocalPoint: z.enum(["CENTER", "TOP", "BOTTOM"]).default("CENTER"),
   audienceMode: z.enum(["INSTITUTION_INVITATION", "PUBLIC_OPEN", "INDIVIDUAL_INVITATION"]).default("INSTITUTION_INVITATION"),
   attendanceMode: z.enum(["DAILY_AND_SESSION", "DAILY_ONLY", "SESSION_ONLY"]).default("DAILY_AND_SESSION"),
   timezone: z.string().default("Asia/Jakarta"),

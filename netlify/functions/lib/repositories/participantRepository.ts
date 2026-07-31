@@ -47,6 +47,7 @@ export async function findParticipantsRepository(eventId: string) {
       confirmationStatus: eventParticipants.confirmationStatus,
       approvalStatus: eventParticipants.approvalStatus,
       replacementForParticipantId: eventParticipants.replacementForParticipantId,
+      registeredAt: eventParticipants.createdAt,
     })
     .from(eventParticipants)
     .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))

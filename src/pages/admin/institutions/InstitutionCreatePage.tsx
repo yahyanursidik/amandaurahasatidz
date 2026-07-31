@@ -17,7 +17,7 @@ export const InstitutionCreatePage: React.FC = () => {
     <AdminLayout>
       <PageHeader
         title="Tambah Lembaga Baru"
-        description="Daftarkan lembaga dakwah atau pesantren partner YTS ke dalam sistem master data."
+        description="Daftarkan lembaga dakwah atau pesantren mitra Aman Daurah Asatidz ke dalam sistem master data."
         breadcrumbs={[
           { label: "Admin", href: "/admin" },
           { label: "Master Lembaga", href: "/admin/institutions" },

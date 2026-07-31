@@ -7,6 +7,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   ArrowLeft,
   Building2,
+  CalendarClock,
   Check,
   CheckCircle2,
   Clipboard,
@@ -28,6 +29,7 @@ import { StatusBadge } from "@/components/common/StatusBadge";
 import { ENV } from "@/config/env";
 import { EventWorkspaceNav } from "@/components/admin/events/EventWorkspaceNav";
 import { ParticipantCommunicationPanel } from "@/components/communications/ParticipantCommunicationPanel";
+import { ParticipantProfileDialog } from "@/components/participants/ParticipantProfileDialog";
 
 type Invitation = {
   id: string;
@@ -43,6 +45,7 @@ type Invitation = {
 
 type Participant = {
   id: string;
+  ustadzId: string;
   invitationId: string | null;
   ustadzName: string;
   ustadzEmail: string | null;
@@ -61,6 +64,8 @@ type Participant = {
   confirmationStatus: string;
   approvalStatus: string;
   institutionName: string | null;
+  registrationSource: string | null;
+  registeredAt: string | null;
 };
 
 type Institution = { id: string; name: string; code: string };
@@ -102,6 +107,7 @@ const demoInvitations: Invitation[] = [
 const demoParticipants: Participant[] = [
   {
     id: "part-demo-1",
+    ustadzId: "ustadz-preview-1",
     invitationId: "inv-demo-1",
     ustadzName: "Ustadz Abdullah, Lc.",
     ustadzEmail: "abdullah@example.org",
@@ -118,9 +124,12 @@ const demoParticipants: Participant[] = [
     confirmationStatus: "CONFIRMED",
     approvalStatus: "APPROVED",
     institutionName: "Ma'had Ilmu Sunnah Bandung",
+    registrationSource: "INSTITUTION_INVITATION",
+    registeredAt: "2026-07-22T10:30:00+07:00",
   },
   {
     id: "part-demo-2",
+    ustadzId: "ustadz-preview-2",
     invitationId: "inv-demo-1",
     ustadzName: "Ustadz Hasan Basri",
     ustadzEmail: null,
@@ -137,6 +146,8 @@ const demoParticipants: Participant[] = [
     confirmationStatus: "CONFIRMED",
     approvalStatus: "PENDING_REVIEW",
     institutionName: "Ma'had Ilmu Sunnah Bandung",
+    registrationSource: "INSTITUTION_INVITATION",
+    registeredAt: "2026-07-22T10:42:00+07:00",
   },
 ];
 
@@ -155,6 +166,26 @@ const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   const result = await response.json();
   if (!response.ok) throw new Error(result.error?.message || "Permintaan gagal diproses.");
   return result.data as T;
+};
+
+const formatRegisteredAt = (value: string | null) => {
+  if (!value) return { date: "Belum tersedia", time: "—" };
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return { date: "Belum tersedia", time: "—" };
+  return {
+    date: new Intl.DateTimeFormat("id-ID", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+      timeZone: "Asia/Jakarta",
+    }).format(date),
+    time: new Intl.DateTimeFormat("id-ID", {
+      hour: "2-digit",
+      minute: "2-digit",
+      timeZone: "Asia/Jakarta",
+      timeZoneName: "short",
+    }).format(date),
+  };
 };
 
 export const EventRegistrationsPage: React.FC = () => {
@@ -391,14 +422,16 @@ export const EventRegistrationsPage: React.FC = () => {
             <button type="button" onClick={() => void approveParticipants(selectedParticipants)} disabled={Boolean(participantBusy)} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white disabled:opacity-50"><Check className="h-4 w-4" /> Setujui terpilih</button>
           </div>
         )}
-        <div className="mt-4 overflow-hidden border border-slate-200 bg-white">
-          <div className="hidden grid-cols-[2rem_9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_9rem_9rem_13rem] gap-3 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-600 lg:grid">
-            <span className="sr-only">Pilih</span><span>Kode</span><span>Asatidz</span><span>Lembaga</span><span>Konfirmasi</span><span>Persetujuan</span><span>Aksi</span>
+        <div className="mt-4 overflow-x-auto border border-slate-200 bg-white">
+          <div className="hidden min-w-[82rem] grid-cols-[2rem_9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_10rem_9rem_9rem_18rem] gap-3 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-600 lg:grid">
+            <span className="sr-only">Pilih</span><span>Kode</span><span>Asatidz</span><span>Lembaga</span><span>Waktu daftar</span><span>Konfirmasi</span><span>Persetujuan</span><span>Aksi</span>
           </div>
           {loading ? <div className="h-64 animate-pulse bg-slate-100" /> : filteredParticipants.length ? (
             <ul className="divide-y divide-slate-100">
-              {filteredParticipants.map((participant) => (
-                <li key={participant.id} className="grid gap-3 px-4 py-4 text-sm lg:grid-cols-[2rem_9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_9rem_9rem_13rem] lg:items-center lg:gap-3">
+              {filteredParticipants.map((participant) => {
+                const registrationTime = formatRegisteredAt(participant.registeredAt);
+                return (
+                <li key={participant.id} className="grid gap-3 px-4 py-4 text-sm lg:min-w-[82rem] lg:grid-cols-[2rem_9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_10rem_9rem_9rem_18rem] lg:items-center lg:gap-3">
                   <input
                     type="checkbox"
                     aria-label={`Pilih ${participant.ustadzName}`}
@@ -410,9 +443,35 @@ export const EventRegistrationsPage: React.FC = () => {
                   <span className="font-mono font-bold text-emerald-800">{participant.participantCode}</span>
                   <div className="min-w-0"><p className="truncate font-black text-slate-900">{participant.ustadzName}</p><p className="mt-1 truncate text-sm text-slate-600">{participant.ustadzWhatsapp || participant.ustadzPhone || participant.ustadzEmail || "Kontak belum diisi"}</p></div>
                   <span className="truncate text-slate-500">{participant.institutionName || "Individu"}</span>
+                  <div className="flex items-start gap-2 text-slate-700">
+                    <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
+                    <div>
+                      <time dateTime={participant.registeredAt || undefined} className="block whitespace-nowrap font-bold">{registrationTime.date}</time>
+                      <span className="mt-0.5 block whitespace-nowrap text-xs text-slate-500">{registrationTime.time}</span>
+                    </div>
+                  </div>
                   <StatusBadge label={participant.confirmationStatus.replaceAll("_", " ")} variant={participant.confirmationStatus === "CONFIRMED" ? "success" : "neutral"} />
                   <StatusBadge label={participant.approvalStatus.replaceAll("_", " ")} variant={participant.approvalStatus === "APPROVED" ? "success" : participant.approvalStatus === "PENDING_REVIEW" ? "warning" : "neutral"} />
                   <div className="flex flex-wrap gap-2">
+                    <ParticipantProfileDialog
+                      participant={{
+                        id: participant.id,
+                        ustadzId: participant.ustadzId,
+                        name: participant.ustadzName,
+                        participantCode: participant.participantCode,
+                        institutionName: participant.institutionName,
+                        email: participant.ustadzEmail,
+                        phone: participant.ustadzPhone,
+                        whatsapp: participant.ustadzWhatsapp,
+                        address: participant.ustadzAddress,
+                        approvalStatus: participant.approvalStatus,
+                        confirmationStatus: participant.confirmationStatus,
+                        registrationSource: participant.registrationSource,
+                        registeredAt: participant.registeredAt,
+                        eventName: participant.eventName,
+                      }}
+                      masterProfileHref={`/admin/ustadz/${participant.ustadzId}`}
+                    />
                     <ParticipantCommunicationPanel
                       participant={{
                         id: participant.id,
@@ -447,7 +506,8 @@ export const EventRegistrationsPage: React.FC = () => {
                     )}
                   </div>
                 </li>
-              ))}
+                );
+              })}
             </ul>
           ) : <div className="p-10 text-center text-xs text-slate-500">Tidak ada peserta yang cocok.</div>}
         </div>

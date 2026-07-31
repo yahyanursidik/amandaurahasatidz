@@ -49,7 +49,7 @@ export const EventWorkspaceNav: React.FC<Props> = ({ eventId }) => {
   });
 
   return (
-    <div className="mb-6 border-y border-slate-200 bg-white">
+    <div className="sticky top-16 z-20 mb-6 border-y border-slate-200 bg-white/95 shadow-sm backdrop-blur-sm">
       <label className="block p-3 lg:hidden">
         <span className="sr-only">Pilih submodul event</span>
         <select
@@ -62,7 +62,7 @@ export const EventWorkspaceNav: React.FC<Props> = ({ eventId }) => {
           ))}
         </select>
       </label>
-      <nav aria-label="Submenu pengelolaan event" className="hidden flex-wrap lg:flex">
+      <nav aria-label="Submenu pengelolaan event" className="hidden overflow-x-auto lg:flex">
         {items.map((item) => {
           const ItemIcon = item.icon;
           const active = current?.label === item.label;
