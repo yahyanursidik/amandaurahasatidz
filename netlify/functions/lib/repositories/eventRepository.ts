@@ -1,6 +1,6 @@
 import { getDbClient } from "../db/client";
 import { events, eventDays, eventSessions, eventCommitteeAssignments, users } from "../db/schema";
-import { eq, ilike, and, isNull, count, desc, asc } from "drizzle-orm";
+import { eq, ilike, and, isNull, count, desc, asc, inArray } from "drizzle-orm";
 
 export async function findEventsRepository(search?: string, status?: string) {
   const db = getDbClient();
@@ -63,7 +63,11 @@ export async function findEventByIdRepository(id: string) {
       userId: eventCommitteeAssignments.userId,
       userName: users.name,
       userEmail: users.email,
+      userStatus: users.status,
       committeeRole: eventCommitteeAssignments.committeeRole,
+      permissions: eventCommitteeAssignments.permissions,
+      startsAt: eventCommitteeAssignments.startsAt,
+      endsAt: eventCommitteeAssignments.endsAt,
     })
     .from(eventCommitteeAssignments)
     .innerJoin(users, eq(eventCommitteeAssignments.userId, users.id))
@@ -79,15 +83,48 @@ export async function findEventByIdRepository(id: string) {
 
 export async function findEventBySlugRepository(slug: string) {
   const db = getDbClient();
-  const found = await db.select().from(events).where(eq(events.slug, slug)).limit(1);
+  const found = await db
+    .select()
+    .from(events)
+    .where(
+      and(
+        eq(events.slug, slug),
+        isNull(events.archivedAt),
+        inArray(events.status, [
+          "PUBLISHED",
+          "REGISTRATION_OPEN",
+          "REGISTRATION_CLOSED",
+          "ONGOING",
+          "COMPLETED",
+        ])
+      )
+    )
+    .limit(1);
   if (found.length === 0) return null;
 
   const eventId = found[0].id;
   const days = await db.select().from(eventDays).where(eq(eventDays.eventId, eventId)).orderBy(asc(eventDays.dayNumber));
+  const sessions = await db
+    .select({
+      id: eventSessions.id,
+      eventDayId: eventSessions.eventDayId,
+      title: eventSessions.title,
+      sessionType: eventSessions.sessionType,
+      moderatorName: eventSessions.moderatorName,
+      startAt: eventSessions.startAt,
+      endAt: eventSessions.endAt,
+      room: eventSessions.room,
+      sortOrder: eventSessions.sortOrder,
+    })
+    .from(eventSessions)
+    .innerJoin(eventDays, eq(eventSessions.eventDayId, eventDays.id))
+    .where(eq(eventDays.eventId, eventId))
+    .orderBy(asc(eventSessions.startAt), asc(eventSessions.sortOrder));
 
   return {
     ...found[0],
     days,
+    sessions,
   };
 }
 

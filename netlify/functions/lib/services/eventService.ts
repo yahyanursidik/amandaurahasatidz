@@ -12,6 +12,7 @@ import {
 import { getNextEventStatus, TransitionAction, EventStatus } from "./eventStateService";
 import { NotFoundError, ValidationError, ConflictError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
+import { validateEventDeadlines } from "./deadlineService";
 
 export async function getEventsService(search?: string, status?: string) {
   return await findEventsRepository(search, status);
@@ -37,9 +38,14 @@ export async function createEventService(data: any, actorUserId: string, request
   if (new Date(data.startDate) > new Date(data.endDate)) {
     throw new ValidationError("Tanggal mulai tidak boleh lebih lambat dari tanggal selesai.");
   }
+  validateEventDeadlines(data);
 
   const created = await createEventRepository({
     ...data,
+    registrationOpenAt: data.registrationOpenAt ? new Date(data.registrationOpenAt) : null,
+    registrationCloseAt: data.registrationCloseAt ? new Date(data.registrationCloseAt) : null,
+    invitationResponseDeadline: data.invitationResponseDeadline ? new Date(data.invitationResponseDeadline) : null,
+    attendanceConfirmationDeadline: data.attendanceConfirmationDeadline ? new Date(data.attendanceConfirmationDeadline) : null,
     status: "DRAFT",
     createdBy: actorUserId,
   });
@@ -70,8 +76,15 @@ export async function updateEventService(id: string, data: any, actorUserId: str
       throw new ValidationError("Tanggal mulai tidak boleh lebih lambat dari tanggal selesai.");
     }
   }
+  validateEventDeadlines({ ...existing, ...data });
 
-  const updated = await updateEventRepository(id, data);
+  const updated = await updateEventRepository(id, {
+    ...data,
+    ...(data.registrationOpenAt !== undefined && { registrationOpenAt: data.registrationOpenAt ? new Date(data.registrationOpenAt) : null }),
+    ...(data.registrationCloseAt !== undefined && { registrationCloseAt: data.registrationCloseAt ? new Date(data.registrationCloseAt) : null }),
+    ...(data.invitationResponseDeadline !== undefined && { invitationResponseDeadline: data.invitationResponseDeadline ? new Date(data.invitationResponseDeadline) : null }),
+    ...(data.attendanceConfirmationDeadline !== undefined && { attendanceConfirmationDeadline: data.attendanceConfirmationDeadline ? new Date(data.attendanceConfirmationDeadline) : null }),
+  });
 
   await createAuditLog({
     actorUserId,
@@ -140,7 +153,11 @@ export async function addEventDayService(eventId: string, data: any, actorUserId
 }
 
 export async function addEventSessionService(eventId: string, data: any, actorUserId: string, requestId: string) {
-  await getEventByIdService(eventId);
+  const event = await getEventByIdService(eventId);
+
+  if (!event.days.some((day) => day.id === data.eventDayId)) {
+    throw new ValidationError("Hari yang dipilih tidak termasuk dalam event ini.");
+  }
 
   if (new Date(data.startAt) >= new Date(data.endAt)) {
     throw new ValidationError("Jam mulai sesi harus lebih awal daripada jam selesai.");
@@ -172,7 +189,8 @@ export async function assignEventCommitteeService(
   userId: string,
   committeeRole: string,
   actorUserId: string,
-  requestId: string
+  requestId: string,
+  options?: { startsAt?: string | null; endsAt?: string | null; permissions?: string[] | null }
 ) {
   await getEventByIdService(eventId);
 
@@ -180,6 +198,9 @@ export async function assignEventCommitteeService(
     eventId,
     userId,
     committeeRole,
+    startsAt: options?.startsAt ? new Date(options.startsAt) : null,
+    endsAt: options?.endsAt ? new Date(options.endsAt) : null,
+    permissions: options?.permissions || null,
     createdBy: actorUserId,
   });
 

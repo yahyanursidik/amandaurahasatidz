@@ -1,132 +1,199 @@
-import React, { useState } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import {
+  AlertTriangle,
+  ArrowRight,
+  Building2,
+  CheckCircle2,
+  GitMerge,
+  Loader2,
+  Mail,
+  Phone,
+  ShieldCheck,
+} from "lucide-react";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { PageHeader } from "@/components/common/PageHeader";
-import { GitMerge, AlertTriangle, ArrowRight, ShieldCheck } from "lucide-react";
+import { UstadzWorkspaceNav } from "@/components/admin/ustadz/UstadzWorkspaceNav";
+import { UstadzProfile, ustadzApi } from "@/lib/ustadzApi";
+import { ustadzPreviewProfiles } from "@/lib/ustadzPreview";
+
+const ProfileCard: React.FC<{
+  profile?: UstadzProfile;
+  tone: "source" | "target";
+}> = ({ profile, tone }) => (
+  <article className="ustadz-merge-profile" data-tone={tone}>
+    <div className="ustadz-merge-profile__label">
+      <span>{tone === "source" ? "Sumber" : "Target utama"}</span>
+      <strong>{tone === "source" ? "Akan dinonaktifkan" : "Akan dipertahankan"}</strong>
+    </div>
+    {profile ? (
+      <>
+        <h3>{profile.fullName}</h3>
+        <dl>
+          <div><dt><Mail aria-hidden="true" /> Email</dt><dd>{profile.email || "Belum ada"}</dd></div>
+          <div><dt><Phone aria-hidden="true" /> Telepon</dt><dd>{profile.phone || "Belum ada"}</dd></div>
+          <div><dt><Building2 aria-hidden="true" /> Afiliasi utama</dt><dd>{profile.primaryInstitution?.institutionName || "Belum ada"}</dd></div>
+          <div><dt>Kelengkapan</dt><dd>{profile.completenessPercent || 0}%</dd></div>
+        </dl>
+        <Link to={`/admin/ustadz/${profile.id}`} target="_blank">Buka profil di tab baru</Link>
+      </>
+    ) : (
+      <p>Pilih profil untuk melihat perbandingan data.</p>
+    )}
+  </article>
+);
 
 export const UstadzMergePage: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const initialSource = searchParams.get("source") || "";
-
-  const [sourceId, setSourceId] = useState(initialSource);
+  const [profiles, setProfiles] = useState<UstadzProfile[]>([]);
+  const [sourceId, setSourceId] = useState(searchParams.get("source") || "");
   const [targetId, setTargetId] = useState("");
-  const [isMerging, setIsMerging] = useState(false);
+  const [notes, setNotes] = useState("");
+  const [confirmation, setConfirmation] = useState("");
+  const [preview, setPreview] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+  const [success, setSuccess] = useState("");
 
-  const mockUstadzList = [
-    { id: "201", name: "Ustadz Dr. Muhammad Muslih, Lc., M.A. (ID: 201)" },
-    { id: "203", name: "Ustadz Muslih, Lc. (ID: 203 - Duplikat)" },
-  ];
+  useEffect(() => {
+    const params = new URLSearchParams({ page: "1", pageSize: "100", profileStatus: "ACTIVE" });
+    ustadzApi
+      .list(params)
+      .then((response) => {
+        setProfiles(response.data);
+        setPreview(false);
+      })
+      .catch(() => {
+        setProfiles(ustadzPreviewProfiles.filter((profile) => profile.profileStatus === "ACTIVE"));
+        setPreview(true);
+      })
+      .finally(() => setLoading(false));
+  }, []);
 
-  const handleMergeSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!sourceId || !targetId) {
-      alert("Silakan pilih profil sumber dan profil target.");
+  const source = useMemo(() => profiles.find((profile) => profile.id === sourceId), [profiles, sourceId]);
+  const target = useMemo(() => profiles.find((profile) => profile.id === targetId), [profiles, targetId]);
+  const isValid =
+    Boolean(source && target) &&
+    sourceId !== targetId &&
+    notes.trim().length >= 5 &&
+    confirmation === "GABUNGKAN";
+
+  const handleSubmit = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setError("");
+    setSuccess("");
+    if (!isValid) {
+      setError("Pilih dua profil berbeda, isi alasan, lalu ketik GABUNGKAN untuk mengonfirmasi.");
       return;
     }
-    if (sourceId === targetId) {
-      alert("Profil sumber dan target tidak boleh sama.");
+    if (preview) {
+      setSuccess("Mode pratinjau: simulasi penggabungan berhasil tanpa mengubah data produksi.");
       return;
     }
-
-    setIsMerging(true);
-    setTimeout(() => {
-      alert("Workflow Merge Profil berhasil dieksekusi secara transaction-safe & diaudit!");
-      setIsMerging(false);
-      navigate("/admin/ustadz");
-    }, 1000);
+    setSaving(true);
+    try {
+      await ustadzApi.merge({
+        sourceUstadzIds: [sourceId],
+        targetUstadzId: targetId,
+        notes: notes.trim(),
+      });
+      navigate(`/admin/ustadz/${targetId}`, { replace: true });
+    } catch (mergeError) {
+      setError(mergeError instanceof Error ? mergeError.message : "Profil belum dapat digabungkan.");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
     <AdminLayout>
-      <PageHeader
-        title="Workflow Penggabungan Profil Duplikat (Merge)"
-        description="Gabungkan dua profil Ustadz duplikat secara aman (transaction-safe) ke dalam satu profil target utama."
-        breadcrumbs={[
-          { label: "Admin", href: "/admin" },
-          { label: "Master Asatidz", href: "/admin/ustadz" },
-          { label: "Merge Profil" },
-        ]}
-      />
+      <div className="ustadz-workspace">
+        <PageHeader
+          title="Gabungkan profil duplikat"
+          description="Satukan riwayat lembaga dan partisipasi ke profil utama tanpa menghapus jejak audit."
+          breadcrumbs={[
+            { label: "Admin", href: "/admin" },
+            { label: "Asatidz", href: "/admin/ustadz" },
+            { label: "Gabungkan profil" },
+          ]}
+        />
+        <UstadzWorkspaceNav />
 
-      <div className="bg-amber-50 border border-amber-300 rounded-xl p-4 mb-6 text-xs text-amber-900 space-y-2 max-w-3xl">
-        <div className="flex items-center space-x-2 font-bold text-amber-950">
-          <AlertTriangle className="w-4 h-4 text-amber-600" />
-          <span>Aturan Keamanan Penggabungan Profil (Transaction-Safe Enforcement)</span>
-        </div>
-        <ul className="list-disc list-inside space-y-1 text-amber-800">
-          <li>Seluruh riwayat afiliasi lembaga dan partisipasi event akan dipindahkan ke Profil Target.</li>
-          <li>Profil Sumber akan diubah statusnya menjadi <strong>MERGED</strong> dan dinonaktifkan.</li>
-          <li>Proses penggabungan berjalan secara atomis di database dan dicatat secara permanen di Audit Log.</li>
-        </ul>
+        {preview && (
+          <div className="ustadz-preview-notice" role="status">
+            <AlertTriangle aria-hidden="true" />
+            <div><strong>Mode pratinjau aktif</strong><span>Alur penggabungan dapat dicoba tanpa mengubah data produksi.</span></div>
+          </div>
+        )}
+
+        <section className="ustadz-merge-intro">
+          <ShieldCheck aria-hidden="true" />
+          <div>
+            <p>Operasi dengan jejak audit</p>
+            <h2>Apa yang terjadi saat profil digabungkan?</h2>
+            <ul>
+              <li>Partisipasi event dan afiliasi dipindahkan ke profil target.</li>
+              <li>Profil sumber berstatus “Digabungkan” dan tidak lagi dipakai untuk pendaftaran baru.</li>
+              <li>Identitas profil target tidak ditimpa otomatis; admin dapat melengkapinya setelah proses selesai.</li>
+            </ul>
+          </div>
+        </section>
+
+        <form className="ustadz-merge-form" onSubmit={handleSubmit}>
+          <section className="ustadz-merge-form__selection">
+            <div>
+              <label htmlFor="merge-source">Profil sumber</label>
+              <span>Akan dinonaktifkan setelah seluruh relasi dipindahkan.</span>
+              <select id="merge-source" value={sourceId} onChange={(event) => setSourceId(event.target.value)} required>
+                <option value="">Pilih profil sumber</option>
+                {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.fullName}</option>)}
+              </select>
+            </div>
+            <ArrowRight aria-hidden="true" />
+            <div>
+              <label htmlFor="merge-target">Profil target utama</label>
+              <span>Profil inilah yang dipertahankan dan digunakan selanjutnya.</span>
+              <select id="merge-target" value={targetId} onChange={(event) => setTargetId(event.target.value)} required>
+                <option value="">Pilih profil target</option>
+                {profiles.filter((profile) => profile.id !== sourceId).map((profile) => <option key={profile.id} value={profile.id}>{profile.fullName}</option>)}
+              </select>
+            </div>
+          </section>
+
+          {loading ? (
+            <div className="ustadz-loading" role="status"><Loader2 className="animate-spin" aria-hidden="true" /> Memuat profil aktif…</div>
+          ) : (
+            <div className="ustadz-merge-comparison">
+              <ProfileCard profile={source} tone="source" />
+              <ProfileCard profile={target} tone="target" />
+            </div>
+          )}
+
+          <section className="ustadz-merge-confirm">
+            <label>
+              <span>Alasan penggabungan</span>
+              <textarea value={notes} onChange={(event) => setNotes(event.target.value)} rows={3} placeholder="Contoh: nomor WhatsApp dan identitas terkonfirmasi sebagai orang yang sama" required minLength={5} />
+            </label>
+            <label>
+              <span>Ketik <strong>GABUNGKAN</strong> untuk konfirmasi</span>
+              <input value={confirmation} onChange={(event) => setConfirmation(event.target.value)} autoComplete="off" placeholder="GABUNGKAN" />
+            </label>
+          </section>
+
+          {error && <div className="ustadz-form__message ustadz-form__message--error" role="alert"><AlertTriangle aria-hidden="true" />{error}</div>}
+          {success && <div className="ustadz-form__message ustadz-form__message--success" role="status"><CheckCircle2 aria-hidden="true" />{success}</div>}
+
+          <div className="ustadz-form__actions">
+            <Link to="/admin/ustadz" className="ustadz-button ustadz-button--secondary">Batal</Link>
+            <button type="submit" className="ustadz-button ustadz-button--warning" disabled={!isValid || saving}>
+              {saving ? <Loader2 className="animate-spin" aria-hidden="true" /> : <GitMerge aria-hidden="true" />}
+              {saving ? "Menggabungkan…" : "Gabungkan ke profil target"}
+            </button>
+          </div>
+        </form>
       </div>
-
-      <form onSubmit={handleMergeSubmit} className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-6 max-w-3xl">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-          {/* Source Profile */}
-          <div className="p-4 border border-rose-200 rounded-xl bg-rose-50/50 space-y-3">
-            <h4 className="font-bold text-xs text-rose-900 uppercase tracking-wider">
-              1. Profil Sumber (Akan Di-merge / Dinonaktifkan)
-            </h4>
-            <select
-              value={sourceId}
-              onChange={(e) => setSourceId(e.target.value)}
-              required
-              className="w-full p-2.5 bg-white border border-rose-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-rose-500"
-            >
-              <option value="">-- Pilih Profil Sumber --</option>
-              {mockUstadzList.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </select>
-          </div>
-
-          {/* Arrow Indicator */}
-          <div className="hidden md:flex justify-center text-slate-400">
-            <ArrowRight className="w-6 h-6" />
-          </div>
-
-          {/* Target Profile */}
-          <div className="p-4 border border-emerald-200 rounded-xl bg-emerald-50/50 space-y-3">
-            <h4 className="font-bold text-xs text-emerald-900 uppercase tracking-wider">
-              2. Profil Target (Profil Utama yang Dipertahankan)
-            </h4>
-            <select
-              value={targetId}
-              onChange={(e) => setTargetId(e.target.value)}
-              required
-              className="w-full p-2.5 bg-white border border-emerald-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-emerald-500"
-            >
-              <option value="">-- Pilih Profil Target --</option>
-              {mockUstadzList.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.name}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end space-x-3 border-t pt-4">
-          <button
-            type="button"
-            onClick={() => navigate("/admin/ustadz")}
-            className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg min-h-[44px]"
-          >
-            Batal
-          </button>
-          <button
-            type="submit"
-            disabled={isMerging}
-            className="px-4 py-2 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded-lg flex items-center space-x-1.5 min-h-[44px] disabled:opacity-50"
-          >
-            <GitMerge className="w-4 h-4" />
-            <span>{isMerging ? "Memproses Merge..." : "Eksekusi Merge Profil"}</span>
-          </button>
-        </div>
-      </form>
     </AdminLayout>
   );
 };

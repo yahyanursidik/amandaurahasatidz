@@ -1,10 +1,13 @@
-import React, { useState } from "react";
-import { useParams } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { useLocation, useParams } from "react-router-dom";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { Calendar, UserCheck, ShieldCheck, Save, Send, CheckCircle2, Plus, Trash2, Search, UserPlus } from "lucide-react";
+import { ENV } from "@/config/env";
 
 export const InvitationPage: React.FC = () => {
   const { token } = useParams<{ token: string }>();
+  const location = useLocation();
+  const invitationType = location.pathname.includes("/individual/") ? "individual" : "institution";
 
   // Verification step
   const [emailVerified, setEmailVerified] = useState(false);
@@ -15,17 +18,35 @@ export const InvitationPage: React.FC = () => {
   const [responseStatus, setResponseStatus] = useState<"ACCEPTED" | "DECLINED">("ACCEPTED");
   const [notes, setNotes] = useState("");
   const [delegates, setDelegates] = useState<
-    { fullName: string; phone: string; isLead: boolean; existingProfileId?: string }[]
+    {
+      fullName: string;
+      phone: string;
+      whatsapp: string;
+      email: string;
+      address: string;
+      isLead: boolean;
+      existingProfileId?: string;
+    }[]
   >([
-    { fullName: "Ustadz Abdullah, Lc.", phone: "081299990000", isLead: true },
+    {
+      fullName: "Ustadz Abdullah, Lc.",
+      phone: "081299990000",
+      whatsapp: "081299990000",
+      email: "abdullah@example.org",
+      address: "Bandung, Jawa Barat",
+      isLead: true,
+    },
   ]);
   const [isSubmittedFinal, setIsSubmittedFinal] = useState(false);
+  const [isLoading, setIsLoading] = useState(Boolean(token));
+  const [isSaving, setIsSaving] = useState(false);
+  const [pageError, setPageError] = useState("");
 
   // Search existing modal state
   const [showSearchModal, setShowSearchModal] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
 
-  const mockData = {
+  const [mockData, setMockData] = useState({
     invitationNumber: "INV/2026/BDG/001",
     quota: 3,
     eventName: "Daurah Asatidz Nasional 2026 - Bandung",
@@ -33,11 +54,61 @@ export const InvitationPage: React.FC = () => {
     institutionName: "Ma'had Ilmu Sunnah Bandung",
     institutionCode: "MISB-01",
     representativeEmail: "kontak@mahadsunnah.or.id",
-  };
+    responseDeadline: "2026-08-05T16:59:00Z",
+  });
+
+  useEffect(() => {
+    if (!token) return;
+    const controller = new AbortController();
+    const loadInvitation = async () => {
+      try {
+        const response = await fetch(`${ENV.API_BASE_URL}/invitations/public/${invitationType}/${token}`, {
+          signal: controller.signal,
+        });
+        const result = await response.json();
+        if (!response.ok) throw new Error(result.error?.message || "Undangan tidak dapat dibuka.");
+        const data = result.data;
+        setMockData((current) => ({
+          ...current,
+          invitationNumber: data.invitation.invitationNumber,
+          quota: data.invitation.quota || 1,
+          eventName: data.event.name,
+          eventDates: `${new Date(data.event.startDate).toLocaleDateString("id-ID")} – ${new Date(
+            data.event.endDate
+          ).toLocaleDateString("id-ID")}`,
+          institutionName: data.institution?.name || "Undangan Individu",
+          institutionCode: data.institution?.code || "INDIVIDU",
+          representativeEmail: data.institution?.email || "",
+          responseDeadline: data.invitation.responseDeadline || "",
+        }));
+        setDelegates([]);
+      } catch (error) {
+        if (!controller.signal.aborted) {
+          setPageError(error instanceof Error ? error.message : "Undangan tidak dapat dibuka.");
+        }
+      } finally {
+        if (!controller.signal.aborted) setIsLoading(false);
+      }
+    };
+    void loadInvitation();
+    return () => controller.abort();
+  }, [token, invitationType]);
 
   const existingUstadzCandidates = [
-    { id: "u-101", fullName: "Ustadz Dr. Muhammad Muslih, Lc., M.A.", phone: "081233334444" },
-    { id: "u-102", fullName: "Ustadz Abu Ahmad Zakaria", phone: "081955556666" },
+    {
+      id: "u-101",
+      fullName: "Ustadz Dr. Muhammad Muslih, Lc., M.A.",
+      phone: "081233334444",
+      email: "muslih@example.org",
+      address: "Bandung, Jawa Barat",
+    },
+    {
+      id: "u-102",
+      fullName: "Ustadz Abu Ahmad Zakaria",
+      phone: "081955556666",
+      email: "abu.ahmad@example.org",
+      address: "Jakarta, DKI Jakarta",
+    },
   ];
 
   const handleVerifyEmail = (e: React.FormEvent) => {
@@ -49,7 +120,13 @@ export const InvitationPage: React.FC = () => {
     }
   };
 
-  const handleAddDelegate = (candidate?: { id: string; fullName: string; phone: string }) => {
+  const handleAddDelegate = (candidate?: {
+    id: string;
+    fullName: string;
+    phone: string;
+    email: string;
+    address: string;
+  }) => {
     if (delegates.length >= mockData.quota) {
       alert(`Kuota delegasi maksimal untuk lembaga Anda adalah ${mockData.quota} orang.`);
       return;
@@ -58,11 +135,22 @@ export const InvitationPage: React.FC = () => {
     if (candidate) {
       setDelegates([
         ...delegates,
-        { fullName: candidate.fullName, phone: candidate.phone, isLead: false, existingProfileId: candidate.id },
+        {
+          fullName: candidate.fullName,
+          phone: candidate.phone,
+          whatsapp: candidate.phone,
+          email: candidate.email,
+          address: candidate.address,
+          isLead: false,
+          existingProfileId: candidate.id,
+        },
       ]);
       setShowSearchModal(false);
     } else {
-      setDelegates([...delegates, { fullName: "", phone: "", isLead: false }]);
+      setDelegates([
+        ...delegates,
+        { fullName: "", phone: "", whatsapp: "", email: "", address: "", isLead: false },
+      ]);
     }
   };
 
@@ -74,24 +162,82 @@ export const InvitationPage: React.FC = () => {
     setDelegates(delegates.filter((_, i) => i !== index));
   };
 
-  const handleSaveDraft = () => {
-    alert("Draft formulir delegasi berhasil disimpan sementara.");
+  const submitResponse = async (isFinal: boolean) => {
+    if (!token) throw new Error("Token undangan tidak tersedia.");
+    const response = await fetch(`${ENV.API_BASE_URL}/invitations/public/${invitationType}/${token}/response`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        responseStatus,
+        notes,
+        isFinal,
+        emailVerificationCode: verificationCode,
+        delegates: responseStatus === "ACCEPTED"
+          ? delegates.map((delegate) => ({
+              ...delegate,
+              email: delegate.email.trim() || null,
+              phone: delegate.phone.trim() || null,
+              whatsapp: delegate.whatsapp.trim() || null,
+              address: delegate.address.trim() || null,
+            }))
+          : [],
+      }),
+    });
+    const result = await response.json();
+    if (!response.ok) throw new Error(result.error?.message || "Konfirmasi gagal disimpan.");
+    return result.data;
   };
 
-  const handleFinalSubmit = (e: React.FormEvent) => {
+  const handleSaveDraft = async () => {
+    setIsSaving(true);
+    setPageError("");
+    try {
+      await submitResponse(false);
+      alert("Draft formulir delegasi berhasil disimpan sementara.");
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Draft gagal disimpan.");
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleFinalSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (delegates.length === 0 && responseStatus === "ACCEPTED") {
       alert("Silakan masukkan minimal 1 delegasi Ustadz.");
       return;
     }
-    setIsSubmittedFinal(true);
+    setIsSaving(true);
+    setPageError("");
+    try {
+      await submitResponse(true);
+      setIsSubmittedFinal(true);
+    } catch (error) {
+      setPageError(error instanceof Error ? error.message : "Konfirmasi final gagal disimpan.");
+    } finally {
+      setIsSaving(false);
+    }
   };
 
   const remainingQuota = mockData.quota - delegates.length;
+  const deadlineExpired = Boolean(mockData.responseDeadline && new Date(mockData.responseDeadline) < new Date());
 
   return (
     <PublicLayout>
       <div className="max-w-3xl mx-auto space-y-6">
+        {isLoading && (
+          <div className="space-y-3" aria-label="Memuat undangan">
+            <div className="h-44 animate-pulse rounded-2xl bg-slate-200" />
+            <div className="h-64 animate-pulse rounded-xl bg-slate-200" />
+          </div>
+        )}
+        {pageError && (
+          <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs font-semibold text-rose-900">
+            {pageError}
+          </div>
+        )}
+        {!isLoading && (
+        <>
         {/* Banner Card */}
         <div className="bg-gradient-to-r from-emerald-800 to-emerald-950 text-white rounded-2xl p-6 shadow-lg space-y-3">
           <div className="flex items-center space-x-2">
@@ -111,6 +257,10 @@ export const InvitationPage: React.FC = () => {
           <div className="pt-3 border-t border-emerald-700/50 flex items-center space-x-2 text-xs text-emerald-200">
             <Calendar className="w-4 h-4 text-emerald-400" />
             <span>Pelaksanaan: {mockData.eventDates}</span>
+          </div>
+          <div className={`border-t pt-3 text-sm font-bold ${deadlineExpired ? "border-rose-400/40 text-rose-200" : "border-emerald-700/50 text-emerald-100"}`}>
+            Batas konfirmasi: {mockData.responseDeadline ? new Date(mockData.responseDeadline).toLocaleString("id-ID") : "Tidak dibatasi"}
+            {deadlineExpired && " · Telah berakhir, hubungi panitia"}
           </div>
         </div>
 
@@ -153,7 +303,8 @@ export const InvitationPage: React.FC = () => {
 
             <button
               type="submit"
-              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow transition min-h-[44px]"
+              disabled={deadlineExpired}
+              className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow transition min-h-[44px] disabled:cursor-not-allowed disabled:opacity-50"
             >
               Verifikasi & Buka Formulir
             </button>
@@ -269,34 +420,79 @@ export const InvitationPage: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">Nama Lengkap Ustadz *</label>
+                          <label className="mb-1 block text-sm font-semibold text-slate-700">Nama lengkap Ustadz *</label>
                           <input
                             type="text"
                             required
                             value={d.fullName}
                             onChange={(e) => {
-                              const updated = [...delegates];
-                              updated[index].fullName = e.target.value;
-                              setDelegates(updated);
+                              setDelegates((current) => current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, fullName: e.target.value } : item
+                              ));
                             }}
                             placeholder="Contoh: Ustadz Abdullah, Lc."
-                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                            className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent focus-visible:outline-emerald-700"
                           />
                         </div>
                         <div>
-                          <label className="block text-[11px] font-semibold text-slate-700 mb-1">Nomor Whatsapp</label>
+                          <label className="mb-1 block text-sm font-semibold text-slate-700">Nomor telepon</label>
                           <input
-                            type="text"
+                            type="tel"
                             value={d.phone}
                             onChange={(e) => {
-                              const updated = [...delegates];
-                              updated[index].phone = e.target.value;
-                              setDelegates(updated);
+                              setDelegates((current) => current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, phone: e.target.value } : item
+                              ));
                             }}
                             placeholder="081234567890"
-                            className="w-full px-3 py-2 bg-white border border-slate-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-emerald-500"
+                            className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent focus-visible:outline-emerald-700"
+                          />
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-sm font-semibold text-slate-700">Nomor WhatsApp *</label>
+                          <input
+                            type="tel"
+                            required
+                            value={d.whatsapp}
+                            onChange={(e) => {
+                              setDelegates((current) => current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, whatsapp: e.target.value } : item
+                              ));
+                            }}
+                            placeholder="081234567890"
+                            className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent focus-visible:outline-emerald-700"
+                          />
+                          <p className="mt-1 text-sm leading-5 text-slate-500">Dipakai panitia untuk informasi operasional peserta.</p>
+                        </div>
+                        <div>
+                          <label className="mb-1 block text-sm font-semibold text-slate-700">Alamat email</label>
+                          <input
+                            type="email"
+                            value={d.email}
+                            onChange={(e) => {
+                              setDelegates((current) => current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, email: e.target.value } : item
+                              ));
+                            }}
+                            placeholder="ustadz@lembaga.or.id"
+                            className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent focus-visible:outline-emerald-700"
+                          />
+                        </div>
+                        <div className="sm:col-span-2">
+                          <label className="mb-1 block text-sm font-semibold text-slate-700">Alamat domisili</label>
+                          <textarea
+                            value={d.address}
+                            onChange={(e) => {
+                              setDelegates((current) => current.map((item, itemIndex) =>
+                                itemIndex === index ? { ...item, address: e.target.value } : item
+                              ));
+                            }}
+                            rows={3}
+                            maxLength={500}
+                            placeholder="Nama jalan, kecamatan, kota/kabupaten, provinsi"
+                            className="min-h-24 w-full resize-y rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm outline outline-2 outline-transparent focus-visible:outline-emerald-700"
                           />
                         </div>
                       </div>
@@ -322,7 +518,8 @@ export const InvitationPage: React.FC = () => {
             <div className="flex items-center justify-end space-x-3 pt-4 border-t">
               <button
                 type="button"
-                onClick={handleSaveDraft}
+                onClick={() => void handleSaveDraft()}
+                disabled={isSaving || deadlineExpired}
                 className="px-4 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-xs rounded-lg flex items-center space-x-1.5 min-h-[44px]"
               >
                 <Save className="w-4 h-4" />
@@ -330,10 +527,11 @@ export const InvitationPage: React.FC = () => {
               </button>
               <button
                 type="submit"
+                disabled={isSaving || deadlineExpired}
                 className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-lg shadow flex items-center space-x-1.5 min-h-[44px]"
               >
                 <Send className="w-4 h-4" />
-                <span>Submit Konfirmasi Final</span>
+                <span>{isSaving ? "Menyimpan…" : "Kirim Konfirmasi Final"}</span>
               </button>
             </div>
           </form>
@@ -399,6 +597,8 @@ export const InvitationPage: React.FC = () => {
               Terima kasih. Respon konfirmasi delegasi untuk <strong>{mockData.institutionName}</strong> telah berhasil dicatat secara resmi oleh sistem panitia YTS.
             </p>
           </div>
+        )}
+        </>
         )}
       </div>
     </PublicLayout>

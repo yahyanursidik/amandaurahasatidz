@@ -4,6 +4,7 @@ import { pgTable, uuid, text, timestamp, jsonb, index } from "drizzle-orm/pg-cor
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: text("email").unique().notNull(),
+  passwordHash: text("password_hash"),
   name: text("name"),
   status: text("status").notNull().default("ACTIVE"),
   lastLoginAt: timestamp("last_login_at", { withTimezone: true }),

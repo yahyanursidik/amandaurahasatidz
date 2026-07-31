@@ -1,66 +1,94 @@
-import React from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { AlertTriangle, Loader2 } from "lucide-react";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { PageHeader } from "@/components/common/PageHeader";
-import { UserCheck, Save } from "lucide-react";
+import { UstadzForm } from "@/components/admin/ustadz/UstadzForm";
+import { UstadzWorkspaceNav } from "@/components/admin/ustadz/UstadzWorkspaceNav";
+import { UstadzProfile, ustadzApi } from "@/lib/ustadzApi";
+import { getUstadzPreviewProfile } from "@/lib/ustadzPreview";
+
+const toFormValues = (profile: UstadzProfile) => ({
+  fullName: profile.fullName || "",
+  titlePrefix: profile.titlePrefix || "",
+  titleSuffix: profile.titleSuffix || "",
+  email: profile.email || "",
+  phone: profile.phone || "",
+  whatsapp: profile.whatsapp || "",
+  birthPlace: profile.birthPlace || "",
+  birthDate: profile.birthDate || "",
+  address: profile.address || "",
+  cityCode: profile.cityCode || "",
+  provinceCode: profile.provinceCode || "",
+  educationSummary: profile.educationSummary || "",
+  expertiseSummary: profile.expertiseSummary || "",
+  institutionId: "",
+  positionAtInstitution: "",
+  isPrimaryInstitution: true,
+  profileStatus: profile.profileStatus,
+});
 
 export const UstadzEditPage: React.FC = () => {
-  const navigate = useNavigate();
-  const { id } = useParams<{ id: string }>();
+  const { id = "" } = useParams<{ id: string }>();
+  const [profile, setProfile] = useState<UstadzProfile | null>(null);
+  const [preview, setPreview] = useState(false);
+  const [error, setError] = useState("");
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    alert(`Profil Ustadz ID ${id} berhasil diperbarui!`);
-    navigate("/admin/ustadz");
-  };
+  useEffect(() => {
+    let active = true;
+    if (!id) return;
+    if (id.startsWith("preview-")) {
+      setProfile(getUstadzPreviewProfile(id));
+      setPreview(true);
+      return;
+    }
+    ustadzApi
+      .get(id)
+      .then((data) => active && setProfile(data))
+      .catch((loadError) => active && setError(loadError instanceof Error ? loadError.message : "Profil tidak ditemukan."));
+    return () => {
+      active = false;
+    };
+  }, [id]);
 
   return (
     <AdminLayout>
-      <PageHeader
-        title="Edit Profil Ustadz"
-        description="Perbarui informasi identitas, nomor kontak, atau ringkasan pendidikan Ustadz."
-        breadcrumbs={[
-          { label: "Admin", href: "/admin" },
-          { label: "Master Asatidz", href: "/admin/ustadz" },
-          { label: `Edit Profil #${id}` },
-        ]}
-      />
-
-      <form onSubmit={handleSubmit} className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-6 max-w-3xl">
-        <div className="space-y-4">
-          <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2 border-b pb-2">
-            <UserCheck className="w-4 h-4 text-emerald-600" />
-            <span>Pembaruan Data Ustadz #{id}</span>
-          </h3>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Nama Lengkap Ustadz *</label>
-            <input
-              type="text"
-              defaultValue="Ustadz Dr. Muhammad Muslih, Lc., M.A."
-              required
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-emerald-500"
-            />
+      <div className="ustadz-workspace">
+        <PageHeader
+          title="Perbarui profil asatidz"
+          description="Perubahan terhubung ke data lembaga, undangan, dan riwayat event tanpa menghapus rekam jejak."
+          breadcrumbs={[
+            { label: "Admin", href: "/admin" },
+            { label: "Asatidz", href: "/admin/ustadz" },
+            { label: "Edit profil" },
+          ]}
+        />
+        <UstadzWorkspaceNav />
+        {!profile && !error && (
+          <div className="ustadz-loading" role="status">
+            <Loader2 className="animate-spin" aria-hidden="true" />
+            Memuat profil…
           </div>
-        </div>
-
-        <div className="flex items-center justify-end space-x-3 border-t pt-4">
-          <button
-            type="button"
-            onClick={() => navigate("/admin/ustadz")}
-            className="px-4 py-2 text-xs font-semibold text-slate-600 bg-slate-100 hover:bg-slate-200 rounded-lg min-h-[44px]"
-          >
-            Batal
-          </button>
-          <button
-            type="submit"
-            className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg flex items-center space-x-1.5 min-h-[44px]"
-          >
-            <Save className="w-4 h-4" />
-            <span>Simpan Perubahan</span>
-          </button>
-        </div>
-      </form>
+        )}
+        {error && (
+          <div className="ustadz-error" role="alert">
+            <AlertTriangle aria-hidden="true" />
+            <div>
+              <strong>Profil belum dapat dimuat</strong>
+              <p>{error}</p>
+              <Link to="/admin/ustadz">Kembali ke direktori</Link>
+            </div>
+          </div>
+        )}
+        {profile && (
+          <UstadzForm
+            mode="edit"
+            profileId={profile.id}
+            initialValues={toFormValues(profile)}
+            preview={preview}
+          />
+        )}
+      </div>
     </AdminLayout>
   );
 };

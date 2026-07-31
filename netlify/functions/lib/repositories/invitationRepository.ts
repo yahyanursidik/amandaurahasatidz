@@ -1,6 +1,17 @@
 import { getDbClient } from "../db/client";
-import { invitations, invitationLinks, invitationResponses, institutions, events } from "../db/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import {
+  invitations,
+  invitationLinks,
+  invitationResponses,
+  institutions,
+  events,
+  ustadzProfiles,
+  ustadzInstitutionAffiliations,
+  eventParticipants,
+} from "../db/schema";
+import { eq, and, desc, sql, or, isNull } from "drizzle-orm";
+import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
+import { withTransaction } from "../db/transaction";
 
 export async function findInvitationsRepository(eventId?: string) {
   const db = getDbClient();
@@ -22,12 +33,170 @@ export async function findInvitationsRepository(eventId?: string) {
       status: invitations.status,
       sentAt: invitations.sentAt,
       respondedAt: invitations.respondedAt,
+      responseDeadline: invitations.responseDeadline,
     })
     .from(invitations)
     .innerJoin(events, eq(invitations.eventId, events.id))
     .leftJoin(institutions, eq(invitations.institutionId, institutions.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(invitations.createdAt));
+}
+
+export async function saveInstitutionDelegationRepository(
+  invitationId: string,
+  payload: {
+    responseStatus: "ACCEPTED" | "DECLINED";
+    notes?: string | null;
+    isFinal: boolean;
+    delegates?: Array<{
+      existingProfileId?: string | null;
+      fullName: string;
+      email?: string | null;
+      phone?: string | null;
+      whatsapp?: string | null;
+      address?: string | null;
+      isLead?: boolean;
+    }>;
+  }
+) {
+  return await withTransaction(async (tx) => {
+    const invitationRows = await tx
+      .select()
+      .from(invitations)
+      .where(eq(invitations.id, invitationId))
+      .limit(1);
+    const invitation = invitationRows[0];
+    if (!invitation) throw new Error("Undangan tidak ditemukan.");
+
+    const responseRows = await tx
+      .insert(invitationResponses)
+      .values({
+        invitationId,
+        responseStatus: payload.responseStatus,
+        notes: payload.notes || null,
+        isFinal: payload.isFinal,
+        submittedAt: new Date(),
+      })
+      .returning();
+
+    const participantRows: Array<typeof eventParticipants.$inferSelect> = [];
+    if (payload.isFinal && payload.responseStatus === "ACCEPTED") {
+      for (const delegate of payload.delegates || []) {
+        const normalizedName = normalizeName(delegate.fullName);
+        const normalizedEmail = normalizeEmail(delegate.email);
+        const normalizedPhone = normalizePhone(delegate.phone);
+        const normalizedWhatsapp = normalizePhone(delegate.whatsapp || delegate.phone);
+        let ustadzId = delegate.existingProfileId || null;
+        if (!ustadzId) {
+          const matches = await tx
+            .select({ id: ustadzProfiles.id })
+            .from(ustadzProfiles)
+            .where(
+              or(
+                eq(ustadzProfiles.normalizedName, normalizedName),
+                ...(normalizedEmail ? [eq(ustadzProfiles.email, normalizedEmail)] : []),
+                ...(normalizedPhone ? [eq(ustadzProfiles.phone, normalizedPhone)] : [])
+              )
+            )
+            .limit(1);
+          ustadzId = matches[0]?.id || null;
+          if (!ustadzId) {
+            const created = await tx
+              .insert(ustadzProfiles)
+              .values({
+                fullName: delegate.fullName.trim(),
+                normalizedName,
+                email: normalizedEmail,
+                phone: normalizedPhone,
+                whatsapp: normalizedWhatsapp,
+                address: delegate.address?.trim() || null,
+                profileStatus: "ACTIVE",
+              })
+              .returning({ id: ustadzProfiles.id });
+            ustadzId = created[0].id;
+          }
+        }
+
+        const submittedContactData: Partial<typeof ustadzProfiles.$inferInsert> = {
+          updatedAt: new Date(),
+        };
+        if (normalizedEmail) submittedContactData.email = normalizedEmail;
+        if (normalizedPhone) submittedContactData.phone = normalizedPhone;
+        if (normalizedWhatsapp) submittedContactData.whatsapp = normalizedWhatsapp;
+        if (delegate.address?.trim()) submittedContactData.address = delegate.address.trim();
+        await tx
+          .update(ustadzProfiles)
+          .set(submittedContactData)
+          .where(eq(ustadzProfiles.id, ustadzId));
+
+        if (invitation.institutionId) {
+          const existingAffiliation = await tx
+            .select({ id: ustadzInstitutionAffiliations.id })
+            .from(ustadzInstitutionAffiliations)
+            .where(
+              and(
+                eq(ustadzInstitutionAffiliations.ustadzId, ustadzId),
+                eq(ustadzInstitutionAffiliations.institutionId, invitation.institutionId)
+              )
+            )
+            .limit(1);
+          if (existingAffiliation.length === 0) {
+            await tx.insert(ustadzInstitutionAffiliations).values({
+              ustadzId,
+              institutionId: invitation.institutionId,
+              isPrimary: Boolean(delegate.isLead),
+              status: "ACTIVE",
+            });
+          }
+        }
+
+        const code: string = `YTS-${invitation.id.slice(0, 6).toUpperCase()}-${ustadzId
+          .slice(0, 6)
+          .toUpperCase()}`;
+        const createdParticipant: Array<typeof eventParticipants.$inferSelect> = await tx
+          .insert(eventParticipants)
+          .values({
+            eventId: invitation.eventId,
+            ustadzId,
+            institutionId: invitation.institutionId,
+            invitationId,
+            registrationSource: "INSTITUTION_DELEGATION",
+            participantCode: code,
+            isDelegationLead: Boolean(delegate.isLead),
+            confirmationStatus: "CONFIRMED",
+            approvalStatus: "PENDING_REVIEW",
+            confirmedAt: new Date(),
+          })
+          .onConflictDoUpdate({
+            target: [eventParticipants.eventId, eventParticipants.ustadzId],
+            set: {
+              institutionId: invitation.institutionId,
+              invitationId,
+              isDelegationLead: Boolean(delegate.isLead),
+              confirmationStatus: "CONFIRMED",
+              updatedAt: new Date(),
+            },
+          })
+          .returning();
+        participantRows.push(createdParticipant[0]);
+      }
+    }
+
+    await tx
+      .update(invitations)
+      .set({
+        status: payload.isFinal
+          ? payload.responseStatus === "ACCEPTED"
+            ? "ACCEPTED"
+            : "DECLINED"
+          : "OPENED",
+        respondedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(invitations.id, invitationId));
+
+    return { response: responseRows[0], participants: participantRows };
+  });
 }
 
 export async function findInvitationByIdRepository(id: string) {
@@ -90,7 +259,9 @@ export async function createInvitationRepository(
     .values({
       invitationId: createdInv[0].id,
       tokenHash,
-      expiresAt: new Date(Date.now() + 14 * 86400000), // 14 days default
+      expiresAt: invData.responseDeadline
+        ? new Date(invData.responseDeadline)
+        : new Date(Date.now() + 14 * 86400000),
     })
     .returning();
 
@@ -98,6 +269,30 @@ export async function createInvitationRepository(
     invitation: createdInv[0],
     link: createdLink[0],
   };
+}
+
+export async function rotateInvitationLinkRepository(
+  invitationId: string,
+  tokenHash: string,
+  expiresAt: Date,
+) {
+  return await withTransaction(async (tx) => {
+    await tx
+      .update(invitationLinks)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(invitationLinks.invitationId, invitationId), isNull(invitationLinks.revokedAt)));
+
+    const created = await tx
+      .insert(invitationLinks)
+      .values({
+        invitationId,
+        tokenHash,
+        expiresAt,
+      })
+      .returning();
+
+    return created[0];
+  });
 }
 
 export async function updateInvitationStatusRepository(id: string, status: string, extra: Record<string, any> = {}) {

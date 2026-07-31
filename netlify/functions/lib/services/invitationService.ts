@@ -5,18 +5,42 @@ import {
   createInvitationRepository,
   updateInvitationStatusRepository,
   saveInvitationResponseRepository,
+  saveInstitutionDelegationRepository,
+  rotateInvitationLinkRepository,
 } from "../repositories/invitationRepository";
 import { generateSecureToken, hashToken } from "../utils/token";
 import { NotFoundError, ValidationError, ForbiddenError } from "../utils/errors";
 import { verifyCaptcha } from "../utils/captcha";
 import { createAuditLog } from "./auditService";
+import { findEventByIdRepository } from "../repositories/eventRepository";
+
+function assertInvitationResponseOpen(result: { invitation: any; event: any; link?: any }) {
+  const deadline = result.invitation.responseDeadline || result.event.invitationResponseDeadline;
+  if (deadline && new Date(deadline) < new Date()) {
+    throw new ForbiddenError("Batas konfirmasi undangan telah berakhir. Silakan hubungi panitia.");
+  }
+  if (result.link?.expiresAt && new Date(result.link.expiresAt) < new Date()) {
+    throw new ForbiddenError("Tautan undangan ini telah kedaluwarsa.");
+  }
+}
 
 export async function getInvitationsService(eventId?: string) {
   return await findInvitationsRepository(eventId);
 }
 
 export async function createInvitationService(data: any, actorUserId: string, requestId: string) {
-  const tokenInfo = generateSecureToken("inv_inst");
+  const event = await findEventByIdRepository(data.eventId);
+  if (!event) throw new NotFoundError("Event untuk undangan tidak ditemukan.");
+  const responseDeadline = data.responseDeadline
+    ? new Date(data.responseDeadline)
+    : event.invitationResponseDeadline
+      ? new Date(event.invitationResponseDeadline)
+      : null;
+  if (responseDeadline && responseDeadline < new Date()) {
+    throw new ValidationError("Batas respons undangan harus berada di masa mendatang.");
+  }
+  const routeType = data.invitationType === "INDIVIDUAL" ? "individual" : "institution";
+  const tokenInfo = generateSecureToken(routeType === "individual" ? "inv_ind" : "inv_inst");
 
   const invData = {
     eventId: data.eventId,
@@ -25,6 +49,7 @@ export async function createInvitationService(data: any, actorUserId: string, re
     ustadzId: data.ustadzId || null,
     invitationNumber: data.invitationNumber,
     quota: data.quota || 1,
+    responseDeadline,
     status: "DRAFT",
     createdBy: actorUserId,
   };
@@ -44,7 +69,7 @@ export async function createInvitationService(data: any, actorUserId: string, re
   return {
     invitation: result.invitation,
     rawToken: tokenInfo.rawToken, // Returned ONLY ONCE during creation for sending link
-    publicUrl: `/invitation/institution/${tokenInfo.rawToken}`,
+    publicUrl: `/invitation/${routeType}/${tokenInfo.rawToken}`,
   };
 }
 
@@ -84,6 +109,42 @@ export async function revokeInvitationService(id: string, actorUserId: string, r
   return updated;
 }
 
+export async function regenerateInvitationLinkService(
+  id: string,
+  actorUserId: string,
+  requestId: string,
+) {
+  const invitation = await findInvitationByIdRepository(id);
+  if (!invitation) throw new NotFoundError(`Undangan ID ${id} tidak ditemukan.`);
+  if (invitation.status === "REVOKED") {
+    throw new ValidationError("Undangan telah dicabut. Buat undangan baru untuk lembaga ini.");
+  }
+
+  const tokenInfo = generateSecureToken(
+    invitation.invitationType === "INDIVIDUAL" ? "inv_ind" : "inv_inst",
+  );
+  const expiresAt = invitation.responseDeadline
+    ? new Date(invitation.responseDeadline)
+    : new Date(Date.now() + 14 * 86400000);
+  const link = await rotateInvitationLinkRepository(invitation.id, tokenInfo.tokenHash, expiresAt);
+
+  await createAuditLog({
+    actorUserId,
+    action: "INVITATION_LINK_REGENERATED",
+    resourceType: "INVITATION_LINK",
+    resourceId: link.id,
+    eventId: invitation.eventId,
+    requestId,
+  });
+
+  const routeType = invitation.invitationType === "INDIVIDUAL" ? "individual" : "institution";
+  return {
+    invitationId: invitation.id,
+    expiresAt: link.expiresAt,
+    publicUrl: `/invitation/${routeType}/${tokenInfo.rawToken}`,
+  };
+}
+
 export async function getPublicInstitutionInvitationService(rawToken: string, requestId: string) {
   const tokenHash = hashToken(rawToken);
   const result = await findInvitationByTokenHashRepository(tokenHash);
@@ -97,10 +158,7 @@ export async function getPublicInstitutionInvitationService(rawToken: string, re
   if (invitation.status === "REVOKED" || link.revokedAt) {
     throw new ForbiddenError("Tautan undangan ini telah dicabut oleh panitia.");
   }
-
-  if (link.expiresAt && new Date(link.expiresAt) < new Date()) {
-    throw new ForbiddenError("Tautan undangan ini telah kedaluwarsa.");
-  }
+  assertInvitationResponseOpen(result);
 
   await createAuditLog({
     actorUserId: null,
@@ -117,7 +175,7 @@ export async function getPublicInstitutionInvitationService(rawToken: string, re
       invitationNumber: invitation.invitationNumber,
       quota: invitation.quota,
       status: invitation.status,
-      responseDeadline: invitation.responseDeadline,
+      responseDeadline: invitation.responseDeadline || event.invitationResponseDeadline,
     },
     event: {
       name: event.name,
@@ -148,6 +206,7 @@ export async function submitInstitutionResponseService(
   }
 
   const { invitation, event } = result;
+  assertInvitationResponseOpen(result);
 
   if (payload.captchaToken) {
     const isCaptchaValid = await verifyCaptcha(payload.captchaToken);
@@ -162,12 +221,8 @@ export async function submitInstitutionResponseService(
     );
   }
 
-  const savedResponse = await saveInvitationResponseRepository(
-    invitation.id,
-    payload.responseStatus,
-    payload.notes,
-    payload.isFinal
-  );
+  const saved = await saveInstitutionDelegationRepository(invitation.id, payload);
+  const savedResponse = saved.response;
 
   if (payload.isFinal) {
     await createAuditLog({
@@ -183,8 +238,74 @@ export async function submitInstitutionResponseService(
 
   return {
     response: savedResponse,
+    participants: saved.participants,
     message: payload.isFinal
       ? "Konfirmasi final undangan berhasil disimpan. Terima kasih atas partisipasi lembaga Anda."
       : "Draft respon undangan berhasil disimpan sementara.",
+  };
+}
+
+export async function getPublicIndividualInvitationService(rawToken: string, requestId: string) {
+  const tokenHash = hashToken(rawToken);
+  const result = await findInvitationByTokenHashRepository(tokenHash);
+
+  if (!result) {
+    throw new NotFoundError("Tautan undangan individu tidak valid atau tidak ditemukan.");
+  }
+
+  const { link, invitation, event } = result;
+
+  if (invitation.status === "REVOKED" || link.revokedAt) {
+    throw new ForbiddenError("Tautan undangan individu ini telah dicabut oleh panitia.");
+  }
+  assertInvitationResponseOpen(result);
+
+  await createAuditLog({
+    actorUserId: null,
+    action: "INDIVIDUAL_INVITATION_TOKEN_ACCESSED",
+    resourceType: "INVITATION_LINK",
+    resourceId: link.id,
+    eventId: event.id,
+    requestId,
+  });
+
+  return {
+    invitation: {
+      invitationNumber: invitation.invitationNumber,
+      status: invitation.status,
+      responseDeadline: invitation.responseDeadline || event.invitationResponseDeadline,
+    },
+    event: {
+      name: event.name,
+      startDate: event.startDate,
+      endDate: event.endDate,
+      venueName: event.venueName,
+    },
+  };
+}
+
+export async function submitIndividualResponseService(rawToken: string, responseStatus: "ACCEPTED" | "DECLINED", requestId: string) {
+  const tokenHash = hashToken(rawToken);
+  const result = await findInvitationByTokenHashRepository(tokenHash);
+
+  if (!result) throw new NotFoundError("Tautan undangan tidak valid.");
+
+  const { invitation, event } = result;
+  assertInvitationResponseOpen(result);
+  const savedResponse = await saveInvitationResponseRepository(invitation.id, responseStatus, null, true);
+
+  await createAuditLog({
+    actorUserId: null,
+    action: "INDIVIDUAL_INVITATION_RSVP_SUBMITTED",
+    resourceType: "INVITATION_RESPONSE",
+    resourceId: savedResponse.id,
+    eventId: event.id,
+    reason: `RSVP undangan individu ${invitation.invitationNumber}: ${responseStatus}`,
+    requestId,
+  });
+
+  return {
+    response: savedResponse,
+    message: `Konfirmasi RSVP Anda (${responseStatus}) berhasil disimpan.`,
   };
 }

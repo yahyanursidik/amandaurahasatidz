@@ -22,6 +22,10 @@ export const events = pgTable(
     mapsUrl: text("maps_url"),
     registrationOpenAt: timestamp("registration_open_at", { withTimezone: true }),
     registrationCloseAt: timestamp("registration_close_at", { withTimezone: true }),
+    invitationResponseDeadline: timestamp("invitation_response_deadline", { withTimezone: true }),
+    attendanceConfirmationDeadline: timestamp("attendance_confirmation_deadline", { withTimezone: true }),
+    attendanceConfirmationRequired: boolean("attendance_confirmation_required").notNull().default(true),
+    lateConfirmationPolicy: text("late_confirmation_policy").notNull().default("BLOCK"),
     defaultInstitutionQuota: integer("default_institution_quota"),
     capacity: integer("capacity"),
     status: text("status").notNull().default("DRAFT"),
@@ -96,6 +100,7 @@ export const eventCommitteeAssignments = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (table) => [
+    uniqueIndex("uniq_committee_event_user_role").on(table.eventId, table.userId, table.committeeRole),
     index("idx_committee_event_user").on(table.eventId, table.userId),
   ]
 );

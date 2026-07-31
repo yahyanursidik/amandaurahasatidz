@@ -1,5 +1,5 @@
 import React from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useLocation } from "react-router-dom";
 import { useIsAuthenticated } from "@refinedev/core";
 import { LoadingState } from "./LoadingState";
 
@@ -8,6 +8,7 @@ export interface ProtectedRouteProps {
 }
 
 export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
+  const location = useLocation();
   const { data, isLoading } = useIsAuthenticated();
 
   if (isLoading) {
@@ -15,7 +16,12 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   }
 
   if (!data?.authenticated) {
-    return <Navigate to="/login" replace />;
+    const loginPath = location.pathname.startsWith("/committee")
+      ? "/login/committee"
+      : location.pathname.startsWith("/portal")
+        ? "/login/ustadz"
+        : "/login/admin";
+    return <Navigate to={loginPath} replace state={{ from: location.pathname }} />;
   }
 
   return <>{children}</>;
