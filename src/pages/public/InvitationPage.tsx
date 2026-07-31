@@ -109,14 +109,14 @@ export const InvitationPage: React.FC = () => {
 
   const existingUstadzCandidates = [
     {
-      id: "u-101",
+      id: "11111111-1111-1111-1111-111111111111",
       fullName: "Ustadz Dr. Muhammad Muslih, Lc., M.A.",
       phone: "081233334444",
       email: "muslih@example.org",
       address: "Bandung, Jawa Barat",
     },
     {
-      id: "u-102",
+      id: "22222222-2222-2222-2222-222222222222",
       fullName: "Ustadz Abu Ahmad Zakaria",
       phone: "081955556666",
       email: "abu.ahmad@example.org",
@@ -197,7 +197,15 @@ export const InvitationPage: React.FC = () => {
       }),
     });
     const result = await response.json();
-    if (!response.ok) throw new Error(result.error?.message || "Konfirmasi gagal disimpan.");
+    if (!response.ok) {
+      if (result.error?.details?.fieldErrors) {
+        const errors = Object.entries(result.error.details.fieldErrors)
+          .map(([field, msg]) => `- ${field}: ${msg}`)
+          .join("\n");
+        throw new Error(`${result.error.message}\n${errors}`);
+      }
+      throw new Error(result.error?.message || "Konfirmasi gagal disimpan.");
+    }
     return result.data;
   };
 
@@ -245,7 +253,7 @@ export const InvitationPage: React.FC = () => {
           </div>
         )}
         {pageError && (
-          <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs font-semibold text-rose-900">
+          <div role="alert" className="whitespace-pre-wrap rounded-xl border border-rose-200 bg-rose-50 p-4 text-xs font-semibold text-rose-900">
             {pageError}
           </div>
         )}
