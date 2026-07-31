@@ -67,11 +67,13 @@
 - **Konsekuensi:** Bebas vendor lock-in; memerlukan pengelolaan session token table dan rate-limiter di backend.
 - **Alternatif:** Better Auth, Auth0, Clerk, Supabase Auth.
 
-## ADR-008 — Provider Transactional Email
+## ADR-008 — Provider Transactional Email (HTTP API Abstraction)
 
-- **Status:** Open
-- **Pilihan awal:** Resend atau provider setara.
-- **Kriteria:** Webhook, domain verification, delivery status, stabilitas, biaya.
+- **Status:** Accepted
+- **Tanggal:** 2026-07-31
+- **Konteks:** Diperlukan penyedia email transaksional yang kompatibel dengan arsitektur serverless Netlify Functions, aman dari timeout koneksi TCP/SMTP, dan mendukung async email queue.
+- **Keputusan:** Gunakan **Email Provider HTTP API Abstraction (Resend / SendGrid / Postmark / Nodemailer API Abstraction)** yang dipanggil secara eksklusif dari backend Netlify Functions (`/api/v1/email/jobs`). Browser **dilarang mengirim email langsung**. Pengiriman email terlepas (*decoupled*) dari simpan konfirmasi DB (gagal email tidak membatalkan simpan konfirmasi).
+- **Konsekuensi:** Pengiriman email aman, tidak memblokir antarmuka pengguna, dan dilengkapi dengan idempotency key serta retry policy / dead-letter state.
 
 ## ADR-009 — BeUI dan Hallmark
 

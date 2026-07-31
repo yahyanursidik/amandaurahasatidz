@@ -23,6 +23,6 @@
       "@netlify/*": ["./netlify/*"]
     }
   },
-  "include": ["src", "netlify", "tests"],
+  "include": ["src", "netlify", "tests", "scripts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

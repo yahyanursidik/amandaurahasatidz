@@ -1,5 +1,6 @@
 import { getDbClient } from "../db/client";
-import { auditLogs } from "../db/schema";
+import { auditLogs, users } from "../db/schema";
+import { desc, eq } from "drizzle-orm";
 import { logError, logInfo } from "../utils/logger";
 
 export interface AuditLogInput {
@@ -40,4 +41,28 @@ export async function createAuditLog(input: AuditLogInput): Promise<void> {
   } catch (error) {
     logError(input.requestId, "Failed to write audit log entry to database", error);
   }
+}
+
+export async function getAuditLogsService(limit = 50) {
+  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 100);
+  const db = getDbClient();
+
+  return db
+    .select({
+      id: auditLogs.id,
+      action: auditLogs.action,
+      resourceType: auditLogs.resourceType,
+      resourceId: auditLogs.resourceId,
+      eventId: auditLogs.eventId,
+      reason: auditLogs.reason,
+      requestId: auditLogs.requestId,
+      createdAt: auditLogs.createdAt,
+      actorUserId: auditLogs.actorUserId,
+      actorName: users.name,
+      actorEmail: users.email,
+    })
+    .from(auditLogs)
+    .leftJoin(users, eq(auditLogs.actorUserId, users.id))
+    .orderBy(desc(auditLogs.createdAt))
+    .limit(safeLimit);
 }

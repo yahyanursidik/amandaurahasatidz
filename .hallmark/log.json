@@ -1,0 +1,51 @@
+[
+  {
+    "date": "2026-07-31",
+    "macrostructure": "Triage Board",
+    "theme": "existing emerald-slate system",
+    "enrichment": "none",
+    "brief": "Comprehensive committee accounts, event-scoped assignments, access matrix, deadline controls, and cross-module attendance impact"
+  },
+  {
+    "date": "2026-07-31",
+    "macrostructure": "Stat-Led Registry",
+    "theme": "existing emerald-slate system",
+    "enrichment": "none",
+    "brief": "Comprehensive admin asatidz registry, data quality, affiliations, event history, and safe profile merge"
+  },
+  {
+    "date": "2026-07-31",
+    "macrostructure": "Catalogue",
+    "theme": "existing emerald-slate system",
+    "enrichment": "none",
+    "brief": "Comprehensive institution directory, profile, contacts, affiliations, invitations, and delegation management"
+  },
+  {
+    "date": "2026-07-31",
+    "macrostructure": "Photographic",
+    "theme": "existing emerald-slate system",
+    "enrichment": "existing faceless library interior",
+    "brief": "Role-specific portal login with API-first authentication and development-account assistance"
+  },
+  {
+    "date": "2026-07-31",
+    "macrostructure": "Narrative Workflow",
+    "theme": "existing emerald-slate system",
+    "enrichment": "none",
+    "brief": "UUID-backed admin event workflow, institution invitation links, and readable typography"
+  },
+  {
+    "date": "2026-07-31",
+    "macrostructure": "Index-First",
+    "theme": "existing emerald-slate system",
+    "enrichment": "none",
+    "brief": "Comprehensive admin event workspace and fixed side navigation"
+  },
+  {
+    "date": "2026-07-31",
+    "macrostructure": "Workbench",
+    "theme": "existing emerald-slate system",
+    "enrichment": "none",
+    "brief": "Admin operations dashboard and reliable local login"
+  }
+]

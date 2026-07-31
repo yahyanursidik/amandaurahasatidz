@@ -4,6 +4,9 @@ import { users, userRoleAssignments, roles } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { RoleCode } from "../../../../src/config/permissions";
 import { parseCookies } from "../utils/cookie";
+import { randomBytes } from "node:crypto";
+import { verifyPassword } from "../utils/password";
+import { UnauthorizedError, ForbiddenError } from "../utils/errors";
 
 interface SessionStoreRecord {
   sessionId: string;
@@ -11,11 +14,15 @@ interface SessionStoreRecord {
   email: string;
   createdAt: number;
   expiresAt: number;
+  userContext?: UserContext;
 }
 
 const activeSessions = new Map<string, SessionStoreRecord>();
 
-export function createSessionToken(email: string): { sessionId: string; expiresAt: Date } {
+export function createSessionToken(
+  email: string,
+  userContext?: UserContext
+): { sessionId: string; expiresAt: Date } {
   // Session rotation: revoke previous session if existing for this email
   for (const [sId, sRecord] of activeSessions.entries()) {
     if (sRecord.email === email.trim().toLowerCase()) {
@@ -24,22 +31,94 @@ export function createSessionToken(email: string): { sessionId: string; expiresA
   }
 
   const timestamp = Date.now();
-  const random = Math.random().toString(36).substring(2, 10);
-  const sessionId = `sess_${timestamp}_${random}`;
+  const random = randomBytes(32).toString("hex");
+  const sessionId = `sess_${random}`;
   const expiresAtMs = timestamp + 7 * 24 * 60 * 60 * 1000; // 7 days
 
   activeSessions.set(sessionId, {
     sessionId,
-    userId: "00000000-0000-0000-0000-000000000001",
+    userId: userContext?.userId || "00000000-0000-0000-0000-000000000001",
     email: email.trim().toLowerCase(),
     createdAt: timestamp,
     expiresAt: expiresAtMs,
+    userContext,
   });
 
   return {
     sessionId,
     expiresAt: new Date(expiresAtMs),
   };
+}
+
+const PORTAL_ROLES: Record<string, RoleCode[]> = {
+  admin: ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD", "REPORT_VIEWER", "EVENT_ADMIN"],
+  committee: [
+    "COMMITTEE_LEAD",
+    "REGISTRATION_OFFICER",
+    "CHECKIN_OFFICER",
+    "INFORMATION_OFFICER",
+    "EVENT_VIEWER",
+  ],
+  ustadz: ["USTADZ"],
+};
+
+const DEVELOPMENT_ACCOUNTS: Record<string, { password: string; role: RoleCode }> = {
+  "admin@yts.or.id": { password: "DemoAsatidz2026!", role: "SUPER_ADMIN" },
+  "panitia@yts.or.id": { password: "DemoAsatidz2026!", role: "CHECKIN_OFFICER" },
+  "ustadz.demo@yts.or.id": { password: "DemoAsatidz2026!", role: "USTADZ" },
+};
+
+export async function authenticatePasswordService(
+  email: string,
+  password: string,
+  portal: "admin" | "committee" | "ustadz"
+): Promise<UserContext> {
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!normalizedEmail.includes("@") || password.length < 8) {
+    throw new UnauthorizedError("Email atau password tidak sesuai.");
+  }
+
+  let context: UserContext | null = null;
+  let passwordValid = false;
+
+  try {
+    const db = getDbClient();
+    const found = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
+    const user = found[0];
+    if (user?.status !== "ACTIVE") {
+      throw new UnauthorizedError("Akun tidak aktif. Hubungi administrator.");
+    }
+    if (user?.passwordHash) {
+      passwordValid = verifyPassword(password, user.passwordHash);
+      if (passwordValid) context = await resolveUserContextFromEmail(normalizedEmail);
+    }
+  } catch (error) {
+    if (error instanceof UnauthorizedError) throw error;
+  }
+
+  if (!passwordValid && process.env.APP_ENV !== "production") {
+    const demo = DEVELOPMENT_ACCOUNTS[normalizedEmail];
+    if (demo && password === demo.password) {
+      passwordValid = true;
+      context = {
+        userId: "00000000-0000-0000-0000-000000000001",
+        email: normalizedEmail,
+        name: normalizedEmail.split("@")[0],
+        assignments: [{ roleCode: demo.role }],
+      };
+    }
+  }
+
+  if (!passwordValid || !context) {
+    throw new UnauthorizedError("Email atau password tidak sesuai.");
+  }
+
+  const allowedRoles = PORTAL_ROLES[portal] || [];
+  if (!context.assignments.some((assignment) => allowedRoles.includes(assignment.roleCode))) {
+    throw new ForbiddenError(`Akun ini tidak memiliki akses ke portal ${portal}.`);
+  }
+
+  return context;
 }
 
 export function revokeSessionToken(sessionId: string): void {
@@ -50,34 +129,43 @@ export async function getUserSession(
   authorizationHeader?: string,
   cookieHeader?: string
 ): Promise<UserContext | null> {
-  // 1. Try extracting session ID from HttpOnly cookie `yts_session`
+  // 1. Resolve a valid HttpOnly session cookie first.
   const cookies = parseCookies(cookieHeader);
-  let sessionId = cookies["yts_session"];
+  const cookieSessionId = cookies["yts_session"];
+  if (cookieSessionId) {
+    const cookieSession = activeSessions.get(cookieSessionId);
+    if (cookieSession && Date.now() <= cookieSession.expiresAt) {
+      return cookieSession.userContext || resolveUserContextFromEmail(cookieSession.email);
+    }
+    // A local server restart clears the in-memory session store while the browser
+    // may still retain its cookie. Remove the stale server-side record and allow
+    // the development Authorization fallback below to resolve the current user.
+    activeSessions.delete(cookieSessionId);
+  }
 
-  // 2. Fallback to Authorization header if cookie not present
-  if (!sessionId && authorizationHeader) {
+  // 2. Fallback to Authorization when the cookie is absent or no longer valid.
+  if (authorizationHeader) {
     const token = authorizationHeader.replace(/^Bearer\s+/i, "").trim();
     if (token) {
       if (token.startsWith("sess_")) {
-        sessionId = token;
+        const tokenSession = activeSessions.get(token);
+        if (!tokenSession) return null;
+        if (Date.now() > tokenSession.expiresAt) {
+          activeSessions.delete(token);
+          return null;
+        }
+        return tokenSession.userContext || resolveUserContextFromEmail(tokenSession.email);
       } else {
-        // Direct email fallback for mock test compatibility
-        return resolveUserContextFromEmail(token.includes("@") ? token : "admin@yts.or.id");
+        // Direct email fallback for local development and mock compatibility.
+        if (process.env.APP_ENV !== "production") {
+          return resolveUserContextFromEmail(token.includes("@") ? token : "admin@yts.or.id");
+        }
+        return null;
       }
     }
   }
 
-  if (!sessionId) return null;
-
-  const sessionRecord = activeSessions.get(sessionId);
-  if (!sessionRecord) return null;
-
-  if (Date.now() > sessionRecord.expiresAt) {
-    activeSessions.delete(sessionId);
-    return null;
-  }
-
-  return resolveUserContextFromEmail(sessionRecord.email);
+  return null;
 }
 
 async function resolveUserContextFromEmail(targetEmail: string): Promise<UserContext> {

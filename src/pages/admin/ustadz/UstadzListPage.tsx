@@ -1,250 +1,411 @@
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Building2,
+  Download,
+  Edit3,
+  Eye,
+  Mail,
+  Phone,
+  Plus,
+  Search,
+  UserCheck,
+  UsersRound,
+} from "lucide-react";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { PageHeader } from "@/components/common/PageHeader";
-import { StatusBadge } from "@/components/common/StatusBadge";
 import { EmptyState } from "@/components/common/EmptyState";
-import { UserCheck, Plus, Search, Filter, Eye, Edit, GitMerge, Building2, Phone, Mail } from "lucide-react";
+import { UstadzWorkspaceNav } from "@/components/admin/ustadz/UstadzWorkspaceNav";
+import { UstadzProfile, UstadzSummary, ustadzApi } from "@/lib/ustadzApi";
+import { ustadzPreviewProfiles } from "@/lib/ustadzPreview";
+
+const PAGE_SIZE = 25;
+
+const statusLabel = (status: UstadzProfile["profileStatus"]) =>
+  status === "ACTIVE" ? "Aktif" : status === "INACTIVE" ? "Nonaktif" : "Digabungkan";
+
+const escapeCsv = (value: string | number | null | undefined) =>
+  `"${String(value ?? "").replace(/"/g, '""')}"`;
 
 export const UstadzListPage: React.FC = () => {
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [search, setSearch] = useState(searchParams.get("search") || "");
+  const [profiles, setProfiles] = useState<UstadzProfile[]>([]);
+  const [summary, setSummary] = useState<UstadzSummary>({
+    total: 0,
+    active: 0,
+    inactive: 0,
+    merged: 0,
+    incomplete: 0,
+    duplicateCandidates: 0,
+  });
+  const [pageCount, setPageCount] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [preview, setPreview] = useState(false);
+  const [error, setError] = useState("");
 
-  const mockUstadz = [
+  const page = Math.max(1, Number(searchParams.get("page") || 1));
+  const profileStatus = searchParams.get("profileStatus") || "ALL";
+  const incompleteOnly = searchParams.get("quality") === "incomplete";
+  const duplicateOnly = searchParams.get("duplicate") === "true";
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      const next = new URLSearchParams(searchParams);
+      if (search.trim()) next.set("search", search.trim());
+      else next.delete("search");
+      next.delete("page");
+      if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true });
+    }, 350);
+    return () => window.clearTimeout(timer);
+  }, [search, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    let active = true;
+    const params = new URLSearchParams({
+      page: String(page),
+      pageSize: String(PAGE_SIZE),
+    });
+    const query = searchParams.get("search");
+    if (query) params.set("search", query);
+    if (profileStatus !== "ALL") params.set("profileStatus", profileStatus);
+
+    setLoading(true);
+    setError("");
+    ustadzApi
+      .list(params)
+      .then((response) => {
+        if (!active) return;
+        setProfiles(response.data);
+        setSummary(
+          response.meta?.summary || {
+            total: response.meta?.total || response.data.length,
+            active: response.data.filter((item) => item.profileStatus === "ACTIVE").length,
+            inactive: response.data.filter((item) => item.profileStatus === "INACTIVE").length,
+            merged: response.data.filter((item) => item.profileStatus === "MERGED").length,
+            incomplete: response.data.filter((item) => (item.completenessPercent || 0) < 70).length,
+            duplicateCandidates: response.data.filter((item) => item.hasDuplicateAlert).length,
+          },
+        );
+        setPageCount(response.meta?.pageCount || 1);
+        setPreview(false);
+      })
+      .catch((loadError) => {
+        if (!active) return;
+        const queryLower = (searchParams.get("search") || "").toLowerCase();
+        let fallback = ustadzPreviewProfiles.filter(
+          (item) =>
+            (!queryLower ||
+              item.fullName.toLowerCase().includes(queryLower) ||
+              (item.email || "").toLowerCase().includes(queryLower) ||
+              (item.phone || "").includes(queryLower)) &&
+            (profileStatus === "ALL" || item.profileStatus === profileStatus),
+        );
+        setProfiles(fallback);
+        setSummary({
+          total: ustadzPreviewProfiles.length,
+          active: ustadzPreviewProfiles.filter((item) => item.profileStatus === "ACTIVE").length,
+          inactive: ustadzPreviewProfiles.filter((item) => item.profileStatus === "INACTIVE").length,
+          merged: ustadzPreviewProfiles.filter((item) => item.profileStatus === "MERGED").length,
+          incomplete: ustadzPreviewProfiles.filter((item) => (item.completenessPercent || 0) < 70).length,
+          duplicateCandidates: ustadzPreviewProfiles.filter((item) => item.hasDuplicateAlert).length,
+        });
+        setPageCount(1);
+        setPreview(true);
+        setError(loadError instanceof Error ? loadError.message : "Koneksi database belum tersedia.");
+      })
+      .finally(() => active && setLoading(false));
+    return () => {
+      active = false;
+    };
+  }, [page, profileStatus, searchParams]);
+
+  const visibleProfiles = useMemo(
+    () =>
+      profiles.filter(
+        (profile) =>
+          (!incompleteOnly || (profile.completenessPercent || 0) < 70) &&
+          (!duplicateOnly || profile.hasDuplicateAlert),
+      ),
+    [duplicateOnly, incompleteOnly, profiles],
+  );
+
+  const metrics = [
+    { label: "Total profil", value: summary.total, hint: "Seluruh status", icon: UsersRound },
+    { label: "Profil aktif", value: summary.active, hint: "Siap dipakai lintas modul", icon: UserCheck },
     {
-      id: "201",
-      fullName: "Ustadz Dr. Muhammad Muslih, Lc., M.A.",
-      normalizedName: "muhammad muslih",
-      email: "m.muslih@yts.or.id",
-      phone: "081233334444",
-      cityName: "Kota Bandung",
-      primaryInstitution: "Ma'had Ilmu Sunnah Bandung",
-      profileStatus: "ACTIVE",
-      hasDuplicateAlert: true,
+      label: "Perlu dilengkapi",
+      value: summary.incomplete,
+      hint: "Kelengkapan di bawah 70%",
+      icon: AlertTriangle,
     },
     {
-      id: "202",
-      fullName: "Ustadz Abu Ahmad Zakaria",
-      normalizedName: "abu ahmad zakaria",
-      email: "abuahmad@yts.or.id",
-      phone: "081955556666",
-      cityName: "Kota Cimahi",
-      primaryInstitution: "Yayasan Dakwah Al-Hikmah Cimahi",
-      profileStatus: "ACTIVE",
-      hasDuplicateAlert: false,
-    },
-    {
-      id: "203",
-      fullName: "Ustadz Muslih, Lc.",
-      normalizedName: "muslih",
-      email: "muslih.bandung@gmail.com",
-      phone: "081233334444", // Matching phone with 201!
-      cityName: "Kota Bandung",
-      primaryInstitution: "Rumah Qur'an As-Salam Garut",
-      profileStatus: "ACTIVE",
-      hasDuplicateAlert: true,
+      label: "Potensi duplikat",
+      value: summary.duplicateCandidates,
+      hint: "Perlu ditinjau admin",
+      icon: Search,
     },
   ];
 
-  const filtered = mockUstadz.filter((item) => {
-    const matchSearch =
-      item.fullName.toLowerCase().includes(search.toLowerCase()) ||
-      item.email.toLowerCase().includes(search.toLowerCase()) ||
-      item.phone.includes(search);
-    const matchStatus = statusFilter === "ALL" || item.profileStatus === statusFilter;
-    return matchSearch && matchStatus;
-  });
+  const updateFilter = (key: string, value: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (!value || value === "ALL") next.delete(key);
+    else next.set(key, value);
+    next.delete("page");
+    setSearchParams(next);
+  };
+
+  const exportCsv = () => {
+    const rows = [
+      ["Nama", "Status", "Email", "Telepon", "WhatsApp", "Afiliasi utama", "Jumlah afiliasi", "Kelengkapan"],
+      ...visibleProfiles.map((profile) => [
+        profile.fullName,
+        statusLabel(profile.profileStatus),
+        profile.email || "",
+        profile.phone || "",
+        profile.whatsapp || "",
+        profile.primaryInstitution?.institutionName || "",
+        profile.affiliationCount || 0,
+        `${profile.completenessPercent || 0}%`,
+      ]),
+    ];
+    const content = rows.map((row) => row.map(escapeCsv).join(",")).join("\n");
+    const blob = new Blob([`\uFEFF${content}`], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `direktori-asatidz-${new Date().toISOString().slice(0, 10)}.csv`;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <AdminLayout>
-      <PageHeader
-        title="Master Data Asatidz"
-        description="Kelola basis data profil Ustadz, afiliasi lembaga partner, dan workflow penggabungan profil duplikat."
-        breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Master Asatidz" }]}
-        actions={
-          <div className="flex items-center space-x-2">
-            <Link
-              to="/admin/ustadz/merge"
-              className="inline-flex items-center space-x-1.5 bg-amber-500 hover:bg-amber-600 text-white font-medium text-xs px-3.5 py-2 rounded-lg shadow-sm transition min-h-[44px]"
-            >
-              <GitMerge className="w-4 h-4" />
-              <span>Merge Profil</span>
-            </Link>
-            <Link
-              to="/admin/ustadz/create"
-              className="inline-flex items-center space-x-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-3.5 py-2 rounded-lg shadow-sm transition min-h-[44px]"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Tambah Ustadz</span>
-            </Link>
-          </div>
-        }
-      />
-
-      {/* Filter Bar */}
-      <div className="bg-slate-50 border border-slate-200 rounded-xl p-4 mb-6 space-y-3 sm:space-y-0 sm:flex sm:items-center sm:justify-between gap-4">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-          <input
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Cari nama Ustadz, email, nomor telepon..."
-            className="w-full pl-9 pr-4 py-2 bg-white border border-slate-300 rounded-lg text-xs text-slate-900 focus:ring-2 focus:ring-emerald-500 outline-none"
-          />
-        </div>
-
-        <div className="flex items-center space-x-2 shrink-0">
-          <Filter className="w-4 h-4 text-slate-400 hidden sm:inline" />
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="bg-white border border-slate-300 text-slate-700 text-xs rounded-lg px-2.5 py-2 focus:ring-2 focus:ring-emerald-500 outline-none"
-          >
-            <option value="ALL">Semua Status</option>
-            <option value="ACTIVE">Aktif</option>
-            <option value="INACTIVE">Nonaktif</option>
-            <option value="MERGED">Merged (Digabung)</option>
-          </select>
-        </div>
-      </div>
-
-      {/* Desktop Table View (>= 768px) */}
-      <div className="hidden md:block overflow-x-auto border border-slate-200 rounded-xl shadow-sm">
-        <table className="w-full text-left text-xs text-slate-700">
-          <thead className="bg-slate-100 text-slate-800 font-semibold border-b border-slate-200">
-            <tr>
-              <th className="p-3">Nama Lengkap Ustadz</th>
-              <th className="p-3">Afiliasi Utama</th>
-              <th className="p-3">Kontak</th>
-              <th className="p-3">Wilayah</th>
-              <th className="p-3">Status</th>
-              <th className="p-3 text-right">Aksi</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-slate-200 bg-white">
-            {filtered.map((item) => (
-              <tr key={item.id} className="hover:bg-slate-50 transition">
-                <td className="p-3">
-                  <div className="flex items-center space-x-2">
-                    <span className="font-semibold text-slate-900">{item.fullName}</span>
-                    {item.hasDuplicateAlert && (
-                      <span
-                        className="bg-amber-100 text-amber-800 text-[10px] px-1.5 py-0.5 rounded font-bold"
-                        title="Terdeteksi calon duplikat berdasarkan nomor telepon/nama"
-                      >
-                        Potensi Duplikat
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-[10px] text-slate-400 font-mono">Norm: {item.normalizedName}</div>
-                </td>
-                <td className="p-3">
-                  <div className="flex items-center space-x-1 text-emerald-800 bg-emerald-50 px-2 py-1 rounded font-medium text-[11px] w-fit">
-                    <Building2 className="w-3 h-3 text-emerald-600" />
-                    <span>{item.primaryInstitution}</span>
-                  </div>
-                </td>
-                <td className="p-3">
-                  <div className="flex items-center space-x-1 text-slate-600">
-                    <Mail className="w-3 h-3 text-slate-400" />
-                    <span>{item.email}</span>
-                  </div>
-                  <div className="flex items-center space-x-1 text-slate-500 text-[10px] mt-0.5">
-                    <Phone className="w-3 h-3 text-slate-400" />
-                    <span>{item.phone}</span>
-                  </div>
-                </td>
-                <td className="p-3 text-slate-600">{item.cityName}</td>
-                <td className="p-3">
-                  <StatusBadge
-                    label={item.profileStatus === "ACTIVE" ? "Aktif" : item.profileStatus}
-                    variant={item.profileStatus === "ACTIVE" ? "success" : "neutral"}
-                  />
-                </td>
-                <td className="p-3 text-right space-x-1">
-                  <Link
-                    to={`/admin/ustadz/${item.id}`}
-                    className="inline-flex items-center p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-slate-100 rounded"
-                    title="Lihat Profil"
-                  >
-                    <Eye className="w-4 h-4" />
-                  </Link>
-                  <Link
-                    to={`/admin/ustadz/${item.id}/edit`}
-                    className="inline-flex items-center p-1.5 text-slate-600 hover:text-emerald-700 hover:bg-slate-100 rounded"
-                    title="Edit Profil"
-                  >
-                    <Edit className="w-4 h-4" />
-                  </Link>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Mobile Card List View (< 768px) */}
-      <div className="md:hidden space-y-3">
-        {filtered.map((item) => (
-          <div key={item.id} className="bg-white border border-slate-200 rounded-xl p-4 shadow-sm space-y-2">
-            <div className="flex items-start justify-between">
-              <div>
-                <h4 className="font-bold text-slate-900 text-sm">{item.fullName}</h4>
-                <div className="text-[10px] text-slate-400 font-mono">Norm: {item.normalizedName}</div>
-              </div>
-              <StatusBadge
-                label={item.profileStatus === "ACTIVE" ? "Aktif" : item.profileStatus}
-                variant={item.profileStatus === "ACTIVE" ? "success" : "neutral"}
-              />
-            </div>
-
-            {item.hasDuplicateAlert && (
-              <div className="bg-amber-50 border border-amber-200 rounded p-2 text-[11px] text-amber-800 font-semibold flex items-center justify-between">
-                <span>⚠️ Potensi Duplikat Terdeteksi</span>
-                <Link to="/admin/ustadz/merge" className="underline text-amber-900">
-                  Merge
-                </Link>
-              </div>
-            )}
-
-            <div className="text-xs text-slate-600 space-y-1 pt-1 border-t border-slate-100">
-              <div className="flex items-center space-x-1.5 text-emerald-800">
-                <Building2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span className="font-semibold">{item.primaryInstitution}</span>
-              </div>
-              <div className="flex items-center space-x-1.5">
-                <Mail className="w-3.5 h-3.5 text-slate-400" />
-                <span>{item.email}</span>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-end space-x-2 pt-2 border-t border-slate-100">
-              <Link
-                to={`/admin/ustadz/${item.id}`}
-                className="px-3 py-1.5 bg-emerald-50 text-emerald-800 text-xs font-semibold rounded-lg flex items-center space-x-1 min-h-[44px]"
-              >
-                <Eye className="w-3.5 h-3.5" />
-                <span>Detail</span>
-              </Link>
-              <Link
-                to={`/admin/ustadz/${item.id}/edit`}
-                className="px-3 py-1.5 bg-slate-100 text-slate-700 text-xs font-semibold rounded-lg flex items-center space-x-1 min-h-[44px]"
-              >
-                <Edit className="w-3.5 h-3.5" />
-                <span>Edit</span>
+      <div className="ustadz-workspace">
+        <PageHeader
+          title="Direktori asatidz"
+          description="Satu sumber profil untuk undangan lembaga, peserta individu, afiliasi, dan riwayat kehadiran."
+          breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Asatidz" }]}
+          actions={
+            <div className="ustadz-page-actions">
+              <button type="button" className="ustadz-button ustadz-button--secondary" onClick={exportCsv}>
+                <Download aria-hidden="true" />
+                <span>Ekspor CSV</span>
+              </button>
+              <Link to="/admin/ustadz/create" className="ustadz-button ustadz-button--primary">
+                <Plus aria-hidden="true" />
+                <span>Tambah profil</span>
               </Link>
             </div>
-          </div>
-        ))}
-      </div>
-
-      {filtered.length === 0 && (
-        <EmptyState
-          title="Data Ustadz Tidak Ditemukan"
-          description="Tidak ada profil Ustadz yang cocok dengan pencarian Anda."
+          }
         />
-      )}
+        <UstadzWorkspaceNav />
+
+        {preview && (
+          <div className="ustadz-preview-notice" role="status">
+            <AlertTriangle aria-hidden="true" />
+            <div>
+              <strong>Mode pratinjau aktif</strong>
+              <span>{error} Data contoh ditampilkan agar seluruh navigasi tetap dapat dicoba.</span>
+            </div>
+          </div>
+        )}
+
+        <section className="ustadz-metrics" aria-label="Ringkasan direktori asatidz">
+          {metrics.map((metric) => {
+            const Icon = metric.icon;
+            return (
+              <article key={metric.label}>
+                <Icon aria-hidden="true" />
+                <div>
+                  <span>{metric.label}</span>
+                  <strong>{loading ? "—" : metric.value.toLocaleString("id-ID")}</strong>
+                  <small>{metric.hint}</small>
+                </div>
+              </article>
+            );
+          })}
+        </section>
+
+        <section className="ustadz-ledger" aria-labelledby="ustadz-ledger-heading">
+          <div className="ustadz-ledger__heading">
+            <div>
+              <p>Registry operasional</p>
+              <h2 id="ustadz-ledger-heading">
+                {incompleteOnly
+                  ? "Profil yang perlu dilengkapi"
+                  : duplicateOnly
+                    ? "Profil dengan potensi duplikat"
+                    : profileStatus === "INACTIVE"
+                      ? "Profil nonaktif"
+                      : "Seluruh profil"}
+              </h2>
+            </div>
+            <span>{visibleProfiles.length} data pada tampilan ini</span>
+          </div>
+
+          <div className="ustadz-ledger__toolbar">
+            <label className="ustadz-search">
+              <Search aria-hidden="true" />
+              <span className="sr-only">Cari profil</span>
+              <input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Cari nama, email, atau nomor telepon"
+              />
+            </label>
+            <label className="ustadz-filter">
+              <span>Status profil</span>
+              <select value={profileStatus} onChange={(event) => updateFilter("profileStatus", event.target.value)}>
+                <option value="ALL">Semua status</option>
+                <option value="ACTIVE">Aktif</option>
+                <option value="INACTIVE">Nonaktif</option>
+                <option value="MERGED">Digabungkan</option>
+              </select>
+            </label>
+          </div>
+
+          {loading ? (
+            <div className="ustadz-loading" role="status">Memuat direktori asatidz…</div>
+          ) : visibleProfiles.length === 0 ? (
+            <EmptyState
+              title="Belum ada profil pada tampilan ini"
+              description="Ubah filter atau tambahkan profil asatidz baru."
+            />
+          ) : (
+            <>
+              <div className="ustadz-table-wrap">
+                <table className="ustadz-table">
+                  <thead>
+                    <tr>
+                      <th>Asatidz</th>
+                      <th>Afiliasi</th>
+                      <th>Kontak</th>
+                      <th>Kualitas data</th>
+                      <th>Status</th>
+                      <th><span className="sr-only">Aksi</span></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visibleProfiles.map((profile) => (
+                      <tr key={profile.id}>
+                        <td>
+                          <div className="ustadz-person">
+                            <strong>{profile.fullName}</strong>
+                            <span>ID {profile.id.slice(0, 8)}</span>
+                            {profile.hasDuplicateAlert && (
+                              <Link to={`/admin/ustadz/merge?source=${profile.id}`}>
+                                <AlertTriangle aria-hidden="true" /> Tinjau duplikat
+                              </Link>
+                            )}
+                          </div>
+                        </td>
+                        <td>
+                          <div className="ustadz-affiliation">
+                            <Building2 aria-hidden="true" />
+                            <div>
+                              <strong>{profile.primaryInstitution?.institutionName || "Belum ada afiliasi utama"}</strong>
+                              <span>
+                                {profile.affiliationCount || 0} afiliasi
+                                {profile.primaryInstitution?.position ? ` · ${profile.primaryInstitution.position}` : ""}
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="ustadz-contact">
+                            <span><Mail aria-hidden="true" /> {profile.email || "Email belum tersedia"}</span>
+                            <span><Phone aria-hidden="true" /> {profile.phone || profile.whatsapp || "Telepon belum tersedia"}</span>
+                          </div>
+                        </td>
+                        <td>
+                          <div className="ustadz-quality">
+                            <div><span>Kelengkapan</span><strong>{profile.completenessPercent || 0}%</strong></div>
+                            <progress max={100} value={profile.completenessPercent || 0}>
+                              {profile.completenessPercent || 0}%
+                            </progress>
+                          </div>
+                        </td>
+                        <td>
+                          <span className="ustadz-status" data-status={profile.profileStatus}>
+                            {statusLabel(profile.profileStatus)}
+                          </span>
+                        </td>
+                        <td>
+                          <div className="ustadz-row-actions">
+                            <Link to={`/admin/ustadz/${profile.id}`} aria-label={`Lihat ${profile.fullName}`}>
+                              <Eye aria-hidden="true" />
+                            </Link>
+                            <Link to={`/admin/ustadz/${profile.id}/edit`} aria-label={`Edit ${profile.fullName}`}>
+                              <Edit3 aria-hidden="true" />
+                            </Link>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="ustadz-mobile-list">
+                {visibleProfiles.map((profile) => (
+                  <article key={profile.id} className="ustadz-card">
+                    <div className="ustadz-card__head">
+                      <div>
+                        <strong>{profile.fullName}</strong>
+                        <span>{profile.primaryInstitution?.institutionName || "Belum ada afiliasi utama"}</span>
+                      </div>
+                      <span className="ustadz-status" data-status={profile.profileStatus}>
+                        {statusLabel(profile.profileStatus)}
+                      </span>
+                    </div>
+                    <div className="ustadz-quality">
+                      <div><span>Kelengkapan profil</span><strong>{profile.completenessPercent || 0}%</strong></div>
+                      <progress max={100} value={profile.completenessPercent || 0} />
+                    </div>
+                    <div className="ustadz-card__meta">
+                      <span><Mail aria-hidden="true" /> {profile.email || "Belum ada email"}</span>
+                      <span><Phone aria-hidden="true" /> {profile.phone || profile.whatsapp || "Belum ada telepon"}</span>
+                    </div>
+                    {profile.hasDuplicateAlert && (
+                      <Link className="ustadz-card__warning" to={`/admin/ustadz/merge?source=${profile.id}`}>
+                        <AlertTriangle aria-hidden="true" /> Ada profil serupa—tinjau sebelum digunakan
+                      </Link>
+                    )}
+                    <div className="ustadz-card__actions">
+                      <Link to={`/admin/ustadz/${profile.id}`}>Lihat detail</Link>
+                      <Link to={`/admin/ustadz/${profile.id}/edit`}>Edit profil</Link>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </>
+          )}
+
+          {pageCount > 1 && (
+            <nav className="ustadz-pagination" aria-label="Paginasi direktori">
+              <button
+                type="button"
+                disabled={page <= 1}
+                onClick={() => updateFilter("page", String(page - 1))}
+              >
+                <ArrowLeft aria-hidden="true" /> Sebelumnya
+              </button>
+              <span>Halaman {page} dari {pageCount}</span>
+              <button
+                type="button"
+                disabled={page >= pageCount}
+                onClick={() => updateFilter("page", String(page + 1))}
+              >
+                Berikutnya <ArrowRight aria-hidden="true" />
+              </button>
+            </nav>
+          )}
+        </section>
+      </div>
     </AdminLayout>
   );
 };

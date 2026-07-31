@@ -1,13 +1,17 @@
 import React from "react";
 import { AppShell } from "../common/AppShell";
-import { User, QrCode, Calendar, Bell } from "lucide-react";
+import { User, QrCode, Calendar, Bell, Home, Mail, CheckCircle2, CalendarRange } from "lucide-react";
 import { SidebarNavItem } from "../common/Sidebar";
 
 const portalNavItems: SidebarNavItem[] = [
-  { label: "Beranda Ustadz", href: "/portal", icon: <User /> },
-  { label: "QR Kehadiran", href: "/portal/qr", icon: <QrCode /> },
-  { label: "Jadwal Daurah", href: "/portal/schedule", icon: <Calendar /> },
-  { label: "Pengumuman", href: "/portal/announcements", icon: <Bell /> },
+  { label: "Beranda Asatidz", shortLabel: "Beranda", href: "/portal", icon: <Home />, exact: true },
+  { label: "Undangan Saya", shortLabel: "Undangan", href: "/portal/invitations", icon: <Mail /> },
+  { label: "Kegiatan Saya", href: "/portal/activities", icon: <CalendarRange /> },
+  { label: "Jadwal Daurah", shortLabel: "Jadwal", href: "/portal/schedule", icon: <Calendar /> },
+  { label: "QR Kehadiran", shortLabel: "QR", href: "/portal/qr", icon: <QrCode /> },
+  { label: "Pengumuman", shortLabel: "Info", href: "/portal/announcements", icon: <Bell /> },
+  { label: "Riwayat Kehadiran", href: "/portal/attendance", icon: <CheckCircle2 /> },
+  { label: "Profil Saya", href: "/portal/profile", icon: <User /> },
 ];
 
 export const PortalLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {

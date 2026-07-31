@@ -1,218 +1,387 @@
-import React, { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import {
+  AlertTriangle,
+  BookOpenCheck,
+  Building2,
+  CalendarDays,
+  CheckCircle2,
+  Edit3,
+  GitMerge,
+  Loader2,
+  Mail,
+  MapPin,
+  MessageCircle,
+  Phone,
+  Plus,
+  Save,
+  ShieldCheck,
+  UserRoundCheck,
+  X,
+} from "lucide-react";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { PageHeader } from "@/components/common/PageHeader";
-import { StatusBadge } from "@/components/common/StatusBadge";
-import { UserCheck, Building2, Mail, Phone, MapPin, History, GitMerge, Edit, Plus } from "lucide-react";
+import { UstadzWorkspaceNav } from "@/components/admin/ustadz/UstadzWorkspaceNav";
+import { institutionApi, Institution } from "@/lib/institutionApi";
+import { UstadzProfile, ustadzApi } from "@/lib/ustadzApi";
+import { getUstadzPreviewProfile } from "@/lib/ustadzPreview";
+
+type Tab = "PROFILE" | "AFFILIATIONS" | "EVENTS" | "QUALITY";
+
+const formatDate = (value?: string | null) => {
+  if (!value) return "Belum tersedia";
+  return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" }).format(new Date(value));
+};
+
+const missingLabels: Array<[keyof UstadzProfile, string]> = [
+  ["email", "Email"],
+  ["phone", "Telepon"],
+  ["whatsapp", "WhatsApp"],
+  ["address", "Alamat"],
+  ["cityCode", "Kota/kabupaten"],
+  ["provinceCode", "Provinsi"],
+  ["educationSummary", "Riwayat pendidikan"],
+  ["expertiseSummary", "Bidang kajian"],
+];
 
 export const UstadzShowPage: React.FC = () => {
-  const { id } = useParams<{ id: string }>();
-  const [activeTab, setActiveTab] = useState<"PROFILE" | "AFFILIATIONS" | "EVENTS">("PROFILE");
+  const { id = "" } = useParams<{ id: string }>();
+  const [profile, setProfile] = useState<UstadzProfile | null>(null);
+  const [activeTab, setActiveTab] = useState<Tab>("PROFILE");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [preview, setPreview] = useState(false);
+  const [showAffiliationForm, setShowAffiliationForm] = useState(false);
+  const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [institutionId, setInstitutionId] = useState("");
+  const [position, setPosition] = useState("");
+  const [isPrimary, setIsPrimary] = useState(false);
+  const [savingAffiliation, setSavingAffiliation] = useState(false);
+  const [actionMessage, setActionMessage] = useState("");
+  const [duplicates, setDuplicates] = useState<UstadzProfile[]>([]);
 
-  const ustadz = {
-    id: id || "201",
-    fullName: "Ustadz Dr. Muhammad Muslih, Lc., M.A.",
-    normalizedName: "muhammad muslih",
-    email: "m.muslih@yts.or.id",
-    phone: "081233334444",
-    profileStatus: "ACTIVE",
-    cityName: "Kota Bandung",
-    provinceName: "Jawa Barat",
-    educationSummary: "S1 Universitas Islam Madinah, S2 & S3 Universitas Lipia Jakarta",
-    expertiseSummary: "Fiqih Muamalah, Fiqih Ibadah, Hadits",
-    affiliations: [
-      {
-        id: "aff-1",
-        institutionName: "Ma'had Ilmu Sunnah Bandung",
-        institutionCode: "MISB-01",
-        position: "Pimpinan Pengasuh",
-        isPrimary: true,
-        startDate: "2020-01-01",
-        endDate: null,
-        status: "ACTIVE",
-      },
-      {
-        id: "aff-2",
-        institutionName: "Yayasan Dakwah Al-Hikmah Cimahi",
-        institutionCode: "YDAH-02",
-        position: "Penasihat Syariah",
-        isPrimary: false,
-        startDate: "2022-06-15",
-        endDate: null,
-        status: "ACTIVE",
-      },
-    ],
+  const loadProfile = async () => {
+    setLoading(true);
+    setError("");
+    try {
+      if (id.startsWith("preview-")) {
+        setProfile(getUstadzPreviewProfile(id));
+        setPreview(true);
+      } else {
+        setProfile(await ustadzApi.get(id));
+        setPreview(false);
+      }
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Profil belum dapat dimuat.");
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    void loadProfile();
+  }, [id]);
+
+  useEffect(() => {
+    if (!showAffiliationForm) return;
+    const params = new URLSearchParams({ page: "1", pageSize: "100", status: "ACTIVE" });
+    institutionApi
+      .list(params)
+      .then((response) => setInstitutions(response.data))
+      .catch(() => setInstitutions([]));
+  }, [showAffiliationForm]);
+
+  useEffect(() => {
+    if (activeTab !== "QUALITY" || !profile) return;
+    if (preview) {
+      setDuplicates(profile.hasDuplicateAlert ? [getUstadzPreviewProfile("preview-ustadz-3")] : []);
+      return;
+    }
+    ustadzApi
+      .findDuplicates({
+        fullName: profile.fullName,
+        email: profile.email,
+        phone: profile.phone,
+        excludeId: profile.id,
+      })
+      .then(setDuplicates)
+      .catch(() => setDuplicates([]));
+  }, [activeTab, preview, profile]);
+
+  const missingFields = useMemo(
+    () => (profile ? missingLabels.filter(([key]) => !profile[key]).map(([, label]) => label) : []),
+    [profile],
+  );
+
+  const handleAddAffiliation = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!profile || !institutionId) return;
+    if (preview) {
+      setActionMessage("Mode pratinjau: afiliasi tervalidasi tanpa mengubah database.");
+      setShowAffiliationForm(false);
+      return;
+    }
+    setSavingAffiliation(true);
+    setActionMessage("");
+    try {
+      await ustadzApi.addAffiliation(profile.id, { institutionId, position, isPrimary });
+      setInstitutionId("");
+      setPosition("");
+      setIsPrimary(false);
+      setShowAffiliationForm(false);
+      setActionMessage("Afiliasi berhasil ditambahkan.");
+      await loadProfile();
+    } catch (affiliationError) {
+      setActionMessage(
+        affiliationError instanceof Error ? affiliationError.message : "Afiliasi belum dapat disimpan.",
+      );
+    } finally {
+      setSavingAffiliation(false);
+    }
+  };
+
+  const markPrimary = async (affiliationId: string) => {
+    if (!profile) return;
+    if (preview) {
+      setActionMessage("Mode pratinjau: pilihan afiliasi utama tidak mengubah database.");
+      return;
+    }
+    try {
+      await ustadzApi.updateAffiliation(profile.id, affiliationId, { isPrimary: true });
+      setActionMessage("Afiliasi utama diperbarui.");
+      await loadProfile();
+    } catch (actionError) {
+      setActionMessage(actionError instanceof Error ? actionError.message : "Aksi belum dapat diproses.");
+    }
+  };
+
+  const endAffiliation = async (affiliationId: string) => {
+    if (!profile) return;
+    if (!window.confirm("Akhiri afiliasi ini? Riwayatnya tetap disimpan.")) return;
+    if (preview) {
+      setActionMessage("Mode pratinjau: afiliasi tidak diubah.");
+      return;
+    }
+    try {
+      await ustadzApi.endAffiliation(profile.id, affiliationId);
+      setActionMessage("Afiliasi diakhiri dan riwayat tetap tersimpan.");
+      await loadProfile();
+    } catch (actionError) {
+      setActionMessage(actionError instanceof Error ? actionError.message : "Aksi belum dapat diproses.");
+    }
+  };
+
+  const whatsappHref = profile?.whatsapp || profile?.phone
+    ? `https://wa.me/${(profile.whatsapp || profile.phone || "").replace(/\D/g, "")}?text=${encodeURIComponent(
+        `Assalamu'alaikum warahmatullahi wabarakatuh, Ustadz ${profile.fullName}. Saya admin Aman Daurah Asatidz.`,
+      )}`
+    : "";
 
   return (
     <AdminLayout>
-      <PageHeader
-        title={ustadz.fullName}
-        description={`Profil Asatidz (Normalized: ${ustadz.normalizedName})`}
-        breadcrumbs={[
-          { label: "Admin", href: "/admin" },
-          { label: "Master Asatidz", href: "/admin/ustadz" },
-          { label: `Ustadz #${ustadz.id}` },
-        ]}
-        actions={
-          <div className="flex items-center space-x-2">
-            <Link
-              to={`/admin/ustadz/merge?source=${ustadz.id}`}
-              className="inline-flex items-center space-x-1 bg-amber-500 hover:bg-amber-600 text-white font-medium text-xs px-3.5 py-2 rounded-lg transition min-h-[44px]"
-            >
-              <GitMerge className="w-4 h-4" />
-              <span>Merge Profil</span>
-            </Link>
-            <Link
-              to={`/admin/ustadz/${ustadz.id}/edit`}
-              className="inline-flex items-center space-x-1 bg-emerald-600 hover:bg-emerald-700 text-white font-medium text-xs px-3.5 py-2 rounded-lg transition min-h-[44px]"
-            >
-              <Edit className="w-4 h-4" />
-              <span>Edit Profil</span>
-            </Link>
+      <div className="ustadz-workspace">
+        <PageHeader
+          title={profile?.fullName || "Detail profil asatidz"}
+          description="Profil terhubung dengan lembaga, event, konfirmasi, dan kehadiran individu."
+          breadcrumbs={[
+            { label: "Admin", href: "/admin" },
+            { label: "Asatidz", href: "/admin/ustadz" },
+            { label: profile?.fullName || "Detail" },
+          ]}
+          actions={
+            profile ? (
+              <div className="ustadz-page-actions">
+                <Link to={`/admin/ustadz/merge?source=${profile.id}`} className="ustadz-button ustadz-button--warning">
+                  <GitMerge aria-hidden="true" />
+                  <span>Gabungkan</span>
+                </Link>
+                <Link to={`/admin/ustadz/${profile.id}/edit`} className="ustadz-button ustadz-button--primary">
+                  <Edit3 aria-hidden="true" />
+                  <span>Edit profil</span>
+                </Link>
+              </div>
+            ) : undefined
+          }
+        />
+        <UstadzWorkspaceNav />
+
+        {loading && (
+          <div className="ustadz-loading" role="status">
+            <Loader2 className="animate-spin" aria-hidden="true" /> Memuat profil…
           </div>
-        }
-      />
-
-      {/* Header Profile Banner */}
-      <div className="bg-white border border-slate-200 rounded-xl p-5 mb-6 shadow-sm flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-        <div className="flex items-start space-x-4">
-          <div className="p-3 bg-emerald-100 text-emerald-800 rounded-full shrink-0">
-            <UserCheck className="w-8 h-8" />
+        )}
+        {error && (
+          <div className="ustadz-error" role="alert">
+            <AlertTriangle aria-hidden="true" />
+            <div><strong>Profil belum dapat dimuat</strong><p>{error}</p><Link to="/admin/ustadz">Kembali ke direktori</Link></div>
           </div>
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">{ustadz.fullName}</h2>
-            <p className="text-xs text-slate-500 font-mono">Norm: {ustadz.normalizedName}</p>
-            <div className="flex items-center space-x-3 text-xs text-slate-600 mt-2">
-              <span className="flex items-center space-x-1">
-                <Mail className="w-3.5 h-3.5 text-slate-400" />
-                <span>{ustadz.email}</span>
-              </span>
-              <span className="flex items-center space-x-1">
-                <Phone className="w-3.5 h-3.5 text-slate-400" />
-                <span>{ustadz.phone}</span>
-              </span>
-            </div>
-          </div>
-        </div>
+        )}
 
-        <div className="flex items-center space-x-2">
-          <StatusBadge label={ustadz.profileStatus} variant="success" />
-        </div>
-      </div>
+        {profile && (
+          <>
+            {preview && (
+              <div className="ustadz-preview-notice" role="status">
+                <AlertTriangle aria-hidden="true" />
+                <div><strong>Mode pratinjau aktif</strong><span>Interaksi dapat dicoba tanpa mengubah data produksi.</span></div>
+              </div>
+            )}
+            {actionMessage && (
+              <div className="ustadz-form__message ustadz-form__message--success" role="status">
+                <CheckCircle2 aria-hidden="true" /> {actionMessage}
+              </div>
+            )}
 
-      {/* Mobile-Friendly Tabs */}
-      <div className="flex border-b border-slate-200 mb-6 space-x-4">
-        <button
-          onClick={() => setActiveTab("PROFILE")}
-          className={`pb-3 text-xs font-semibold border-b-2 transition min-h-[44px] ${
-            activeTab === "PROFILE"
-              ? "border-emerald-600 text-emerald-700 font-bold"
-              : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          Detail Profil & Pendidikan
-        </button>
-        <button
-          onClick={() => setActiveTab("AFFILIATIONS")}
-          className={`pb-3 text-xs font-semibold border-b-2 transition min-h-[44px] ${
-            activeTab === "AFFILIATIONS"
-              ? "border-emerald-600 text-emerald-700 font-bold"
-              : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          Riwayat Afiliasi Lembaga ({ustadz.affiliations.length})
-        </button>
-        <button
-          onClick={() => setActiveTab("EVENTS")}
-          className={`pb-3 text-xs font-semibold border-b-2 transition min-h-[44px] ${
-            activeTab === "EVENTS"
-              ? "border-emerald-600 text-emerald-700 font-bold"
-              : "border-transparent text-slate-500 hover:text-slate-800"
-          }`}
-        >
-          Riwayat Kehadiran Daurah
-        </button>
-      </div>
-
-      {/* Tab 1: Profile */}
-      {activeTab === "PROFILE" && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b pb-2">
-              Latar Belakang Pendidikan
-            </h3>
-            <p className="text-xs text-slate-700 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-200">
-              {ustadz.educationSummary}
-            </p>
-          </div>
-
-          <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b pb-2">
-              Bidang Keahlian & Kepakaran
-            </h3>
-            <p className="text-xs text-slate-700 leading-relaxed bg-slate-50 p-3 rounded-lg border border-slate-200">
-              {ustadz.expertiseSummary}
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* Tab 2: Affiliations History (Many-to-Many compliant) */}
-      {activeTab === "AFFILIATIONS" && (
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-4">
-          <div className="flex items-center justify-between border-b pb-3">
-            <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider">
-              Riwayat Afiliasi Lembaga (Banyak Lembaga)
-            </h3>
-            <button className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-semibold rounded-lg flex items-center space-x-1">
-              <Plus className="w-3.5 h-3.5" />
-              <span>Tambah Afiliasi</span>
-            </button>
-          </div>
-
-          <div className="space-y-3">
-            {ustadz.affiliations.map((aff) => (
-              <div
-                key={aff.id}
-                className={`p-4 border rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                  aff.isPrimary ? "bg-emerald-50 border-emerald-300" : "bg-slate-50 border-slate-200"
-                }`}
-              >
-                <div className="space-y-1">
-                  <div className="flex items-center space-x-2">
-                    <span className="font-mono text-[10px] text-emerald-700 font-bold">{aff.institutionCode}</span>
-                    <h4 className="font-bold text-slate-900 text-sm">{aff.institutionName}</h4>
-                    {aff.isPrimary && (
-                      <span className="bg-emerald-600 text-white text-[10px] px-2 py-0.5 rounded font-bold">
-                        Afiliasi Utama Aktif
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-xs text-slate-600">Jabatan / Posisi: {aff.position}</p>
-                </div>
-
-                <div className="text-xs text-slate-500 shrink-0">
-                  <span>Mulai: {aff.startDate}</span>
+            <section className="ustadz-profile-band">
+              <div className="ustadz-profile-band__identity">
+                <span className="ustadz-profile-band__monogram" aria-hidden="true">
+                  {profile.fullName.split(/\s+/).slice(0, 2).map((word) => word[0]).join("")}
+                </span>
+                <div>
+                  <p>Profil terverifikasi internal</p>
+                  <h2>
+                    {[profile.titlePrefix, profile.fullName, profile.titleSuffix].filter(Boolean).join(" ")}
+                  </h2>
+                  <span>ID {profile.id}</span>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      )}
+              <div className="ustadz-profile-band__score">
+                <span>Kelengkapan profil</span>
+                <strong>{profile.completenessPercent ?? Math.max(20, 100 - missingFields.length * 10)}%</strong>
+                <progress max={100} value={profile.completenessPercent ?? Math.max(20, 100 - missingFields.length * 10)} />
+              </div>
+              <div className="ustadz-profile-band__contact">
+                {profile.email && <a href={`mailto:${profile.email}`}><Mail aria-hidden="true" /> Email</a>}
+                {whatsappHref && <a href={whatsappHref} target="_blank" rel="noreferrer"><MessageCircle aria-hidden="true" /> WhatsApp</a>}
+              </div>
+            </section>
 
-      {/* Tab 3: Events History */}
-      {activeTab === "EVENTS" && (
-        <div className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm space-y-3">
-          <h3 className="text-xs font-bold text-slate-800 uppercase tracking-wider border-b pb-2 flex items-center space-x-1">
-            <History className="w-4 h-4 text-emerald-600" />
-            <span>Riwayat Keikutsertaan Daurah</span>
-          </h3>
-          <p className="text-xs text-slate-600">
-            Ustadz telah tercatat hadir pada 3 event Daurah Asatidz YTS nasional.
-          </p>
-        </div>
-      )}
+            <nav className="ustadz-tabs" aria-label="Bagian profil">
+              {([
+                ["PROFILE", "Profil", UserRoundCheck],
+                ["AFFILIATIONS", `Afiliasi (${profile.affiliations?.length || 0})`, Building2],
+                ["EVENTS", `Riwayat event (${profile.eventHistory?.length || 0})`, CalendarDays],
+                ["QUALITY", "Kualitas data", ShieldCheck],
+              ] as Array<[Tab, string, React.ComponentType<{ className?: string }>]>).map(([key, label, Icon]) => (
+                <button
+                  key={key}
+                  type="button"
+                  data-active={activeTab === key}
+                  aria-selected={activeTab === key}
+                  onClick={() => setActiveTab(key)}
+                >
+                  <Icon aria-hidden="true" />
+                  <span>{label}</span>
+                </button>
+              ))}
+            </nav>
+
+            {activeTab === "PROFILE" && (
+              <section className="ustadz-panel">
+                <div className="ustadz-panel__head">
+                  <div><p>Data inti</p><h2>Identitas dan keahlian</h2></div>
+                  <span className="ustadz-status" data-status={profile.profileStatus}>
+                    {profile.profileStatus === "ACTIVE" ? "Aktif" : profile.profileStatus === "INACTIVE" ? "Nonaktif" : "Digabungkan"}
+                  </span>
+                </div>
+                <dl className="ustadz-definition-grid">
+                  <div><dt>Email</dt><dd><Mail aria-hidden="true" />{profile.email || "Belum tersedia"}</dd></div>
+                  <div><dt>Telepon</dt><dd><Phone aria-hidden="true" />{profile.phone || "Belum tersedia"}</dd></div>
+                  <div><dt>WhatsApp</dt><dd><MessageCircle aria-hidden="true" />{profile.whatsapp || "Belum tersedia"}</dd></div>
+                  <div><dt>Tempat, tanggal lahir</dt><dd>{profile.birthPlace || "—"}, {formatDate(profile.birthDate)}</dd></div>
+                  <div><dt>Domisili</dt><dd><MapPin aria-hidden="true" />{profile.address || "Belum tersedia"}</dd></div>
+                  <div><dt>Kode wilayah</dt><dd>{profile.cityCode || "—"} / {profile.provinceCode || "—"}</dd></div>
+                </dl>
+                <div className="ustadz-narratives">
+                  <article><BookOpenCheck aria-hidden="true" /><div><h3>Ringkasan pendidikan</h3><p>{profile.educationSummary || "Belum ada ringkasan pendidikan."}</p></div></article>
+                  <article><ShieldCheck aria-hidden="true" /><div><h3>Bidang kajian</h3><p>{profile.expertiseSummary || "Belum ada bidang kajian yang dicatat."}</p></div></article>
+                </div>
+              </section>
+            )}
+
+            {activeTab === "AFFILIATIONS" && (
+              <section className="ustadz-panel">
+                <div className="ustadz-panel__head">
+                  <div><p>Relasi kelembagaan</p><h2>Afiliasi aktif dan riwayat</h2></div>
+                  <button type="button" className="ustadz-button ustadz-button--primary" onClick={() => setShowAffiliationForm(true)}>
+                    <Plus aria-hidden="true" /> Tambah afiliasi
+                  </button>
+                </div>
+                {showAffiliationForm && (
+                  <form className="ustadz-inline-form" onSubmit={handleAddAffiliation}>
+                    <div className="ustadz-inline-form__head">
+                      <strong>Afiliasi baru</strong>
+                      <button type="button" onClick={() => setShowAffiliationForm(false)} aria-label="Tutup formulir"><X aria-hidden="true" /></button>
+                    </div>
+                    <label><span>Lembaga</span><select value={institutionId} onChange={(event) => setInstitutionId(event.target.value)} required><option value="">Pilih lembaga</option>{institutions.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.code})</option>)}</select></label>
+                    <label><span>Posisi</span><input value={position} onChange={(event) => setPosition(event.target.value)} placeholder="Pengasuh / pembina / pengajar" /></label>
+                    <label className="ustadz-checkbox"><input type="checkbox" checked={isPrimary} onChange={(event) => setIsPrimary(event.target.checked)} /><span>Jadikan afiliasi utama</span></label>
+                    <button className="ustadz-button ustadz-button--primary" type="submit" disabled={savingAffiliation}><Save aria-hidden="true" />{savingAffiliation ? "Menyimpan…" : "Simpan afiliasi"}</button>
+                  </form>
+                )}
+                <div className="ustadz-affiliation-list">
+                  {(profile.affiliations || []).length === 0 ? (
+                    <p className="ustadz-panel__empty">Belum ada afiliasi lembaga pada profil ini.</p>
+                  ) : (
+                    profile.affiliations?.map((affiliation) => (
+                      <article key={affiliation.id} data-primary={affiliation.isPrimary}>
+                        <Building2 aria-hidden="true" />
+                        <div>
+                          <div><strong>{affiliation.institutionName}</strong>{affiliation.isPrimary && <span>Utama</span>}</div>
+                          <p>{affiliation.institutionCode} · {affiliation.position || "Posisi belum dicatat"}</p>
+                          <small>{formatDate(affiliation.startDate)} — {affiliation.endDate ? formatDate(affiliation.endDate) : "sekarang"}</small>
+                        </div>
+                        {affiliation.status === "ACTIVE" && (
+                          <div>
+                            {!affiliation.isPrimary && <button type="button" onClick={() => markPrimary(affiliation.id)}>Jadikan utama</button>}
+                            <button type="button" onClick={() => endAffiliation(affiliation.id)}>Akhiri</button>
+                          </div>
+                        )}
+                      </article>
+                    ))
+                  )}
+                </div>
+              </section>
+            )}
+
+            {activeTab === "EVENTS" && (
+              <section className="ustadz-panel">
+                <div className="ustadz-panel__head"><div><p>Jejak partisipasi</p><h2>Undangan, konfirmasi, dan kehadiran</h2></div></div>
+                <div className="ustadz-event-list">
+                  {(profile.eventHistory || []).length === 0 ? (
+                    <p className="ustadz-panel__empty">Belum ada riwayat event yang tertaut ke profil ini.</p>
+                  ) : (
+                    profile.eventHistory?.map((event) => (
+                      <article key={event.participantId}>
+                        <time>{formatDate(event.eventStartDate)}</time>
+                        <div><strong>{event.eventName}</strong><span>{event.eventCode} · Peserta {event.participantCode}</span></div>
+                        <div><span>{event.confirmationStatus === "CONFIRMED" ? "Terkonfirmasi" : event.confirmationStatus}</span><strong>{event.attendanceCount} presensi</strong></div>
+                      </article>
+                    ))
+                  )}
+                </div>
+              </section>
+            )}
+
+            {activeTab === "QUALITY" && (
+              <section className="ustadz-panel">
+                <div className="ustadz-panel__head"><div><p>Tata kelola data</p><h2>Kelengkapan dan potensi duplikat</h2></div></div>
+                <div className="ustadz-quality-grid">
+                  <article>
+                    <h3>Data yang perlu dilengkapi</h3>
+                    {missingFields.length === 0 ? <p>Semua data utama telah tersedia.</p> : <ul>{missingFields.map((label) => <li key={label}>{label}</li>)}</ul>}
+                    <Link to={`/admin/ustadz/${profile.id}/edit`}>Lengkapi profil</Link>
+                  </article>
+                  <article>
+                    <h3>Profil serupa</h3>
+                    {duplicates.length === 0 ? <p>Tidak ditemukan profil serupa dari nama dan kontak.</p> : <ul>{duplicates.map((candidate) => <li key={candidate.id}><Link to={`/admin/ustadz/${candidate.id}`}>{candidate.fullName}</Link><span>{candidate.phone || candidate.email || "Tanpa kontak"}</span></li>)}</ul>}
+                    {duplicates.length > 0 && <Link to={`/admin/ustadz/merge?source=${profile.id}`}>Buka proses penggabungan</Link>}
+                  </article>
+                </div>
+              </section>
+            )}
+          </>
+        )}
+      </div>
     </AdminLayout>
   );
 };

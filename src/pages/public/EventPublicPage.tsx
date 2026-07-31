@@ -1,124 +1,306 @@
-import React from "react";
-import { useParams, Link } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
-import { Calendar, MapPin, ExternalLink, Clock, Building2, CheckCircle2 } from "lucide-react";
+import { StatusBadge, StatusVariant } from "@/components/common/StatusBadge";
+import { ENV } from "@/config/env";
+import { AlertCircle, Calendar, Clock, ExternalLink, MapPin, RefreshCw } from "lucide-react";
+
+type EventDay = {
+  id: string;
+  dayNumber: number;
+  date: string;
+  title: string | null;
+};
+
+type EventSession = {
+  id: string;
+  eventDayId: string;
+  title: string;
+  sessionType: string;
+  moderatorName: string | null;
+  startAt: string;
+  endAt: string;
+  room: string | null;
+  sortOrder: number;
+};
+
+type PublicEvent = {
+  id: string;
+  code: string;
+  slug: string;
+  name: string;
+  subtitle: string | null;
+  description: string | null;
+  timezone: string;
+  startDate: string;
+  endDate: string;
+  venueName: string | null;
+  venueAddress: string | null;
+  mapsUrl: string | null;
+  status: string;
+  days: EventDay[];
+  sessions: EventSession[];
+};
+
+const previewEvent: PublicEvent = {
+  id: "preview",
+  code: "CONTOH-DAURAH",
+  slug: "contoh-daurah-asatidz",
+  name: "Contoh Halaman Daurah Asatidz",
+  subtitle: "Pratinjau tampilan informasi event",
+  description:
+    "Data pada halaman ini hanya contoh karena API lokal belum tersambung. Informasi event sebenarnya akan mengikuti data yang dibuat oleh admin.",
+  timezone: "Asia/Jakarta",
+  startDate: "2026-08-15",
+  endDate: "2026-08-16",
+  venueName: "Lokasi contoh",
+  venueAddress: "Alamat akan mengikuti data event.",
+  mapsUrl: null,
+  status: "DRAFT",
+  days: [
+    { id: "preview-day", dayNumber: 1, date: "2026-08-15", title: "Hari pertama" },
+  ],
+  sessions: [
+    {
+      id: "preview-session",
+      eventDayId: "preview-day",
+      title: "Contoh sesi pembukaan",
+      sessionType: "MATERIAL",
+      moderatorName: null,
+      startAt: "2026-08-15T08:00:00+07:00",
+      endAt: "2026-08-15T10:00:00+07:00",
+      room: "Ruang utama",
+      sortOrder: 0,
+    },
+  ],
+};
+
+const statusVariant = (status: string): StatusVariant => {
+  if (status === "ONGOING" || status === "COMPLETED") return "success";
+  if (status === "PUBLISHED" || status === "REGISTRATION_OPEN") return "info";
+  if (status === "CANCELLED") return "danger";
+  if (status === "REGISTRATION_CLOSED") return "warning";
+  return "neutral";
+};
+
+const formatDate = (value: string) =>
+  new Intl.DateTimeFormat("id-ID", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "Asia/Jakarta",
+  }).format(new Date(`${value}T00:00:00+07:00`));
+
+const formatTime = (value: string) =>
+  new Intl.DateTimeFormat("id-ID", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "Asia/Jakarta",
+  }).format(new Date(value));
 
 export const EventPublicPage: React.FC = () => {
-  const { slug } = useParams<{ slug: string }>();
+  const { slug = "" } = useParams<{ slug: string }>();
+  const [eventData, setEventData] = useState<PublicEvent | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [previewMode, setPreviewMode] = useState(false);
 
-  const eventData = {
-    slug: slug || "daurah-asatidz-nasional-2026-bandung",
-    code: "DAURAH-2026-BDG",
-    name: "Daurah Asatidz Nasional 2026 - Bandung",
-    subtitle: "Peningkatan Kapasitas & Penguatan Fiqih Dakwah Asatidz Indonesia",
-    description: "Kegiatan tahunan penguatan kapasitas keilmuan, koordinasi dakwah, dan konsolidasi Asatidz perwakilan lembaga partner YTS.",
-    timezone: "Asia/Jakarta (WIB)",
-    startDate: "15 Agustus 2026",
-    endDate: "18 Agustus 2026",
-    venueName: "Hotel Grand Asrilia Bandung",
-    venueAddress: "Jl. Pelajar Pejuang 45 No. 123, Lengkong, Kota Bandung, Jawa Barat",
-    mapsUrl: "https://maps.google.com/?q=Grand+Asrilia+Bandung",
-    status: "REGISTRATION_OPEN",
-    scheduleDays: [
-      {
-        dayNumber: 1,
-        title: "Hari Ke-1: Pembukaan & Landasan Fiqih",
-        sessions: [
-          { title: "Sesi 1: Pembukaan & Keynote Speech", speaker: "Ustadz Khusus YTS", time: "08:00 - 10:00" },
-          { title: "Sesi 2: Pengantar Fiqih Daurah Modern", speaker: "Ustadz Dr. Muhammad Muslih, Lc., M.A.", time: "10:30 - 12:00" },
-        ],
-      },
-      {
-        dayNumber: 2,
-        title: "Hari Ke-2: Workshop & Konsolidasi Lembaga",
-        sessions: [
-          { title: "Sesi 3: Workshop Manajemen Pesantren", speaker: "Tim Pakar YTS", time: "08:00 - 11:30" },
-        ],
-      },
-    ],
+  const loadEvent = async () => {
+    setLoading(true);
+    setError("");
+    setPreviewMode(false);
+    try {
+      const response = await fetch(`${ENV.API_BASE_URL}/events/public/${encodeURIComponent(slug)}`);
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error?.message || "Informasi event tidak dapat dimuat.");
+      setEventData(result.data);
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : "Informasi event tidak dapat dimuat.");
+      if (import.meta.env.DEV) {
+        setEventData(previewEvent);
+        setPreviewMode(true);
+      } else {
+        setEventData(null);
+      }
+    } finally {
+      setLoading(false);
+    }
   };
+
+  useEffect(() => {
+    void loadEvent();
+  }, [slug]);
+
+  const schedule = useMemo(
+    () =>
+      (eventData?.days || []).map((day) => ({
+        ...day,
+        sessions: (eventData?.sessions || []).filter((session) => session.eventDayId === day.id),
+      })),
+    [eventData]
+  );
 
   return (
     <PublicLayout>
-      <div className="max-w-4xl mx-auto space-y-6">
-        {/* Banner Card */}
-        <div className="bg-gradient-to-r from-emerald-800 to-emerald-950 text-white rounded-2xl p-6 sm:p-8 shadow-lg space-y-4">
-          <div className="flex items-center space-x-2">
-            <span className="bg-emerald-700/80 text-emerald-100 text-xs font-mono font-bold px-2.5 py-1 rounded">
-              {eventData.code}
-            </span>
-            <span className="bg-emerald-500/20 border border-emerald-400/30 text-emerald-200 text-xs px-2.5 py-1 rounded font-semibold">
-              Pendaftaran Dibuka
-            </span>
+      <main className="mx-auto max-w-4xl">
+        {loading ? (
+          <div className="space-y-4" aria-label="Memuat informasi event">
+            <div className="h-72 animate-pulse rounded-2xl bg-slate-200" />
+            <div className="h-40 animate-pulse rounded-xl bg-slate-100" />
           </div>
-
-          <h1 className="text-2xl sm:text-3xl font-extrabold leading-tight">{eventData.name}</h1>
-          <p className="text-emerald-100/90 text-sm max-w-2xl">{eventData.subtitle}</p>
-
-          <div className="pt-4 border-t border-emerald-700/50 grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs text-emerald-100">
-            <div className="flex items-center space-x-2">
-              <Calendar className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>
-                {eventData.startDate} s.d {eventData.endDate} ({eventData.timezone})
-              </span>
-            </div>
-            <div className="flex items-center space-x-2">
-              <MapPin className="w-4 h-4 text-emerald-400 shrink-0" />
-              <span>{eventData.venueName}</span>
-            </div>
-          </div>
-        </div>
-
-        {/* Location & Maps Section */}
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-3">
-          <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2 border-b pb-2">
-            <MapPin className="w-4 h-4 text-emerald-600" />
-            <span>Lokasi Pelaksanaan & Peta</span>
-          </h3>
-          <p className="text-xs text-slate-700 font-semibold">{eventData.venueName}</p>
-          <p className="text-xs text-slate-500">{eventData.venueAddress}</p>
-          {eventData.mapsUrl && (
-            <a
-              href={eventData.mapsUrl}
-              target="_blank"
-              rel="noreferrer"
-              className="inline-flex items-center space-x-1.5 text-xs text-emerald-700 font-bold hover:underline pt-1"
+        ) : !eventData ? (
+          <div className="flex min-h-[60vh] flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
+            <AlertCircle className="h-10 w-10 text-rose-500" />
+            <h1 className="mt-4 text-xl font-black text-slate-900">Event tidak dapat ditampilkan</h1>
+            <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
+              Tautan mungkin tidak valid atau layanan sedang tidak tersedia.
+            </p>
+            <button
+              type="button"
+              onClick={() => void loadEvent()}
+              className="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white hover:bg-emerald-800"
             >
-              <span>Buka Petunjuk Arah di Google Maps</span>
-              <ExternalLink className="w-3.5 h-3.5" />
-            </a>
-          )}
-        </div>
+              <RefreshCw className="h-4 w-4" />
+              Coba lagi
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-5">
+            {previewMode && (
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-950">
+                <p>API lokal belum tersambung. Halaman menampilkan data contoh untuk pratinjau UI.</p>
+                <StatusBadge label="Bukan data produksi" variant="warning" />
+              </div>
+            )}
 
-        {/* Schedule & Sessions Section */}
-        <div className="bg-white border border-slate-200 rounded-xl p-6 shadow-sm space-y-4">
-          <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2 border-b pb-2">
-            <Clock className="w-4 h-4 text-emerald-600" />
-            <span>Jadwal & Rundown Acara</span>
-          </h3>
+            <header className="overflow-hidden rounded-2xl bg-emerald-950 text-white shadow-lg">
+              <div className="border-b border-emerald-800/70 p-6 sm:p-8">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="rounded bg-white/10 px-2.5 py-1 font-mono text-[10px] font-black tracking-wide text-emerald-100">
+                    {eventData.code}
+                  </span>
+                  <StatusBadge
+                    label={eventData.status.replaceAll("_", " ")}
+                    variant={statusVariant(eventData.status)}
+                    className="border-white/20"
+                  />
+                </div>
+                <h1 className="mt-5 max-w-3xl text-2xl font-black leading-tight sm:text-4xl">{eventData.name}</h1>
+                {eventData.subtitle && (
+                  <p className="mt-3 max-w-2xl text-sm leading-6 text-emerald-100/80">{eventData.subtitle}</p>
+                )}
+              </div>
+              <dl className="grid gap-px bg-emerald-800/60 sm:grid-cols-2">
+                <div className="flex gap-3 bg-emerald-950/80 p-5">
+                  <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                  <div>
+                    <dt className="text-[10px] font-black uppercase tracking-wider text-emerald-300">Tanggal</dt>
+                    <dd className="mt-1 text-xs leading-5 text-emerald-50">
+                      {formatDate(eventData.startDate)}–{formatDate(eventData.endDate)}
+                    </dd>
+                  </div>
+                </div>
+                <div className="flex gap-3 bg-emerald-950/80 p-5">
+                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
+                  <div>
+                    <dt className="text-[10px] font-black uppercase tracking-wider text-emerald-300">Lokasi</dt>
+                    <dd className="mt-1 text-xs leading-5 text-emerald-50">
+                      {eventData.venueName || "Akan diumumkan"}
+                    </dd>
+                  </div>
+                </div>
+              </dl>
+            </header>
 
-          <div className="space-y-4">
-            {eventData.scheduleDays.map((day) => (
-              <div key={day.dayNumber} className="border border-slate-200 rounded-xl p-4 bg-slate-50/50 space-y-3">
-                <h4 className="font-bold text-slate-900 text-xs border-b border-slate-200 pb-2">{day.title}</h4>
-                <div className="space-y-2">
-                  {day.sessions.map((sess, idx) => (
-                    <div key={idx} className="p-3 bg-white border border-slate-200 rounded-lg flex items-center justify-between text-xs">
-                      <div>
-                        <span className="font-bold text-slate-900 block">{sess.title}</span>
-                        <span className="text-[11px] text-slate-500 block">Pemateri: {sess.speaker}</span>
-                      </div>
-                      <span className="bg-emerald-50 text-emerald-800 px-2 py-1 rounded font-semibold text-[11px]">
-                        {sess.time}
-                      </span>
-                    </div>
-                  ))}
+            {(eventData.description || eventData.venueName || eventData.venueAddress) && (
+              <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
+                <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
+                  <h2 className="text-sm font-black text-slate-900">Tentang kegiatan</h2>
+                  <p className="mt-3 text-sm leading-7 text-slate-600">
+                    {eventData.description || "Deskripsi kegiatan akan diperbarui oleh penyelenggara."}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                  <MapPin className="h-5 w-5 text-emerald-700" />
+                  <h2 className="mt-3 text-sm font-black text-slate-900">{eventData.venueName || "Lokasi acara"}</h2>
+                  <p className="mt-2 text-xs leading-5 text-slate-500">
+                    {eventData.venueAddress || "Alamat lengkap akan diumumkan."}
+                  </p>
+                  {eventData.mapsUrl && (
+                    <a
+                      href={eventData.mapsUrl}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="mt-4 inline-flex min-h-[44px] items-center gap-2 text-xs font-black text-emerald-700 hover:text-emerald-900"
+                    >
+                      Buka petunjuk arah
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </a>
+                  )}
+                </div>
+              </section>
+            )}
+
+            <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+              <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
+                <Clock className="h-5 w-5 text-emerald-700" />
+                <div>
+                  <h2 className="text-sm font-black text-slate-900">Jadwal kegiatan</h2>
+                  <p className="mt-0.5 text-[11px] text-slate-500">Waktu ditampilkan dalam WIB.</p>
                 </div>
               </div>
-            ))}
+
+              {schedule.length === 0 ? (
+                <p className="py-10 text-center text-xs text-slate-500">Jadwal rinci belum dipublikasikan.</p>
+              ) : (
+                <div className="mt-5 space-y-5">
+                  {schedule.map((day) => (
+                    <article key={day.id}>
+                      <div className="flex flex-wrap items-baseline justify-between gap-2">
+                        <h3 className="text-sm font-black text-slate-900">
+                          Hari {day.dayNumber}
+                          {day.title ? ` · ${day.title}` : ""}
+                        </h3>
+                        <time className="text-[11px] font-bold text-slate-500">{formatDate(day.date)}</time>
+                      </div>
+                      {day.sessions.length === 0 ? (
+                        <p className="mt-3 rounded-lg bg-slate-50 p-4 text-xs text-slate-500">
+                          Sesi untuk hari ini belum tersedia.
+                        </p>
+                      ) : (
+                        <ol className="mt-3 divide-y divide-slate-100 border-l-2 border-emerald-600">
+                          {day.sessions.map((session) => (
+                            <li key={session.id} className="grid gap-2 py-4 pl-4 sm:grid-cols-[7rem_minmax(0,1fr)]">
+                              <time className="font-mono text-xs font-black text-emerald-800">
+                                {formatTime(session.startAt)}–{formatTime(session.endAt)}
+                              </time>
+                              <div>
+                                <h4 className="text-xs font-black text-slate-900">{session.title}</h4>
+                                <p className="mt-1 text-[11px] text-slate-500">
+                                  {[session.room, session.moderatorName && `Moderator: ${session.moderatorName}`]
+                                    .filter(Boolean)
+                                    .join(" · ") || "Detail ruang akan diumumkan"}
+                                </p>
+                              </div>
+                            </li>
+                          ))}
+                        </ol>
+                      )}
+                    </article>
+                  ))}
+                </div>
+              )}
+            </section>
+
+            <footer className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-xs text-slate-500">Pendaftaran hanya melalui tautan undangan resmi lembaga atau individu.</p>
+              <Link to="/login/ustadz" className="text-xs font-black text-emerald-700 hover:text-emerald-900">
+                Masuk Portal Ustadz
+              </Link>
+            </footer>
           </div>
-        </div>
-      </div>
+        )}
+      </main>
     </PublicLayout>
   );
 };

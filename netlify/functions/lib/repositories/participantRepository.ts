@@ -1,6 +1,6 @@
 import { getDbClient } from "../db/client";
 import { withTransaction } from "../db/transaction";
-import { eventParticipants, participantStatusHistories, ustadzProfiles, institutions, auditLogs } from "../db/schema";
+import { eventParticipants, participantStatusHistories, ustadzProfiles, institutions, events, auditLogs } from "../db/schema";
 import { eq, and, count, desc } from "drizzle-orm";
 
 export async function countInstitutionParticipantsRepository(eventId: string, institutionId: string): Promise<number> {
@@ -28,8 +28,20 @@ export async function findParticipantsRepository(eventId: string) {
       ustadzId: eventParticipants.ustadzId,
       ustadzName: ustadzProfiles.fullName,
       ustadzEmail: ustadzProfiles.email,
+      ustadzPhone: ustadzProfiles.phone,
+      ustadzWhatsapp: ustadzProfiles.whatsapp,
+      ustadzAddress: ustadzProfiles.address,
+      ustadzCityCode: ustadzProfiles.cityCode,
+      ustadzProvinceCode: ustadzProfiles.provinceCode,
+      eventName: events.name,
+      eventStartDate: events.startDate,
+      eventEndDate: events.endDate,
+      eventVenueName: events.venueName,
+      eventVenueAddress: events.venueAddress,
       institutionId: eventParticipants.institutionId,
       institutionName: institutions.name,
+      invitationId: eventParticipants.invitationId,
+      registrationSource: eventParticipants.registrationSource,
       participantCode: eventParticipants.participantCode,
       isDelegationLead: eventParticipants.isDelegationLead,
       confirmationStatus: eventParticipants.confirmationStatus,
@@ -38,6 +50,7 @@ export async function findParticipantsRepository(eventId: string) {
     })
     .from(eventParticipants)
     .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
+    .innerJoin(events, eq(eventParticipants.eventId, events.id))
     .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
     .where(eq(eventParticipants.eventId, eventId))
     .orderBy(desc(eventParticipants.createdAt));
@@ -179,4 +192,51 @@ export async function replaceParticipantTxRepository(
       newParticipant: createdNew[0],
     };
   });
+}
+
+export async function countApprovedParticipantsForEventRepository(eventId: string): Promise<number> {
+  const db = getDbClient();
+  const res = await db
+    .select({ total: count() })
+    .from(eventParticipants)
+    .where(
+      and(
+        eq(eventParticipants.eventId, eventId),
+        eq(eventParticipants.approvalStatus, "APPROVED")
+      )
+    );
+
+  return res[0]?.total || 0;
+}
+
+export async function updateParticipantApprovalStatusRepository(
+  participantId: string,
+  toApprovalStatus: string,
+  reason?: string | null,
+  changedBy?: string | null
+) {
+  const db = getDbClient();
+  const existing = await findParticipantByIdRepository(participantId);
+  if (!existing) return null;
+
+  const updated = await db
+    .update(eventParticipants)
+    .set({
+      approvalStatus: toApprovalStatus,
+      approvedAt: toApprovalStatus === "APPROVED" ? new Date() : existing.approvedAt,
+      updatedAt: new Date(),
+    })
+    .where(eq(eventParticipants.id, participantId))
+    .returning();
+
+  await db.insert(participantStatusHistories).values({
+    participantId,
+    statusType: "APPROVAL_STATUS",
+    fromStatus: existing.approvalStatus,
+    toStatus: toApprovalStatus,
+    reason: reason || null,
+    changedBy: changedBy || null,
+  });
+
+  return updated[0];
 }

@@ -14,6 +14,12 @@ export const createEventSchema = z.object({
   venueName: z.string().optional().nullable(),
   venueAddress: z.string().optional().nullable(),
   mapsUrl: z.string().url("Format URL Google Maps tidak valid").optional().or(z.literal("")).nullable(),
+  registrationOpenAt: z.string().optional().nullable(),
+  registrationCloseAt: z.string().optional().nullable(),
+  invitationResponseDeadline: z.string().optional().nullable(),
+  attendanceConfirmationDeadline: z.string().optional().nullable(),
+  attendanceConfirmationRequired: z.boolean().default(true),
+  lateConfirmationPolicy: z.enum(["BLOCK", "REVIEW", "ALLOW"]).default("BLOCK"),
   defaultInstitutionQuota: z.coerce.number().min(1).optional().nullable(),
   capacity: z.coerce.number().min(1).optional().nullable(),
 });
@@ -59,4 +65,9 @@ export const createEventSessionSchema = z.object({
 export const assignCommitteeSchema = z.object({
   userId: z.string().uuid("ID Pengguna tidak valid"),
   committeeRole: z.enum(["EVENT_ADMIN", "COMMITTEE_LEAD", "REGISTRATION_OFFICER", "CHECKIN_OFFICER", "INFORMATION_OFFICER"]),
+  startsAt: z.string().optional().nullable(),
+  endsAt: z.string().optional().nullable(),
+  permissions: z.array(z.string()).optional().nullable(),
 });
+
+export const updateCommitteeAssignmentSchema = assignCommitteeSchema.omit({ userId: true }).partial();

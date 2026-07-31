@@ -39,3 +39,5 @@ export const createRepresentativeSchema = z.object({
   position: z.string().optional().nullable(),
   isPrimary: z.boolean().default(false),
 });
+
+export const updateRepresentativeSchema = createRepresentativeSchema.partial();

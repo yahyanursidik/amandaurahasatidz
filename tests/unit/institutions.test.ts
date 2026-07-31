@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { createInstitutionSchema, queryInstitutionSchema } from "../../netlify/functions/lib/validations/institutionValidation";
+import {
+  createInstitutionSchema,
+  queryInstitutionSchema,
+  createRepresentativeSchema,
+  updateRepresentativeSchema,
+} from "../../netlify/functions/lib/validations/institutionValidation";
 
 describe("Master Data Lembaga Unit & Business Rule Tests", () => {
   it("should validate valid institution creation payload", () => {
@@ -46,5 +51,20 @@ describe("Master Data Lembaga Unit & Business Rule Tests", () => {
     // Business rule simulation: Soft delete must be used if institution has history
     const deleteAction = hasHistory ? "SOFT_DELETE" : "HARD_DELETE_REJECTED";
     expect(deleteAction).toBe("SOFT_DELETE");
+  });
+
+  it("validates a primary institution representative", () => {
+    const parsed = createRepresentativeSchema.safeParse({
+      name: "Ahmad Fauzan",
+      email: "ahmad@lembaga.or.id",
+      position: "Sekretaris",
+      isPrimary: true,
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("allows partial representative updates but rejects malformed email", () => {
+    expect(updateRepresentativeSchema.safeParse({ isPrimary: true }).success).toBe(true);
+    expect(updateRepresentativeSchema.safeParse({ email: "bukan-email" }).success).toBe(false);
   });
 });
