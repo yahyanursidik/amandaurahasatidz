@@ -137,6 +137,35 @@
   --dur-committee-short: 220ms;
   --ease-committee-out: cubic-bezier(0.16, 1, 0.3, 1);
 
+  --color-portal-paper: var(--color-event-paper);
+  --color-portal-surface: oklch(100% 0 0);
+  --color-portal-ink: var(--color-event-ink);
+  --color-portal-muted: var(--color-event-muted);
+  --color-portal-rule: var(--color-event-rule);
+  --color-portal-accent: var(--color-event-accent);
+  --color-portal-accent-ink: var(--color-event-accent-ink);
+  --color-portal-focus: var(--color-event-focus);
+  --color-portal-warning: oklch(57% 0.14 70);
+  --color-portal-warning-paper: oklch(96% 0.035 80);
+  --font-portal-display: var(--font-event-display);
+  --font-portal-body: var(--font-event-body);
+  --space-portal-xs: 0.5rem;
+  --space-portal-sm: 0.75rem;
+  --space-portal-md: 1rem;
+  --space-portal-lg: 1.5rem;
+  --space-portal-xl: 2rem;
+  --text-portal-caption: 0.8125rem;
+  --text-portal-small: 0.875rem;
+  --text-portal-body: 1rem;
+  --text-portal-title: 1.25rem;
+  --ease-portal-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-portal-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-portal-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-portal-micro: 120ms;
+  --dur-portal-short: 220ms;
+  --radius-portal-control: 0.625rem;
+  --rule-portal: 1px;
+
   --color-poster-night: oklch(19% 0.035 160);
   --color-poster-night-soft: oklch(26% 0.05 160);
   --color-poster-paper: oklch(98% 0.006 160);

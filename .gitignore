@@ -32,3 +32,6 @@ lerna-debug.log*
 *.sw?
 .DS_Store
 Thumbs.db
+
+# Temporary Backups
+.dependency-backup-vite8/

@@ -8,6 +8,7 @@ export interface SidebarNavItem {
   href: string;
   icon: React.ReactNode;
   exact?: boolean;
+  mobilePrimary?: boolean;
 }
 
 export interface SidebarProps {

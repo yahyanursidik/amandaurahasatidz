@@ -1,7 +1,7 @@
 import { UserContext, UserRoleAssignment } from "../middleware/rbac";
 import { getDbClient } from "../db/client";
-import { users, userRoleAssignments, roles } from "../db/schema";
-import { eq } from "drizzle-orm";
+import { users, userRoleAssignments, roles, ustadzProfiles } from "../db/schema";
+import { eq, or } from "drizzle-orm";
 import { RoleCode } from "../../../../src/config/permissions";
 import { parseCookies } from "../utils/cookie";
 import { randomBytes } from "node:crypto";
@@ -210,11 +210,24 @@ async function resolveUserContextFromEmail(targetEmail: string): Promise<UserCon
       startsAt: a.startsAt,
       endsAt: a.endsAt,
     }));
+    const ustadzProfile = assignments.some((assignment) => assignment.roleCode === "USTADZ")
+      ? await db
+          .select({ id: ustadzProfiles.id })
+          .from(ustadzProfiles)
+          .where(
+            or(
+              eq(ustadzProfiles.userId, userRecord.id),
+              eq(ustadzProfiles.email, normalizedEmail),
+            ),
+          )
+          .limit(1)
+      : [];
 
     return {
       userId: userRecord.id,
       email: userRecord.email,
       name: userRecord.name,
+      ustadzId: ustadzProfile[0]?.id || null,
       assignments,
     };
   } catch (_err) {

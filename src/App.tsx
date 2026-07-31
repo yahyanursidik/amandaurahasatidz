@@ -33,10 +33,10 @@ import { CommitteeDetailPage } from "./pages/admin/committee/CommitteeDetailPage
 import { CommitteeDashboardPage } from "./pages/committee/CommitteeDashboardPage";
 import { OnSiteCheckinPage } from "./pages/committee/OnSiteCheckinPage";
 import { CommitteeQrDisplayPage } from "./pages/committee/CommitteeQrDisplayPage";
-import { CommitteeSupportPage } from "./pages/committee/CommitteeSupportPage";
+import { CommitteeOperationsPage } from "./pages/committee/CommitteeOperationsPage";
 import { CommitteeParticipantsPage } from "./pages/committee/CommitteeParticipantsPage";
 import { CommitteeAssignmentsPage } from "./pages/committee/CommitteeAssignmentsPage";
-import { UstadzPortalPage } from "./pages/portal/UstadzPortalPage";
+import { ParticipantPortalPage } from "./pages/portal/ParticipantPortalPage";
 import { EventPublicPage } from "./pages/public/EventPublicPage";
 import { InvitationPage } from "./pages/public/InvitationPage";
 import { CheckInPublicPage } from "./pages/public/CheckInPublicPage";
@@ -310,7 +310,7 @@ export const App: React.FC = () => {
             path="/committee/attendance"
             element={
               <ProtectedRoute>
-                <CommitteeSupportPage mode="attendance" />
+                <CommitteeOperationsPage mode="attendance" />
               </ProtectedRoute>
             }
           />
@@ -326,7 +326,7 @@ export const App: React.FC = () => {
             path="/committee/announcements"
             element={
               <ProtectedRoute>
-                <CommitteeSupportPage mode="announcements" />
+                <CommitteeOperationsPage mode="announcements" />
               </ProtectedRoute>
             }
           />
@@ -337,7 +337,7 @@ export const App: React.FC = () => {
             path="/portal"
             element={
               <ProtectedRoute>
-                <UstadzPortalPage />
+                <ParticipantPortalPage />
               </ProtectedRoute>
             }
           />
@@ -345,7 +345,7 @@ export const App: React.FC = () => {
             path="/portal/*"
             element={
               <ProtectedRoute>
-                <UstadzPortalPage />
+                <ParticipantPortalPage />
               </ProtectedRoute>
             }
           />

@@ -3797,3 +3797,28 @@
     transition-duration: 0.01ms;
   }
 }
+
+/* Hallmark · Map / Diagram · shared interaction states for committee and participant portals */
+@layer base {
+  :where(a, button, input, select, textarea):focus-visible {
+    outline: 2px solid var(--color-portal-focus);
+    outline-offset: 2px;
+  }
+
+  :where(a, button):active {
+    opacity: 0.88;
+  }
+
+  :where(button, input, select, textarea):disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(a, button, input, select, textarea) {
+    scroll-behavior: auto;
+    transition-duration: 0.01ms !important;
+  }
+}
+/* Hallmark v1.1 | Map / Diagram | operational committee flow and participant journey */

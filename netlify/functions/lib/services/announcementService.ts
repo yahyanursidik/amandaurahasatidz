@@ -6,7 +6,7 @@ import {
   ustadzProfiles,
   attendanceRecords,
 } from "../db/schema";
-import { eq, and, desc, isNotNull } from "drizzle-orm";
+import { eq, and, desc, inArray } from "drizzle-orm";
 import { sanitizeRichText } from "../utils/sanitizer";
 import { NotFoundError } from "../utils/errors";
 import { enqueueEmailJob } from "./emailQueueService";
@@ -242,7 +242,13 @@ async function resolveTargetRecipients(
     return list.map((item) => ({ ...item, userId: null }));
   }
 
-  // Fallback for SPECIFIC_INSTITUTION & COMMITTEE_ONLY
+  if (audienceType === "COMMITTEE_ONLY") {
+    return [];
+  }
+
+  // Fallback for SPECIFIC_INSTITUTION. Institution targeting is resolved
+  // from participants on the selected event until a dedicated target column
+  // is introduced on event_announcements.
   const list = await db
     .select({
       participantId: eventParticipants.id,
@@ -258,7 +264,8 @@ async function resolveTargetRecipients(
 }
 
 // Portal Ustadz Announcements Service with Read Status Indicator
-export async function getPortalAnnouncementsService(participantId?: string) {
+export async function getPortalAnnouncementsService(participantIds: string[]) {
+  if (participantIds.length === 0) return [];
   const db = getDbClient();
   const list = await db
     .select({
@@ -270,7 +277,12 @@ export async function getPortalAnnouncementsService(participantId?: string) {
     })
     .from(eventAnnouncements)
     .leftJoin(announcementRecipients, eq(eventAnnouncements.id, announcementRecipients.announcementId))
-    .where(eq(eventAnnouncements.status, "PUBLISHED"))
+    .where(
+      and(
+        eq(eventAnnouncements.status, "PUBLISHED"),
+        inArray(announcementRecipients.participantId, participantIds),
+      ),
+    )
     .orderBy(desc(eventAnnouncements.publishedAt));
 
   return list.map((item) => ({
@@ -279,12 +291,23 @@ export async function getPortalAnnouncementsService(participantId?: string) {
   }));
 }
 
-export async function markAnnouncementAsReadService(announcementId: string, participantId?: string) {
+export async function markAnnouncementAsReadService(
+  announcementId: string,
+  participantIds: string[],
+) {
+  if (participantIds.length === 0) {
+    throw new NotFoundError("Peserta untuk pengumuman ini tidak ditemukan.");
+  }
   const db = getDbClient();
   const existing = await db
     .select()
     .from(announcementRecipients)
-    .where(eq(announcementRecipients.announcementId, announcementId))
+    .where(
+      and(
+        eq(announcementRecipients.announcementId, announcementId),
+        inArray(announcementRecipients.participantId, participantIds),
+      ),
+    )
     .limit(1);
 
   if (existing.length > 0) {
@@ -296,14 +319,5 @@ export async function markAnnouncementAsReadService(announcementId: string, part
     return updated[0];
   }
 
-  const created = await db
-    .insert(announcementRecipients)
-    .values({
-      announcementId,
-      participantId: participantId || null,
-      readAt: new Date(),
-    })
-    .returning();
-
-  return created[0];
+  throw new NotFoundError("Pengumuman tidak ditujukan kepada peserta ini.");
 }

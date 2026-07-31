@@ -15,14 +15,17 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({ items }) => 
       aria-label="Navigasi utama mobile"
       className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-slate-200 bg-white px-2 pb-[max(.25rem,env(safe-area-inset-bottom))] pt-1 shadow-lg md:hidden"
     >
-      {items.slice(0, 5).map((item) => {
+      {(items.some((item) => item.mobilePrimary)
+        ? items.filter((item) => item.mobilePrimary)
+        : items
+      ).slice(0, 5).map((item) => {
         const isActive = isNavigationItemActive(location.pathname, item);
         return (
           <Link
             key={item.href}
             to={item.href}
             className={cn(
-              "flex min-h-[48px] min-w-[60px] flex-col items-center justify-center rounded-lg p-2 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700",
+              "flex min-h-[48px] min-w-[60px] flex-col items-center justify-center whitespace-nowrap rounded-lg p-2 text-xs font-medium focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700",
               isActive ? "text-emerald-700 font-bold" : "text-slate-500 hover:text-slate-900"
             )}
           >

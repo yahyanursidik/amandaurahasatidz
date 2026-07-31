@@ -4,13 +4,13 @@ import { LayoutDashboard, QrCode, CheckSquare, Bell, ScanLine, Users, ClipboardL
 import { SidebarNavItem } from "../common/Sidebar";
 
 const committeeNavItems: SidebarNavItem[] = [
-  { label: "Dashboard Panitia", shortLabel: "Beranda", href: "/committee", icon: <LayoutDashboard />, exact: true },
+  { label: "Dashboard Panitia", shortLabel: "Beranda", href: "/committee", icon: <LayoutDashboard />, exact: true, mobilePrimary: true },
   { label: "Tugas & Akses Saya", shortLabel: "Tugas", href: "/committee/assignments", icon: <ClipboardList /> },
-  { label: "Scanner Check-in", shortLabel: "Scanner", href: "/committee/check-in", icon: <ScanLine /> },
+  { label: "Scanner Check-in", shortLabel: "Scanner", href: "/committee/check-in", icon: <ScanLine />, mobilePrimary: true },
   { label: "QR Lokasi", shortLabel: "QR Lokasi", href: "/committee/location-qr", icon: <QrCode /> },
-  { label: "Daftar Kehadiran", shortLabel: "Hadir", href: "/committee/attendance", icon: <CheckSquare /> },
-  { label: "Data Peserta", shortLabel: "Peserta", href: "/committee/participants", icon: <Users /> },
-  { label: "Pengumuman", shortLabel: "Info", href: "/committee/announcements", icon: <Bell /> },
+  { label: "Daftar Kehadiran", shortLabel: "Hadir", href: "/committee/attendance", icon: <CheckSquare />, mobilePrimary: true },
+  { label: "Data Peserta", shortLabel: "Peserta", href: "/committee/participants", icon: <Users />, mobilePrimary: true },
+  { label: "Pengumuman", shortLabel: "Info", href: "/committee/announcements", icon: <Bell />, mobilePrimary: true },
 ];
 
 export const CommitteeLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {

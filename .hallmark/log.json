@@ -1,6 +1,13 @@
 [
   {
     "date": "2026-07-31",
+    "macrostructure": "Map / Diagram",
+    "theme": "existing emerald-slate system",
+    "enrichment": "none",
+    "brief": "Operational committee flow and personal participant readiness journey with real portal data and individual QR check-in"
+  },
+  {
+    "date": "2026-07-31",
     "macrostructure": "Poster-Led Wayfinding",
     "theme": "existing emerald-slate system",
     "enrichment": "generated faceless library interior",

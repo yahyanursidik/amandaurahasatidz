@@ -154,10 +154,15 @@ import {
 
 import { verifyQrTokenSchema } from "./lib/validations/qrValidation";
 import {
-  getParticipantQrTokenService,
   verifyQrTokenForCheckinService,
   rotateParticipantQrTokenService,
 } from "./lib/services/participantQrService";
+import {
+  getPortalOverviewService,
+  getPortalParticipantIdsService,
+  getPortalParticipantQrService,
+  resolvePortalUstadzIdService,
+} from "./lib/services/portalService";
 
 import { processCheckinSchema, queryCheckinLogsSchema } from "./lib/validations/attendanceValidation";
 import {
@@ -415,9 +420,17 @@ export const handler: Handler = async (event, _context) => {
       );
     }
 
+    if (path === "/portal/overview" && method === "GET") {
+      const session = requireAuth(userSession);
+      const overview = await getPortalOverviewService(session.userId, session.email);
+      return buildSuccessResponse(overview, requestId);
+    }
+
     if (path === "/portal/profile" && method === "PATCH") {
       const session = requireAuth(userSession);
-      const ustadzId = session.ustadzId || "00000000-0000-0000-0000-000000000001";
+      const ustadzId =
+        session.ustadzId ||
+        (await resolvePortalUstadzIdService(session.userId, session.email));
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(updateUstadzSelfProfileSchema, body);
       const updated = await updateUstadzSelfProfileService(ustadzId, validated, session.userId, requestId);
@@ -1071,31 +1084,53 @@ export const handler: Handler = async (event, _context) => {
 
     // Portal Ustadz Announcements Endpoints
     if (path === "/portal/announcements" && method === "GET") {
-      requireAuth(userSession);
-      const data = await getPortalAnnouncementsService();
+      const session = requireAuth(userSession);
+      const participantIds = await getPortalParticipantIdsService(
+        session.userId,
+        session.email,
+      );
+      const data = await getPortalAnnouncementsService(participantIds);
       return buildSuccessResponse(data, requestId);
     }
 
     const portalAnnReadMatch = path.match(/^\/portal\/announcements\/([a-f0-9-]+)\/read$/i);
     if (portalAnnReadMatch && method === "POST") {
       const announcementId = portalAnnReadMatch[1];
-      requireAuth(userSession);
-      const result = await markAnnouncementAsReadService(announcementId);
+      const session = requireAuth(userSession);
+      const participantIds = await getPortalParticipantIdsService(
+        session.userId,
+        session.email,
+      );
+      const result = await markAnnouncementAsReadService(
+        announcementId,
+        participantIds,
+      );
       return buildSuccessResponse(result, requestId);
     }
 
     // Portal QR & Presensi Verification Endpoints
     if (path === "/portal/qr" && method === "GET") {
       const session = requireAuth(userSession);
-      const participantId = session.userId || "00000000-0000-0000-0000-000000000001";
-      const qrData = await getParticipantQrTokenService(participantId);
+      const qrData = await getPortalParticipantQrService(
+        session.userId,
+        session.email,
+        event.queryStringParameters?.participantId,
+      );
       return buildSuccessResponse(qrData, requestId);
     }
 
     if (path === "/portal/qr/rotate" && method === "POST") {
       const session = requireAuth(userSession);
-      const participantId = session.userId || "00000000-0000-0000-0000-000000000001";
-      const rotated = await rotateParticipantQrTokenService(participantId, session.userId, requestId);
+      const currentQr = await getPortalParticipantQrService(
+        session.userId,
+        session.email,
+        event.queryStringParameters?.participantId,
+      );
+      const rotated = await rotateParticipantQrTokenService(
+        currentQr.participantId,
+        session.userId,
+        requestId,
+      );
       return buildSuccessResponse(rotated, requestId);
     }
 
