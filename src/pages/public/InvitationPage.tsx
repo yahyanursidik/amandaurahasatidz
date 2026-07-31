@@ -187,11 +187,15 @@ export const InvitationPage: React.FC = () => {
         emailVerificationCode: verificationCode,
         delegates: responseStatus === "ACCEPTED"
           ? delegates.map((delegate) => ({
-              ...delegate,
+              fullName: delegate.fullName,
+              isLead: delegate.isLead,
               email: delegate.email.trim() || null,
               phone: delegate.phone.trim() || null,
               whatsapp: delegate.whatsapp.trim() || null,
               address: delegate.address.trim() || null,
+              // We intentionally omit existingProfileId for mock data 
+              // to prevent Foreign Key violations in the backend. 
+              // The backend will match by name/email or create a new one.
             }))
           : [],
       }),
