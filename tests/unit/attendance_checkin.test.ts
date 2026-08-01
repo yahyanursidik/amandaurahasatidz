@@ -36,6 +36,23 @@ describe("Modul Presensi On-Site Panitia Unit Tests", () => {
     expect(isDuplicate).toBe(true);
   });
 
+  it("accepts an explicit daily unit and rejects selecting a day and session together", () => {
+    const dayOnly = processCheckinSchema.safeParse({
+      qrTokenOrCode: "PAR-2026-A8K9M2P4",
+      dayId: "00000000-0000-0000-0000-000000000011",
+      method: "MANUAL_CODE",
+    });
+    expect(dayOnly.success).toBe(true);
+
+    const ambiguous = processCheckinSchema.safeParse({
+      qrTokenOrCode: "PAR-2026-A8K9M2P4",
+      dayId: "00000000-0000-0000-0000-000000000011",
+      sessionId: "00000000-0000-0000-0000-000000000012",
+      method: "MANUAL_CODE",
+    });
+    expect(ambiguous.success).toBe(false);
+  });
+
   it("should verify checkin_logs records status for both SUCCESS and FAILED/DUPLICATE attempts", () => {
     const mockLogs = [
       { id: "log-1", result: "SUCCESS", failureReason: null },

@@ -1,5 +1,19 @@
 [
   {
+    "date": "2026-08-01",
+    "macrostructure": "Workbench",
+    "theme": "existing emerald-slate system",
+    "enrichment": "none",
+    "brief": "Production login recovery and delegation replacement workbench for institution group leaders"
+  },
+  {
+    "date": "2026-08-01",
+    "macrostructure": "Split Studio",
+    "theme": "existing emerald-slate system",
+    "enrichment": "existing faceless library interior",
+    "brief": "Invitation-bound OTP verification, development-only unique code preview, and accessible institution delegation registration form"
+  },
+  {
     "date": "2026-07-31",
     "macrostructure": "Map / Diagram",
     "theme": "existing emerald-slate system",

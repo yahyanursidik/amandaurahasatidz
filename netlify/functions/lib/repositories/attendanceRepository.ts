@@ -3,13 +3,50 @@ import { withTransaction } from "../db/transaction";
 import {
   eventSessions,
   eventDays,
+  events,
   attendanceRecords,
   checkinLogs,
   eventParticipants,
   ustadzProfiles,
   institutions,
 } from "../db/schema";
-import { eq, and, desc, sql } from "drizzle-orm";
+import { eq, and, desc, isNull, asc } from "drizzle-orm";
+
+export async function findAttendanceScheduleForEventRepository(eventId: string) {
+  const db = getDbClient();
+  const event = (await db
+    .select({
+      id: events.id,
+      attendanceMode: events.attendanceMode,
+      timezone: events.timezone,
+    })
+    .from(events)
+    .where(eq(events.id, eventId))
+    .limit(1))[0];
+  if (!event) return null;
+  const days = await db
+    .select()
+    .from(eventDays)
+    .where(eq(eventDays.eventId, eventId))
+    .orderBy(asc(eventDays.dayNumber));
+  const sessions = await db
+    .select({
+      id: eventSessions.id,
+      eventDayId: eventSessions.eventDayId,
+      title: eventSessions.title,
+      startAt: eventSessions.startAt,
+      endAt: eventSessions.endAt,
+      attendanceRequired: eventSessions.attendanceRequired,
+      checkinRequired: eventSessions.checkinRequired,
+      checkinOpenAt: eventSessions.checkinOpenAt,
+      checkinCloseAt: eventSessions.checkinCloseAt,
+    })
+    .from(eventSessions)
+    .innerJoin(eventDays, eq(eventSessions.eventDayId, eventDays.id))
+    .where(eq(eventDays.eventId, eventId))
+    .orderBy(asc(eventSessions.startAt));
+  return { event, days, sessions };
+}
 
 export async function findActiveSessionForEventRepository(eventId: string) {
   const db = getDbClient();
@@ -65,51 +102,68 @@ export async function recordCheckinLogRepository(data: {
   }).returning();
 }
 
-export async function recordCheckinTransactionRepository(data: {
+export async function recordAttendanceTransactionRepository(data: {
   eventId: string;
-  sessionId: string;
+  dayId: string;
+  sessionId?: string | null;
   participantId: string;
   method: string;
+  attendanceStatus?: string;
+  notes?: string | null;
   actorUserId?: string;
   requestId?: string;
 }) {
   return await withTransaction(async (tx) => {
-    // 1. Duplicate check within transaction
+    const unitCondition = data.sessionId
+      ? eq(attendanceRecords.eventSessionId, data.sessionId)
+      : and(
+          eq(attendanceRecords.eventDayId, data.dayId),
+          isNull(attendanceRecords.eventSessionId),
+        );
     const existing = await tx
       .select()
       .from(attendanceRecords)
       .where(
         and(
           eq(attendanceRecords.eventId, data.eventId),
-          eq(attendanceRecords.eventSessionId, data.sessionId),
-          eq(attendanceRecords.participantId, data.participantId)
+          eq(attendanceRecords.participantId, data.participantId),
+          unitCondition,
         )
       )
       .limit(1);
 
     if (existing.length > 0) {
-      throw new Error(`DUPLICATE: Peserta sudah pernah melakukan presensi check-in pada sesi ini.`);
+      throw new Error("DUPLICATE: Peserta sudah memiliki catatan pada unit kehadiran ini.");
     }
 
-    // 2. Insert attendance record
-    const inserted = await tx
-      .insert(attendanceRecords)
-      .values({
-        eventId: data.eventId,
-        eventSessionId: data.sessionId,
-        participantId: data.participantId,
-        attendanceStatus: "PRESENT",
-        checkinAt: new Date(),
-        checkinMethod: data.method,
-        recordedBy: data.actorUserId || null,
-      })
-      .returning();
+    let inserted;
+    try {
+      inserted = await tx
+        .insert(attendanceRecords)
+        .values({
+          eventId: data.eventId,
+          eventDayId: data.dayId,
+          eventSessionId: data.sessionId || null,
+          participantId: data.participantId,
+          attendanceStatus: data.attendanceStatus || "PRESENT",
+          checkinAt: new Date(),
+          checkinMethod: data.method,
+          notes: data.notes || null,
+          recordedBy: data.actorUserId || null,
+        })
+        .returning();
+    } catch (error: any) {
+      if (error?.code === "23505" || error?.message?.includes("uniq_attendance_part_")) {
+        throw new Error("DUPLICATE: Peserta sudah memiliki catatan pada unit kehadiran ini.");
+      }
+      throw error;
+    }
 
     // 3. Log success
     await tx.insert(checkinLogs).values({
       eventId: data.eventId,
       participantId: data.participantId,
-      eventSessionId: data.sessionId,
+      eventSessionId: data.sessionId || null,
       method: data.method,
       result: "SUCCESS",
       scannedBy: data.actorUserId || null,
@@ -118,6 +172,18 @@ export async function recordCheckinTransactionRepository(data: {
 
     return inserted[0];
   });
+}
+
+export async function recordCheckinTransactionRepository(data: {
+  eventId: string;
+  dayId: string;
+  sessionId?: string | null;
+  participantId: string;
+  method: string;
+  actorUserId?: string;
+  requestId?: string;
+}) {
+  return recordAttendanceTransactionRepository(data);
 }
 
 export async function getRecentCheckinLogsRepository(eventId: string, limitCount = 20) {

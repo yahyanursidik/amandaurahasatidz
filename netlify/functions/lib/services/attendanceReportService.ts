@@ -1,11 +1,20 @@
 import { getDbClient } from "../db/client";
 import { attendanceRecords, eventParticipants, ustadzProfiles, institutions, events } from "../db/schema";
-import { eq, and, count } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { NotFoundError, ValidationError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
 import { assertParticipantEligibleForCheckin } from "./deadlineService";
+import {
+  findAttendanceScheduleForEventRepository,
+  recordAttendanceTransactionRepository,
+} from "../repositories/attendanceRepository";
+import {
+  AttendanceMode,
+  buildRequiredAttendanceUnits,
+  summarizeParticipantAttendance,
+} from "./attendanceModel";
 
-export type AttendanceMode = "DAILY" | "SESSION" | "DAILY_AND_SESSION" | "CHECKIN_CHECKOUT";
+export type { AttendanceMode } from "./attendanceModel";
 
 export function calculateLatenessMinutes(
   checkinAt: Date,
@@ -42,35 +51,59 @@ export async function manualMarkAttendanceService(
   const eventRecord = (await db.select().from(events).where(eq(events.id, eventId)).limit(1))[0];
   if (!participant || !eventRecord) throw new NotFoundError("Peserta atau event tidak ditemukan.");
   assertParticipantEligibleForCheckin(participant, eventRecord);
+  const schedule = await findAttendanceScheduleForEventRepository(eventId);
+  if (!schedule) throw new NotFoundError("Jadwal event tidak ditemukan.");
+  const mode = schedule.event.attendanceMode as AttendanceMode;
+  let dayId = input.dayId || null;
+  if (input.sessionId) {
+    const targetSession = schedule.sessions.find((session) => session.id === input.sessionId);
+    if (!targetSession) throw new ValidationError("Sesi tidak termasuk dalam event ini.");
+    dayId = targetSession.eventDayId;
+    if (mode === "DAILY_ONLY") {
+      throw new ValidationError("Event ini menggunakan presensi harian; pilih hari kegiatan.");
+    }
+  } else {
+    if (!dayId || !schedule.days.some((day) => day.id === dayId)) {
+      throw new ValidationError("Hari kegiatan tidak termasuk dalam event ini.");
+    }
+    if (mode === "SESSION_ONLY") {
+      throw new ValidationError("Event ini menggunakan presensi per sesi; pilih sesi kegiatan.");
+    }
+  }
 
-  const inserted = await db
-    .insert(attendanceRecords)
-    .values({
+  let inserted;
+  try {
+    inserted = await recordAttendanceTransactionRepository({
       eventId,
-      eventSessionId: input.sessionId || null,
-      eventDayId: input.dayId || null,
+      dayId,
+      sessionId: input.sessionId || null,
       participantId: input.participantId,
       attendanceStatus: input.attendanceStatus,
-      checkinAt: new Date(),
-      checkinMethod: "MANUAL_MARK",
+      method: "MANUAL_MARK",
       notes: input.notes || "Penandaan presensi manual oleh panitia",
-      recordedBy: actorUserId || null,
-    })
-    .returning();
+      actorUserId,
+      requestId,
+    });
+  } catch (error: any) {
+    if (error?.message?.includes("DUPLICATE")) {
+      throw new ValidationError("Peserta sudah memiliki catatan pada hari atau sesi tersebut.");
+    }
+    throw error;
+  }
 
   if (requestId) {
     await createAuditLog({
       actorUserId: actorUserId || null,
       action: "ATTENDANCE_MANUAL_MARKED",
       resourceType: "ATTENDANCE_RECORD",
-      resourceId: inserted[0].id,
+      resourceId: inserted.id,
       eventId,
       reason: input.notes || `Penandaan presensi manual (${input.attendanceStatus}).`,
       requestId,
     });
   }
 
-  return inserted[0];
+  return inserted;
 }
 
 export async function correctAttendanceRecordService(
@@ -131,6 +164,15 @@ export async function correctAttendanceRecordService(
 export async function getAttendanceSummaryRecapService(eventId: string) {
   const db = getDbClient();
 
+  const schedule = await findAttendanceScheduleForEventRepository(eventId);
+  if (!schedule) throw new NotFoundError("Event tidak ditemukan.");
+  const units = buildRequiredAttendanceUnits(
+    schedule.event.attendanceMode as AttendanceMode,
+    schedule.days,
+    schedule.sessions,
+    schedule.event.timezone,
+  );
+
   const participants = await db
     .select({
       id: eventParticipants.id,
@@ -148,50 +190,95 @@ export async function getAttendanceSummaryRecapService(eventId: string) {
     .from(attendanceRecords)
     .where(eq(attendanceRecords.eventId, eventId));
 
-  let fullAttendanceCount = 0;
-  let partialAttendanceCount = 0;
-  let lateAttendanceCount = 0;
-  let excusedCount = 0;
-  let absentCount = 0;
-
-  for (const p of participants) {
-    const pRecords = records.filter((r) => r.participantId === p.id);
-    const presentRecords = pRecords.filter((r) => r.attendanceStatus === "PRESENT");
-    const lateRecords = pRecords.filter((r) => r.attendanceStatus === "LATE");
-    const excusedRecords = pRecords.filter((r) => r.attendanceStatus === "EXCUSED" || r.attendanceStatus === "PERMITTED");
-
-    if (lateRecords.length > 0) lateAttendanceCount++;
-    if (excusedRecords.length > 0) excusedCount++;
-
-    if (presentRecords.length >= 2) {
-      fullAttendanceCount++;
-    } else if (presentRecords.length === 1) {
-      partialAttendanceCount++;
-    } else if (excusedRecords.length === 0 && lateRecords.length === 0) {
-      absentCount++;
-    }
-  }
+  const participantDetails = participants.map((participant) => {
+    const participantRecords = records.filter((record) => record.participantId === participant.id);
+    const summary = summarizeParticipantAttendance(units, participantRecords);
+    return {
+      participantId: participant.id,
+      participantCode: participant.participantCode,
+      ustadzName: participant.ustadzName,
+      institutionName: participant.institutionName,
+      totalSessionsAttended: participantRecords.filter(
+        (record) => record.eventSessionId && ["PRESENT", "LATE"].includes(record.attendanceStatus),
+      ).length,
+      totalUnitsAttended: summary.attended,
+      fulfilledUnits: summary.attended + summary.excused,
+      requiredUnits: summary.required,
+      completionPercentage: summary.completionPercentage,
+      statusCategory: summary.statusCategory,
+      unitStatuses: summary.details.map(({ unit, status }) => ({
+        unitId: unit.id,
+        type: unit.type,
+        title: unit.title,
+        date: unit.date,
+        status,
+      })),
+    };
+  });
 
   return {
     eventId,
+    attendanceMode: schedule.event.attendanceMode,
     totalParticipants: participants.length,
+    requiredUnits: units.map((unit) => ({
+      id: unit.id,
+      type: unit.type,
+      title: unit.title,
+      date: unit.date,
+      dayId: unit.dayId,
+      sessionId: unit.sessionId,
+    })),
     recapSummary: {
-      fullAttendance: fullAttendanceCount,
-      partialAttendance: partialAttendanceCount,
-      lateAttendance: lateAttendanceCount,
-      excused: excusedCount,
-      absent: absentCount,
+      fullAttendance: participantDetails.filter((item) => item.statusCategory === "HADIR_PENUH").length,
+      partialAttendance: participantDetails.filter((item) => item.statusCategory === "HADIR_SEBAGIAN").length,
+      lateAttendance: participantDetails.filter((item) =>
+        item.unitStatuses.some((unit) => unit.status === "LATE"),
+      ).length,
+      excused: participantDetails.filter((item) =>
+        item.unitStatuses.some((unit) => ["EXCUSED", "PERMITTED"].includes(unit.status)),
+      ).length,
+      absent: participantDetails.filter((item) => item.statusCategory === "TIDAK_HADIR").length,
     },
-    participantDetails: participants.map((p) => {
-      const pRecs = records.filter((r) => r.participantId === p.id);
-      return {
-        participantId: p.id,
-        participantCode: p.participantCode,
-        ustadzName: p.ustadzName,
-        institutionName: p.institutionName,
-        totalSessionsAttended: pRecs.filter((r) => r.attendanceStatus === "PRESENT").length,
-        statusCategory: pRecs.length > 0 ? "HADIR" : "TIDAK_HADIR",
-      };
-    }),
+    participantDetails,
+  };
+}
+
+export async function getParticipantAttendanceReportService(eventId: string, participantId: string) {
+  const db = getDbClient();
+  const participant = (await db
+    .select({
+      id: eventParticipants.id,
+      participantCode: eventParticipants.participantCode,
+      registrationSource: eventParticipants.registrationSource,
+      confirmationStatus: eventParticipants.confirmationStatus,
+      approvalStatus: eventParticipants.approvalStatus,
+      ustadzName: ustadzProfiles.fullName,
+      institutionName: institutions.name,
+    })
+    .from(eventParticipants)
+    .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
+    .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
+    .where(and(eq(eventParticipants.id, participantId), eq(eventParticipants.eventId, eventId)))
+    .limit(1))[0];
+  if (!participant) throw new NotFoundError("Peserta tidak ditemukan pada event ini.");
+  const eventRecord = (await db.select().from(events).where(eq(events.id, eventId)).limit(1))[0];
+  if (!eventRecord) throw new NotFoundError("Event tidak ditemukan.");
+  const recap = await getAttendanceSummaryRecapService(eventId);
+  const attendance = recap.participantDetails.find((item) => item.participantId === participantId);
+  if (!attendance) throw new NotFoundError("Rekap peserta tidak ditemukan.");
+  return {
+    generatedAt: new Date(),
+    event: {
+      id: eventRecord.id,
+      code: eventRecord.code,
+      name: eventRecord.name,
+      startDate: eventRecord.startDate,
+      endDate: eventRecord.endDate,
+      venueName: eventRecord.venueName,
+      attendanceMode: eventRecord.attendanceMode,
+      timezone: eventRecord.timezone,
+    },
+    participant,
+    attendance,
   };
 }

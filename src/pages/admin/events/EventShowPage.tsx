@@ -41,6 +41,8 @@ type EventSession = {
   startAt: string;
   endAt: string;
   room: string | null;
+  attendanceRequired: boolean;
+  checkinRequired: boolean;
   checkinOpenAt: string | null;
   checkinCloseAt: string | null;
 };
@@ -121,6 +123,8 @@ const previewEvent: EventDetail = {
     startAt: "2026-08-15T08:00:00+07:00",
     endAt: "2026-08-15T09:30:00+07:00",
     room: "Ruang utama",
+    attendanceRequired: true,
+    checkinRequired: true,
     checkinOpenAt: null,
     checkinCloseAt: null,
   }],
@@ -236,6 +240,8 @@ export const EventShowPage: React.FC = () => {
           dayNumber: Number(form.get("dayNumber")),
           date: form.get("date"),
           title: form.get("title") || null,
+          checkinOpenAt: form.get("checkinOpenAt") || null,
+          checkinCloseAt: form.get("checkinCloseAt") || null,
         }),
       });
       setShowDayForm(false);
@@ -262,8 +268,10 @@ export const EventShowPage: React.FC = () => {
           startAt: form.get("startAt"),
           endAt: form.get("endAt"),
           room: form.get("room") || null,
-          attendanceRequired: true,
-          checkinRequired: true,
+          attendanceRequired: form.get("attendanceRequired") === "on",
+          checkinRequired: form.get("checkinRequired") === "on",
+          checkinOpenAt: form.get("checkinOpenAt") || null,
+          checkinCloseAt: form.get("checkinCloseAt") || null,
         }),
       });
       setShowSessionForm(false);
@@ -441,11 +449,13 @@ export const EventShowPage: React.FC = () => {
           </div>
 
           {showDayForm && (
-            <form onSubmit={submitDay} className="grid gap-3 border-t-2 border-emerald-700 bg-white p-4 sm:grid-cols-3">
-              <input name="dayNumber" type="number" min="1" required placeholder="Nomor hari" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-              <input name="date" type="date" required className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-              <input name="title" placeholder="Judul hari" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-              <button disabled={busy === "day"} className="min-h-[44px] rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white sm:col-start-3">Simpan hari</button>
+            <form onSubmit={submitDay} className="grid gap-3 border-t-2 border-emerald-700 bg-white p-4 sm:grid-cols-2 lg:grid-cols-3">
+              <label className="text-xs font-bold text-slate-700">Nomor hari<input name="dayNumber" type="number" min="1" required className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+              <label className="text-xs font-bold text-slate-700">Tanggal kegiatan<input name="date" type="date" min={data.startDate} max={data.endDate} required className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+              <label className="text-xs font-bold text-slate-700">Judul hari<input name="title" placeholder="Contoh: Hari pembukaan" className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+              <label className="text-xs font-bold text-slate-700">Check-in harian dibuka<input name="checkinOpenAt" type="datetime-local" className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+              <label className="text-xs font-bold text-slate-700">Check-in harian ditutup<input name="checkinCloseAt" type="datetime-local" className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+              <button disabled={busy === "day"} className="mt-auto min-h-[44px] rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white">Simpan hari</button>
             </form>
           )}
 
@@ -461,6 +471,12 @@ export const EventShowPage: React.FC = () => {
               <input name="startAt" type="datetime-local" required className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
               <input name="endAt" type="datetime-local" required className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
               <input name="room" placeholder="Ruangan" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
+              <input name="checkinOpenAt" type="datetime-local" aria-label="Check-in sesi dibuka" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
+              <input name="checkinCloseAt" type="datetime-local" aria-label="Check-in sesi ditutup" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
+              <div className="flex flex-wrap items-center gap-4 rounded-lg bg-slate-50 px-3 text-xs font-bold text-slate-700">
+                <label className="flex items-center gap-2"><input name="attendanceRequired" type="checkbox" defaultChecked /> Wajib hadir</label>
+                <label className="flex items-center gap-2"><input name="checkinRequired" type="checkbox" defaultChecked /> Wajib check-in</label>
+              </div>
               <button disabled={busy === "session"} className="min-h-[44px] rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white lg:col-start-3">Simpan sesi</button>
             </form>
           )}
@@ -478,7 +494,7 @@ export const EventShowPage: React.FC = () => {
                   {day.sessions.map((session) => (
                     <li key={session.id} className="grid gap-2 p-4 sm:grid-cols-[8rem_minmax(0,1fr)_10rem] sm:items-center">
                       <span className="font-mono text-xs font-black text-emerald-800"><Clock3 className="mr-1 inline h-3.5 w-3.5" />{formatTime(session.startAt)}–{formatTime(session.endAt)}</span>
-                      <div><h4 className="text-xs font-black text-slate-900">{session.title}</h4><p className="mt-1 text-[10px] text-slate-500">{session.sessionType.replaceAll("_", " ")}</p></div>
+                      <div><h4 className="text-xs font-black text-slate-900">{session.title}</h4><p className="mt-1 text-[10px] text-slate-500">{session.sessionType.replaceAll("_", " ")} · {session.attendanceRequired ? "wajib hadir" : "opsional"} · {session.checkinRequired ? "check-in aktif" : "tanpa check-in"}</p></div>
                       <span className="text-[11px] font-bold text-slate-600">{session.room || "Ruang belum diisi"}</span>
                     </li>
                   ))}

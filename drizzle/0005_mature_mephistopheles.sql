@@ -1,0 +1,2 @@
+CREATE UNIQUE INDEX "uniq_attendance_part_session" ON "attendance_records" USING btree ("participant_id","event_session_id") WHERE "attendance_records"."event_session_id" is not null;--> statement-breakpoint
+CREATE UNIQUE INDEX "uniq_attendance_part_day" ON "attendance_records" USING btree ("participant_id","event_day_id") WHERE "attendance_records"."event_day_id" is not null and "attendance_records"."event_session_id" is null;

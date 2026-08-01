@@ -13,8 +13,19 @@ import { NotFoundError, ValidationError, ForbiddenError } from "../utils/errors"
 import { verifyCaptcha } from "../utils/captcha";
 import { createAuditLog } from "./auditService";
 import { findEventByIdRepository } from "../repositories/eventRepository";
+import { enqueueEmailJob } from "./emailQueueService";
+import {
+  createInvitationOtpChallenge,
+  maskInvitationEmail,
+  shouldExposeInvitationPreviewCode,
+  verifyInvitationOtpChallenge,
+  verifyInvitationVerificationToken,
+} from "./invitationOtpService";
 
 function assertInvitationResponseOpen(result: { invitation: any; event: any; link?: any }) {
+  if (result.invitation.status === "REVOKED" || result.link?.revokedAt) {
+    throw new ForbiddenError("Tautan undangan ini telah dicabut oleh panitia.");
+  }
   const deadline = result.invitation.responseDeadline || result.event.invitationResponseDeadline;
   if (deadline && new Date(deadline) < new Date()) {
     throw new ForbiddenError("Batas konfirmasi undangan telah berakhir. Silakan hubungi panitia.");
@@ -192,10 +203,90 @@ export async function getPublicInstitutionInvitationService(rawToken: string, re
       ? {
           name: institution.name,
           code: institution.code,
-          email: institution.email,
+          representativeEmailMasked: institution.email
+            ? maskInvitationEmail(institution.email)
+            : null,
+          verificationRequired: Boolean(institution.email),
         }
       : null,
   };
+}
+
+export async function requestInstitutionInvitationOtpService(
+  rawToken: string,
+  email: string,
+  requestId: string,
+) {
+  const result = await findInvitationByTokenHashRepository(hashToken(rawToken));
+  if (!result) throw new NotFoundError("Tautan undangan tidak valid.");
+  assertInvitationResponseOpen(result);
+
+  const registeredEmail = result.institution?.email?.trim().toLowerCase();
+  const normalizedEmail = email.trim().toLowerCase();
+  if (!registeredEmail) {
+    throw new ValidationError("Email perwakilan belum tercatat. Hubungi panitia untuk memperbarui data lembaga.");
+  }
+  if (registeredEmail !== normalizedEmail) {
+    throw new ValidationError(
+      "Email tidak cocok dengan data undangan. Gunakan email perwakilan yang menerima undangan atau hubungi panitia.",
+    );
+  }
+
+  const challenge = createInvitationOtpChallenge(result.invitation.id, normalizedEmail);
+  await enqueueEmailJob({
+    templateCode: "OTP_CODE",
+    recipientEmail: normalizedEmail,
+    recipientName: result.institution?.name || null,
+    variables: { otpCode: challenge.code, expiresMinutes: 5 },
+    idempotencyKey: `invitation_otp_${result.invitation.id}_${hashToken(challenge.challengeToken).slice(0, 20)}`,
+  });
+
+  await createAuditLog({
+    actorUserId: null,
+    action: "INVITATION_OTP_REQUESTED",
+    resourceType: "INVITATION",
+    resourceId: result.invitation.id,
+    eventId: result.event.id,
+    requestId,
+  });
+
+  return {
+    challengeToken: challenge.challengeToken,
+    expiresAt: challenge.expiresAt,
+    maskedEmail: maskInvitationEmail(normalizedEmail),
+    ...(shouldExposeInvitationPreviewCode() ? { previewCode: challenge.code } : {}),
+  };
+}
+
+export async function verifyInstitutionInvitationOtpService(
+  rawToken: string,
+  input: { email: string; code: string; challengeToken: string },
+  requestId: string,
+) {
+  const result = await findInvitationByTokenHashRepository(hashToken(rawToken));
+  if (!result) throw new NotFoundError("Tautan undangan tidak valid.");
+  assertInvitationResponseOpen(result);
+
+  const verified = verifyInvitationOtpChallenge(
+    input.challengeToken,
+    input.code,
+    result.invitation.id,
+    input.email,
+  );
+  if (!verified) {
+    throw new ValidationError("Kode OTP salah atau telah kedaluwarsa. Minta kode baru lalu coba kembali.");
+  }
+
+  await createAuditLog({
+    actorUserId: null,
+    action: "INVITATION_OTP_VERIFIED",
+    resourceType: "INVITATION",
+    resourceId: result.invitation.id,
+    eventId: result.event.id,
+    requestId,
+  });
+
+  return verified;
 }
 
 export async function submitInstitutionResponseService(
@@ -212,6 +303,10 @@ export async function submitInstitutionResponseService(
 
   const { invitation, event } = result;
   assertInvitationResponseOpen(result);
+
+  if (!payload.verificationToken || !verifyInvitationVerificationToken(payload.verificationToken, invitation.id)) {
+    throw new ForbiddenError("Verifikasi undangan telah berakhir. Verifikasi ulang email perwakilan untuk melanjutkan.");
+  }
 
   if (payload.captchaToken) {
     const isCaptchaValid = await verifyCaptcha(payload.captchaToken);

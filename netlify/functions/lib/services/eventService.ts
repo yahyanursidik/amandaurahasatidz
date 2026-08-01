@@ -126,7 +126,18 @@ export async function transitionEventStatusService(
 }
 
 export async function addEventDayService(eventId: string, data: any, actorUserId: string, requestId: string) {
-  await getEventByIdService(eventId);
+  const event = await getEventByIdService(eventId);
+
+  if (data.date < event.startDate || data.date > event.endDate) {
+    throw new ValidationError("Tanggal hari kegiatan harus berada dalam rentang tanggal event.");
+  }
+  const orderedDays = [...event.days, { dayNumber: data.dayNumber, date: data.date }]
+    .sort((a, b) => a.dayNumber - b.dayNumber);
+  if (orderedDays.some((day, index) => index > 0 && day.date <= orderedDays[index - 1].date)) {
+    throw new ValidationError(
+      "Nomor hari harus mengikuti urutan tanggal kegiatan. Tanggal berjeda tetap diperbolehkan.",
+    );
+  }
 
   if (data.checkinOpenAt && data.checkinCloseAt) {
     if (new Date(data.checkinOpenAt) >= new Date(data.checkinCloseAt)) {
@@ -137,6 +148,8 @@ export async function addEventDayService(eventId: string, data: any, actorUserId
   const created = await createEventDayRepository({
     ...data,
     eventId,
+    checkinOpenAt: data.checkinOpenAt ? new Date(data.checkinOpenAt) : null,
+    checkinCloseAt: data.checkinCloseAt ? new Date(data.checkinCloseAt) : null,
   });
 
   await createAuditLog({
@@ -154,9 +167,15 @@ export async function addEventDayService(eventId: string, data: any, actorUserId
 
 export async function addEventSessionService(eventId: string, data: any, actorUserId: string, requestId: string) {
   const event = await getEventByIdService(eventId);
-
-  if (!event.days.some((day) => day.id === data.eventDayId)) {
+  const selectedDay = event.days.find((day) => day.id === data.eventDayId);
+  if (!selectedDay) {
     throw new ValidationError("Hari yang dipilih tidak termasuk dalam event ini.");
+  }
+
+  const startDateKey = String(data.startAt).slice(0, 10);
+  const endDateKey = String(data.endAt).slice(0, 10);
+  if (startDateKey !== selectedDay.date || endDateKey !== selectedDay.date) {
+    throw new ValidationError("Tanggal mulai dan selesai sesi harus sama dengan tanggal hari kegiatan.");
   }
 
   if (new Date(data.startAt) >= new Date(data.endAt)) {
@@ -169,7 +188,13 @@ export async function addEventSessionService(eventId: string, data: any, actorUs
     }
   }
 
-  const created = await createEventSessionRepository(data);
+  const created = await createEventSessionRepository({
+    ...data,
+    startAt: new Date(data.startAt),
+    endAt: new Date(data.endAt),
+    checkinOpenAt: data.checkinOpenAt ? new Date(data.checkinOpenAt) : null,
+    checkinCloseAt: data.checkinCloseAt ? new Date(data.checkinCloseAt) : null,
+  });
 
   await createAuditLog({
     actorUserId,

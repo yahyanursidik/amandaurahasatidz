@@ -23,13 +23,14 @@ export const AppShell: React.FC<AppShellProps> = ({
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const location = useLocation();
+  const printReportMode = location.pathname.includes("/attendance/") && location.pathname.endsWith("/report");
 
   useEffect(() => {
     setMobileMenuOpen(false);
   }, [location.pathname]);
 
   return (
-    <div className="flex min-h-screen flex-col bg-slate-50 pb-16 text-slate-900 md:pb-0">
+    <div className={`flex min-h-screen flex-col bg-slate-50 pb-16 text-slate-900 md:pb-0 ${printReportMode ? "print-report-shell" : ""}`}>
       <Header
         portalName={portalName}
         badgeLabel={badgeLabel}

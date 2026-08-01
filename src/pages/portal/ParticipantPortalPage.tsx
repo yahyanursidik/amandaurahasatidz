@@ -23,6 +23,9 @@ import {
   QrCode,
   Save,
   ShieldCheck,
+  Crown,
+  UserRoundCog,
+  X,
 } from "lucide-react";
 import { PortalLayout } from "@/components/layouts/PortalLayout";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -67,6 +70,8 @@ type PortalParticipation = {
   participantId: string;
   participantCode: string;
   registrationSource: string;
+  invitationId?: string | null;
+  isDelegationLead: boolean;
   confirmationStatus: string;
   approvalStatus: string;
   registeredAt: string;
@@ -89,6 +94,32 @@ type PortalParticipation = {
   attendanceConfirmationDeadline?: string | null;
   sessions: PortalSession[];
   attendance: PortalAttendance[];
+};
+
+type DelegationMember = {
+  participantId: string;
+  participantCode: string;
+  fullName: string;
+  email?: string | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+  address?: string | null;
+  isDelegationLead: boolean;
+  confirmationStatus: string;
+  approvalStatus: string;
+  registeredAt: string;
+  hasCheckedIn: boolean;
+  canReplace: boolean;
+};
+
+type PortalDelegation = {
+  actorParticipantId: string;
+  eventId: string;
+  eventName: string;
+  institutionId: string;
+  institutionName?: string | null;
+  quota: number;
+  members: DelegationMember[];
 };
 
 type PortalOverview = {
@@ -153,6 +184,8 @@ const previewOverview: PortalOverview = {
       participantId: "preview-participant",
       participantCode: "ADA-BDG-001",
       registrationSource: "INSTITUTION_DELEGATION",
+      invitationId: "preview-invitation",
+      isDelegationLead: true,
       confirmationStatus: "CONFIRMED",
       approvalStatus: "APPROVED",
       registeredAt: "2026-07-22T10:30:00+07:00",
@@ -311,6 +344,19 @@ export const ParticipantPortalPage: React.FC = () => {
     address: "",
   });
   const [saveState, setSaveState] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [delegation, setDelegation] = useState<PortalDelegation | null>(null);
+  const [delegationLoading, setDelegationLoading] = useState(false);
+  const [delegationError, setDelegationError] = useState("");
+  const [replaceTarget, setReplaceTarget] = useState<DelegationMember | null>(null);
+  const [replaceState, setReplaceState] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [replacement, setReplacement] = useState({
+    fullName: "",
+    email: "",
+    phone: "",
+    whatsapp: "",
+    address: "",
+    reason: "",
+  });
 
   useEffect(() => {
     let cancelled = false;
@@ -462,6 +508,116 @@ export const ParticipantPortalPage: React.FC = () => {
     if (!preview) {
       await eventApi(`/portal/announcements/${announcementId}/read`, { method: "POST" }).catch(
         () => undefined,
+      );
+    }
+  };
+
+  const loadDelegation = async (participantId: string) => {
+    setSelectedParticipantId(participantId);
+    setDelegationLoading(true);
+    setDelegationError("");
+    setReplaceTarget(null);
+    try {
+      if (preview) {
+        setDelegation({
+          actorParticipantId: participantId,
+          eventId: "preview-event",
+          eventName: "Daurah Asatidz Nasional 2026",
+          institutionId: "preview-institution",
+          institutionName: "Ma'had Ilmu Sunnah Bandung",
+          quota: 3,
+          members: [
+            {
+              participantId,
+              participantCode: "ADA-BDG-001",
+              fullName: overview?.profile.fullName || "Ustadz Abdullah, Lc.",
+              email: overview?.profile.email,
+              whatsapp: overview?.profile.whatsapp,
+              isDelegationLead: true,
+              confirmationStatus: "CONFIRMED",
+              approvalStatus: "APPROVED",
+              registeredAt: "2026-07-22T10:30:00+07:00",
+              hasCheckedIn: false,
+              canReplace: false,
+            },
+            {
+              participantId: "preview-member-2",
+              participantCode: "ADA-BDG-002",
+              fullName: "Ustadz Hasan, S.Pd.I.",
+              email: "hasan@example.or.id",
+              whatsapp: "0812 1111 2222",
+              isDelegationLead: false,
+              confirmationStatus: "CONFIRMED",
+              approvalStatus: "APPROVED",
+              registeredAt: "2026-07-22T10:35:00+07:00",
+              hasCheckedIn: false,
+              canReplace: true,
+            },
+          ],
+        });
+        return;
+      }
+      const data = await eventApi<PortalDelegation>(`/portal/delegations/${participantId}`);
+      setDelegation(data);
+    } catch (delegationLoadError) {
+      setDelegationError(
+        delegationLoadError instanceof Error
+          ? delegationLoadError.message
+          : "Data delegasi gagal dimuat.",
+      );
+    } finally {
+      setDelegationLoading(false);
+    }
+  };
+
+  const beginReplacement = (member: DelegationMember) => {
+    setReplaceTarget(member);
+    setReplaceState("idle");
+    setDelegationError("");
+    setReplacement({ fullName: "", email: "", phone: "", whatsapp: "", address: "", reason: "" });
+  };
+
+  const submitReplacement = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!delegation || !replaceTarget) return;
+    setReplaceState("saving");
+    setDelegationError("");
+    try {
+      if (preview) {
+        setDelegation((current) => current ? {
+          ...current,
+          members: current.members.map((member) => member.participantId === replaceTarget.participantId
+            ? {
+                ...member,
+                participantId: `preview-replacement-${Date.now()}`,
+                participantCode: "ADA-RPL-LOCAL",
+                fullName: replacement.fullName,
+                email: replacement.email,
+                phone: replacement.phone,
+                whatsapp: replacement.whatsapp,
+                address: replacement.address,
+                approvalStatus: "PENDING_REVIEW",
+              }
+            : member),
+        } : current);
+      } else {
+        await eventApi(`/portal/delegations/${delegation.actorParticipantId}/replace`, {
+          method: "POST",
+          body: JSON.stringify({
+            targetParticipantId: replaceTarget.participantId,
+            ...replacement,
+          }),
+        });
+        await loadDelegation(delegation.actorParticipantId);
+      }
+      setReplaceState("success");
+      setReplaceTarget(null);
+    } catch (replacementError) {
+      setReplaceState("error");
+      setDelegationError(
+        replacementError instanceof Error
+          ? replacementError.message
+          : "Perubahan delegasi gagal disimpan.",
       );
     }
   };
@@ -714,20 +870,137 @@ export const ParticipantPortalPage: React.FC = () => {
                     {participation.participantCode}
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setSelectedParticipantId(participation.participantId);
-                    navigate("/portal/qr");
-                  }}
-                  className="mt-5 inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-800 px-4 text-sm font-bold text-white hover:bg-emerald-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
-                >
-                  <QrCode className="h-4 w-4" />
-                  Buka QR
-                </button>
+                <div className="mt-5 grid gap-2">
+                  {participation.isDelegationLead && participation.invitationId && (
+                    <button
+                      type="button"
+                      onClick={() => void loadDelegation(participation.participantId)}
+                      className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-800 px-4 text-sm font-bold text-white hover:bg-emerald-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-50"
+                      disabled={delegationLoading}
+                    >
+                      {delegationLoading ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Crown className="h-4 w-4" />}
+                      {delegationLoading ? "Memuat delegasi…" : "Kelola delegasi"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedParticipantId(participation.participantId);
+                      navigate("/portal/qr");
+                    }}
+                    className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 active:translate-y-px"
+                  >
+                    <QrCode className="h-4 w-4" />
+                    Buka QR
+                  </button>
+                </div>
               </div>
             </article>
           ))}
+
+          {delegation && (
+            <section className="portal-delegation" aria-labelledby="portal-delegation-title">
+              <header className="portal-delegation__header">
+                <div>
+                  <span><Crown aria-hidden="true" /> Akses kepala rombongan</span>
+                  <h2 id="portal-delegation-title">Delegasi {delegation.institutionName}</h2>
+                  <p>{delegation.members.length} dari {delegation.quota} kuota · penggantian peserta masuk pemeriksaan panitia.</p>
+                </div>
+                <button type="button" onClick={() => { setDelegation(null); setReplaceTarget(null); }} aria-label="Tutup pengelolaan delegasi">
+                  <X aria-hidden="true" />
+                </button>
+              </header>
+
+              <div className="portal-delegation__workbench">
+                <div className="portal-delegation__members">
+                  {delegation.members.map((member) => (
+                    <article key={member.participantId} className={replaceTarget?.participantId === member.participantId ? "is-selected" : ""}>
+                      <div className="portal-delegation__member-main">
+                        <span className="portal-delegation__avatar" aria-hidden="true">{member.fullName.slice(0, 1).toUpperCase()}</span>
+                        <div>
+                          <div className="portal-delegation__member-name">
+                            <strong>{member.fullName}</strong>
+                            {member.isDelegationLead && <span><Crown aria-hidden="true" /> Kepala rombongan</span>}
+                          </div>
+                          <p>{member.email || "Email belum tersedia"} · {member.whatsapp || member.phone || "Kontak belum tersedia"}</p>
+                          <small>{member.participantCode}</small>
+                        </div>
+                      </div>
+                      <div className="portal-delegation__member-actions">
+                        <StatusBadge label={member.hasCheckedIn ? "Sudah check-in" : member.approvalStatus} variant={member.hasCheckedIn ? "success" : statusVariant(member.approvalStatus)} />
+                        {!member.isDelegationLead && (
+                          <button
+                            type="button"
+                            onClick={() => beginReplacement(member)}
+                            disabled={!member.canReplace}
+                            title={member.hasCheckedIn ? "Peserta yang sudah check-in hanya dapat diubah panitia." : undefined}
+                          >
+                            <UserRoundCog aria-hidden="true" />
+                            {member.canReplace ? "Ganti peserta" : "Dikunci"}
+                          </button>
+                        )}
+                      </div>
+                    </article>
+                  ))}
+                </div>
+
+                <aside className="portal-delegation__editor">
+                  {replaceTarget ? (
+                    <form onSubmit={submitReplacement} aria-busy={replaceState === "saving"}>
+                      <div className="portal-delegation__editor-heading">
+                        <div>
+                          <span>Mengganti</span>
+                          <strong>{replaceTarget.fullName}</strong>
+                        </div>
+                        <button type="button" onClick={() => setReplaceTarget(null)} aria-label="Batalkan penggantian peserta"><X aria-hidden="true" /></button>
+                      </div>
+                      <label>
+                        <span>Nama lengkap dan gelar *</span>
+                        <input required minLength={3} maxLength={160} value={replacement.fullName} onChange={(event) => setReplacement((current) => ({ ...current, fullName: event.target.value }))} placeholder="Ustadz Ahmad, Lc." disabled={replaceState === "saving"} />
+                      </label>
+                      <label>
+                        <span>Email akun peserta *</span>
+                        <input required type="email" value={replacement.email} onChange={(event) => setReplacement((current) => ({ ...current, email: event.target.value }))} placeholder="ustadz@lembaga.or.id" disabled={replaceState === "saving"} />
+                      </label>
+                      <div className="portal-delegation__field-pair">
+                        <label>
+                          <span>Nomor WhatsApp *</span>
+                          <input required type="tel" minLength={8} value={replacement.whatsapp} onChange={(event) => setReplacement((current) => ({ ...current, whatsapp: event.target.value }))} placeholder="081234567890" disabled={replaceState === "saving"} />
+                        </label>
+                        <label>
+                          <span>Nomor telepon</span>
+                          <input type="tel" value={replacement.phone} onChange={(event) => setReplacement((current) => ({ ...current, phone: event.target.value }))} placeholder="Opsional" disabled={replaceState === "saving"} />
+                        </label>
+                      </div>
+                      <label>
+                        <span>Alamat domisili</span>
+                        <textarea rows={2} maxLength={500} value={replacement.address} onChange={(event) => setReplacement((current) => ({ ...current, address: event.target.value }))} disabled={replaceState === "saving"} />
+                      </label>
+                      <label>
+                        <span>Alasan perubahan *</span>
+                        <textarea required rows={3} minLength={5} maxLength={500} value={replacement.reason} onChange={(event) => setReplacement((current) => ({ ...current, reason: event.target.value }))} placeholder="Contoh: berhalangan hadir karena agenda lembaga." disabled={replaceState === "saving"} />
+                      </label>
+                      <p className="portal-delegation__notice">Peserta lama tidak dihapus. Riwayat penggantian tetap tercatat dan peserta baru menunggu review panitia.</p>
+                      <button type="submit" className="portal-delegation__submit" disabled={replaceState === "saving"}>
+                        {replaceState === "saving" ? <Loader2 className="animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Save aria-hidden="true" />}
+                        {replaceState === "saving" ? "Menyimpan perubahan…" : "Simpan peserta pengganti"}
+                      </button>
+                    </form>
+                  ) : (
+                    <div className="portal-delegation__empty">
+                      <UserRoundCog aria-hidden="true" />
+                      <strong>Pilih peserta yang berubah</strong>
+                      <p>Data kepala rombongan dan peserta yang sudah check-in dikunci. Perubahan lain akan diajukan ke panitia.</p>
+                    </div>
+                  )}
+                </aside>
+              </div>
+              {delegationError && <p role="alert" className="portal-delegation__error">{delegationError}</p>}
+              {replaceState === "success" && <p role="status" className="portal-delegation__success">Data pengganti tersimpan dan menunggu review panitia.</p>}
+            </section>
+          )}
+
+          {delegationError && !delegation && <p role="alert" className="portal-delegation__error">{delegationError}</p>}
         </section>
       )}
 

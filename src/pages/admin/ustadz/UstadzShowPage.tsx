@@ -353,8 +353,8 @@ export const UstadzShowPage: React.FC = () => {
                     profile.eventHistory?.map((event) => (
                       <article key={event.participantId}>
                         <time>{formatDate(event.eventStartDate)}</time>
-                        <div><strong>{event.eventName}</strong><span>{event.eventCode} · Peserta {event.participantCode}</span></div>
-                        <div><span>{event.confirmationStatus === "CONFIRMED" ? "Terkonfirmasi" : event.confirmationStatus}</span><strong>{event.attendanceCount} presensi</strong></div>
+                        <div><strong>{event.eventName}</strong><span>{event.eventCode} · Peserta {event.participantCode}</span><small>{event.institutionName || "Peserta individual"} · {event.registrationSource.replaceAll("_", " ")}</small></div>
+                        <div><span>{event.attendanceStatus.replaceAll("_", " ")}</span><strong>{event.attendedUnits}/{event.requiredUnits} unit · {event.completionPercentage}%</strong></div>
                       </article>
                     ))
                   )}

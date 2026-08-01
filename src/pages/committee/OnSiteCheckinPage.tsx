@@ -1,273 +1,208 @@
-import React, { useState } from "react";
-import {
-  QrCode,
-  Search,
-  CheckCircle2,
-  AlertTriangle,
-  Clock,
-  UserCheck,
-  Building2,
-  RefreshCw,
-  XCircle,
-  Sparkles,
-} from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { AlertTriangle, CheckCircle2, Clock3, QrCode, RefreshCw, ScanLine } from "lucide-react";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { CommitteeAssignment, committeeApi } from "@/lib/committeeApi";
+
+type CheckinUnit = {
+  id: string;
+  type: "DAY" | "SESSION";
+  dayId: string;
+  sessionId: string | null;
+  title: string;
+  date: string;
+  openAt: string;
+  closeAt: string;
+  isOpen: boolean;
+};
+
+type CheckinSchedule = {
+  attendanceMode: "DAILY_ONLY" | "SESSION_ONLY" | "DAILY_AND_SESSION";
+  units: CheckinUnit[];
+  checkinWindow: { isOpen: boolean; openAt: string; closeAt: string };
+};
+
+type CheckinLog = {
+  id: string;
+  result: "SUCCESS" | "FAILED" | "DUPLICATE";
+  method: string;
+  failureReason?: string | null;
+  createdAt: string;
+  participantCode?: string | null;
+  ustadzName?: string | null;
+  institutionName?: string | null;
+};
+
+type CheckinResult = {
+  status: "SUCCESS";
+  checkinAt: string;
+  participant: { participantCode: string; ustadzName: string };
+  attendanceUnit: CheckinUnit;
+};
+
+const previewAssignments: CommitteeAssignment[] = [{
+  id: "preview-checkin",
+  eventId: "preview-event",
+  eventName: "Daurah Asatidz Nasional 2026",
+  eventCode: "ADA-2026-BDG",
+  eventStatus: "ONGOING",
+  committeeRole: "CHECKIN_OFFICER",
+  effectivePermissions: ["attendance.read", "attendance.record"],
+}];
+
+const previewUnits: CheckinUnit[] = [
+  { id: "DAY:preview-day-1", type: "DAY", dayId: "preview-day-1", sessionId: null, title: "Kehadiran harian · Hari 1", date: "2026-08-15", openAt: "2026-08-15T00:00:00+07:00", closeAt: "2026-08-15T23:59:59+07:00", isOpen: true },
+  { id: "SESSION:preview-session-1", type: "SESSION", dayId: "preview-day-1", sessionId: "preview-session-1", title: "Pembukaan dan materi pertama", date: "2026-08-15", openAt: "2026-08-15T07:00:00+07:00", closeAt: "2026-08-15T10:00:00+07:00", isOpen: true },
+];
+
+const formatWindow = (unit?: CheckinUnit) => unit
+  ? `${new Date(unit.openAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}–${new Date(unit.closeAt).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}`
+  : "Belum diatur";
 
 export const OnSiteCheckinPage: React.FC = () => {
+  const [assignments, setAssignments] = useState<CommitteeAssignment[]>([]);
+  const [eventId, setEventId] = useState("");
+  const [units, setUnits] = useState<CheckinUnit[]>([]);
+  const [unitId, setUnitId] = useState("");
+  const [logs, setLogs] = useState<CheckinLog[]>([]);
   const [inputCode, setInputCode] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [isScanning, setIsScanning] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [preview, setPreview] = useState(false);
+  const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
+  const [lastResult, setLastResult] = useState<CheckinResult | null>(null);
 
-  const [activeSession] = useState({
-    title: "Sesi 1: Pembukaan & Sambutan Yayasan",
-    date: "15 Agustus 2026",
-    checkinWindow: "07:00 - 09:00 WIB",
-    isOpen: true,
-  });
+  const selectedUnit = units.find((unit) => unit.id === unitId) || units[0];
+  const selectedAssignment = assignments.find((assignment) => assignment.eventId === eventId);
+  const groupedUnits = useMemo(() => {
+    const groups = new Map<string, CheckinUnit[]>();
+    for (const unit of units) groups.set(unit.date, [...(groups.get(unit.date) || []), unit]);
+    return [...groups.entries()];
+  }, [units]);
 
-  const [lastCheckinResult, setLastCheckinResult] = useState<{
-    status: "SUCCESS" | "DUPLICATE" | "FAILED" | null;
-    message: string;
-    participant?: {
-      code: string;
-      name: string;
-      institution: string;
-      checkinTime: string;
-    };
-  }>({
-    status: "SUCCESS",
-    message: "Presensi berhasil dicatat!",
-    participant: {
-      code: "PAR-2026-A8K9M2P4",
-      name: "Ustadz Abdullah, Lc.",
-      institution: "Ma'had Ilmu Sunnah Bandung",
-      checkinTime: "15 Aug 2026 07:48:12 WIB",
-    },
-  });
-
-  const [recentLogs] = useState([
-    { id: "log-1", code: "PAR-2026-A8K9M2P4", name: "Ustadz Abdullah, Lc.", institution: "Ma'had Ilmu Sunnah Bandung", time: "07:48:12", status: "SUCCESS" },
-    { id: "log-2", code: "PAR-2026-F4M9P2X1", name: "Ustadz Hamzah, M.Ag.", institution: "STDI Imam Syafi'i Jember", time: "07:45:09", status: "SUCCESS" },
-    { id: "log-3", code: "PAR-2026-Z9K2L4P8", name: "Ustadz Ridwan", institution: "Pesantren Al-Irsyad SBY", time: "07:40:22", status: "DUPLICATE", reason: "Presensi ganda" },
-  ]);
-
-  const handleManualSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!inputCode.trim()) return;
-
-    if (inputCode.includes("DUP")) {
-      setLastCheckinResult({
-        status: "DUPLICATE",
-        message: `Presensi ganda ditolak: Peserta ${inputCode} sudah pernah melakukan check-in pada sesi ini.`,
-      });
-    } else {
-      setLastCheckinResult({
-        status: "SUCCESS",
-        message: "Presensi berhasil dicatat secara manual!",
-        participant: {
-          code: inputCode.toUpperCase(),
-          name: "Ustadz Ahmad Fauzi, M.H.",
-          institution: "Pondok Sunnah Jakarta",
-          checkinTime: new Date().toLocaleTimeString() + " WIB",
-        },
-      });
+  const loadSchedule = useCallback(async (targetEventId: string, previewMode: boolean) => {
+    if (!targetEventId) return;
+    if (previewMode) {
+      setUnits(previewUnits);
+      setUnitId(previewUnits[1].id);
+      setLogs([]);
+      return;
     }
-    setInputCode("");
+    const [schedule, recentLogs] = await Promise.all([
+      committeeApi<CheckinSchedule>(`/events/${targetEventId}/sessions/active`),
+      committeeApi<CheckinLog[]>(`/events/${targetEventId}/checkin/logs?limit=12`),
+    ]);
+    setUnits(schedule.units);
+    setUnitId((current) =>
+      schedule.units.some((unit) => unit.id === current)
+        ? current
+        : schedule.units.find((unit) => unit.isOpen)?.id || schedule.units[0]?.id || "",
+    );
+    setLogs(recentLogs);
+  }, []);
+
+  useEffect(() => {
+    void (async () => {
+      setLoading(true);
+      try {
+        const context = await committeeApi<{ assignments: CommitteeAssignment[] }>("/committee/context");
+        const available = context.assignments.filter((assignment) =>
+          assignment.effectivePermissions?.includes("attendance.record"),
+        );
+        if (!available.length) throw new Error("Akun belum memiliki penugasan check-in aktif.");
+        setAssignments(available);
+        setEventId(available[0].eventId);
+        await loadSchedule(available[0].eventId, false);
+      } catch (error) {
+        setPreview(true);
+        setAssignments(previewAssignments);
+        setEventId("preview-event");
+        await loadSchedule("preview-event", true);
+        setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Mode pratinjau aktif." });
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [loadSchedule]);
+
+  const changeEvent = async (nextEventId: string) => {
+    setEventId(nextEventId);
+    setLoading(true);
+    setFeedback(null);
+    try { await loadSchedule(nextEventId, preview); }
+    catch (error) { setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Jadwal gagal dimuat." }); }
+    finally { setLoading(false); }
+  };
+
+  const submitCheckin = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!selectedUnit || !inputCode.trim()) return;
+    if (!selectedUnit.isOpen) {
+      setFeedback({ kind: "error", message: "Jendela check-in unit ini belum dibuka atau telah ditutup." });
+      return;
+    }
+    setSubmitting(true);
+    setFeedback(null);
+    try {
+      const result = preview
+        ? { status: "SUCCESS" as const, checkinAt: new Date().toISOString(), participant: { participantCode: inputCode.toUpperCase(), ustadzName: "Peserta pratinjau" }, attendanceUnit: selectedUnit }
+        : await committeeApi<CheckinResult>(`/events/${eventId}/checkin`, {
+            method: "POST",
+            body: JSON.stringify({
+              qrTokenOrCode: inputCode.trim(),
+              method: "MANUAL_CODE",
+              sessionId: selectedUnit.sessionId,
+              dayId: selectedUnit.type === "DAY" ? selectedUnit.dayId : null,
+            }),
+          });
+      setLastResult(result);
+      setFeedback({ kind: "success", message: `Kehadiran ${result.participant.ustadzName} berhasil dicatat pada ${result.attendanceUnit.title}.` });
+      setInputCode("");
+      if (!preview) await loadSchedule(eventId, false);
+    } catch (error) {
+      setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Check-in gagal diproses." });
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto space-y-6">
-      {/* 1. Header Banner & Active Session Indicator */}
-      <div className="bg-slate-900 text-white rounded-2xl p-6 shadow-md flex flex-col md:flex-row md:items-center md:justify-between gap-4 border border-slate-800">
-        <div className="space-y-1">
-          <div className="flex items-center space-x-2">
-            <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-mono font-bold uppercase tracking-widest px-2.5 py-0.5 rounded-full border border-emerald-500/30 flex items-center space-x-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
-              <span>Mode On-Site Active</span>
-            </span>
+    <div className="space-y-5">
+      <header className="border-t-4 border-emerald-700 bg-slate-950 p-5 text-white sm:p-6">
+        <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem] lg:items-end">
+          <div>
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-300">Operasional kehadiran</p>
+            <h1 className="mt-2 text-2xl font-black">Scanner dan check-in peserta</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Pilih event dan unit kehadiran sebelum memindai. Hari berjeda hanya menampilkan tanggal kegiatan yang benar-benar dijadwalkan.</p>
           </div>
-          <h1 className="text-xl font-bold tracking-tight">Presensi Kehadiran Daurah Asatidz</h1>
-          <p className="text-xs text-slate-400">{activeSession.title} • {activeSession.date}</p>
+          <label className="text-xs font-bold text-slate-200">Event penugasan<select value={eventId} onChange={(event) => void changeEvent(event.target.value)} className="mt-2 min-h-[44px] w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm text-white">{assignments.map((assignment) => <option key={assignment.eventId} value={assignment.eventId}>{assignment.eventCode} · {assignment.eventName}</option>)}</select></label>
         </div>
+      </header>
 
-        <div className="bg-slate-800/80 border border-slate-700/60 rounded-xl p-3.5 flex items-center space-x-3">
-          <Clock className="w-5 h-5 text-emerald-400 shrink-0" />
-          <div className="text-xs">
-            <span className="text-slate-400 block text-[10px]">Jendela Check-in Sesi:</span>
-            <span className="font-mono font-bold text-white">{activeSession.checkinWindow}</span>
+      {feedback && <div role={feedback.kind === "error" ? "alert" : "status"} className={`flex items-center gap-3 border-y p-3 text-sm font-bold ${feedback.kind === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>{feedback.kind === "error" ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}{feedback.message}</div>}
+
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
+        <section className="border border-slate-200 bg-white">
+          <div className="border-b border-slate-200 p-4 sm:p-5">
+            <label className="text-sm font-black text-slate-900">Unit kehadiran<select value={selectedUnit?.id || ""} onChange={(event) => setUnitId(event.target.value)} disabled={loading} className="mt-2 min-h-[48px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">{groupedUnits.map(([date, dateUnits]) => <optgroup key={date} label={new Date(`${date}T00:00:00`).toLocaleDateString("id-ID", { dateStyle: "full" })}>{dateUnits.map((unit) => <option key={unit.id} value={unit.id}>{unit.type === "DAY" ? "Harian" : "Sesi"} · {unit.title}{unit.isOpen ? " · DIBUKA" : ""}</option>)}</optgroup>)}</select></label>
+            {selectedUnit && <div className="mt-3 flex flex-wrap items-center gap-3 text-xs text-slate-600"><StatusBadge label={selectedUnit.isOpen ? "CHECK-IN DIBUKA" : "CHECK-IN DITUTUP"} variant={selectedUnit.isOpen ? "success" : "warning"} /><span className="inline-flex items-center gap-1 font-bold"><Clock3 className="h-4 w-4" /> {formatWindow(selectedUnit)}</span><span>{selectedUnit.type === "DAY" ? "Presensi harian" : "Presensi per sesi"}</span></div>}
           </div>
-          <span className="bg-emerald-500/20 text-emerald-300 text-[10px] font-bold px-2 py-0.5 rounded border border-emerald-500/30">
-            DIBUKA
-          </span>
-        </div>
-      </div>
 
-      {/* 2. Main Grid: Scanner & Result */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-        {/* Left Column: QR Scanner & Manual Input (7 cols) */}
-        <div className="lg:col-span-7 space-y-6">
-          {/* Browser QR Scanner Container */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-            <div className="flex justify-between items-center border-b pb-3">
-              <h3 className="text-sm font-bold text-slate-900 flex items-center space-x-2">
-                <QrCode className="w-4 h-4 text-emerald-600" />
-                <span>Browser QR Scanner (Kamera On-Site)</span>
-              </h3>
-              <button
-                onClick={() => setIsScanning(!isScanning)}
-                className="text-xs text-emerald-700 hover:text-emerald-800 font-medium flex items-center space-x-1"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                <span>{isScanning ? "Jeda Kamera" : "Aktifkan Kamera"}</span>
-              </button>
+          <form onSubmit={submitCheckin} className="grid gap-5 p-4 sm:p-5 lg:grid-cols-[minmax(0,1fr)_14rem]">
+            <div>
+              <label htmlFor="participant-code" className="text-sm font-black text-slate-900">Kode atau token QR peserta</label>
+              <div className="relative mt-2"><QrCode className="absolute left-3 top-3.5 h-5 w-5 text-slate-400" /><input id="participant-code" value={inputCode} onChange={(event) => setInputCode(event.target.value)} autoComplete="off" autoFocus placeholder="Pindai QR atau masukkan kode peserta" className="min-h-[48px] w-full rounded-lg border border-slate-300 pl-11 pr-3 text-base font-bold outline outline-2 outline-transparent focus-visible:outline-emerald-700" /></div>
+              <p className="mt-2 text-xs leading-5 text-slate-500">Pemindaian dicatat pada unit yang dipilih. Peserta yang sama tidak dapat dicatat dua kali pada hari atau sesi yang sama.</p>
             </div>
+            <button disabled={submitting || loading || !selectedUnit?.isOpen || !inputCode.trim()} className="mt-auto inline-flex min-h-[48px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-5 text-sm font-black text-white hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-55"><ScanLine className="h-5 w-5" />{submitting ? "Memproses…" : "Proses check-in"}</button>
+          </form>
 
-            {/* Visualizer Target Box */}
-            <div className="w-full h-64 bg-slate-950 rounded-xl relative overflow-hidden flex flex-col items-center justify-center border-2 border-slate-800 shadow-inner">
-              {isScanning ? (
-                <>
-                  <div className="w-44 h-44 border-2 border-emerald-500/80 rounded-xl relative flex items-center justify-center shadow-[0_0_15px_rgba(16,185,129,0.3)]">
-                    <span className="w-full h-0.5 bg-emerald-400 absolute top-1/2 left-0 -translate-y-1/2 animate-pulse shadow-[0_0_8px_rgba(16,185,129,1)]" />
-                    <Sparkles className="w-8 h-8 text-emerald-400/40" />
-                  </div>
-                  <span className="text-[11px] font-mono text-emerald-400/90 mt-4 bg-slate-900/80 px-3 py-1 rounded-full border border-emerald-500/30">
-                    Arahkan QR Code Peserta ke Target Kotak...
-                  </span>
-                </>
-              ) : (
-                <div className="text-center text-slate-400 space-y-2">
-                  <XCircle className="w-8 h-8 mx-auto text-slate-600" />
-                  <p className="text-xs">Kamera Pemindai Sedang Dijeda</p>
-                </div>
-              )}
-            </div>
+          {lastResult && <div className="border-t border-emerald-200 bg-emerald-50 p-4 sm:p-5"><p className="text-xs font-black uppercase tracking-wide text-emerald-700">Check-in terakhir</p><p className="mt-1 text-lg font-black text-emerald-950">{lastResult.participant.ustadzName}</p><p className="mt-1 text-sm text-emerald-900">{lastResult.participant.participantCode} · {lastResult.attendanceUnit.title}</p></div>}
+        </section>
 
-            {/* Manual Fallback Input Code */}
-            <form onSubmit={handleManualSubmit} className="space-y-2 pt-2">
-              <label className="text-xs font-bold text-slate-700 block">
-                Input Kode Fallback (PAR-2026-XXXX) / Opaque Token
-              </label>
-              <div className="flex space-x-2">
-                <input
-                  type="text"
-                  value={inputCode}
-                  onChange={(e) => setInputCode(e.target.value)}
-                  placeholder="Contoh: PAR-2026-A8K9M2P4 atau qr_tok_..."
-                  className="flex-1 border border-slate-300 rounded-lg px-3.5 py-2 text-xs font-mono focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                />
-                <button
-                  type="submit"
-                  className="bg-emerald-700 hover:bg-emerald-800 text-white font-bold text-xs px-4 py-2 rounded-lg transition-colors"
-                >
-                  Proses Check-in
-                </button>
-              </div>
-            </form>
-
-            {/* Search by Name / Institution */}
-            <div className="space-y-2 pt-2 border-t">
-              <label className="text-xs font-bold text-slate-700 block">Pencarian Nama Ustadz / Lembaga Afiliasi</label>
-              <div className="relative">
-                <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Ketik Nama Ustadz atau Asal Lembaga..."
-                  className="w-full pl-9 pr-3.5 py-2 border border-slate-300 rounded-lg text-xs focus:ring-2 focus:ring-emerald-500 focus:outline-none"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Right Column: Scan Result Card & Recent Stream (5 cols) */}
-        <div className="lg:col-span-5 space-y-6">
-          {/* Result Card */}
-          {lastCheckinResult.status && (
-            <div
-              className={`border rounded-2xl p-6 shadow-sm space-y-4 ${
-                lastCheckinResult.status === "SUCCESS"
-                  ? "bg-emerald-50/60 border-emerald-300"
-                  : lastCheckinResult.status === "DUPLICATE"
-                  ? "bg-amber-50/60 border-amber-300"
-                  : "bg-rose-50/60 border-rose-300"
-              }`}
-            >
-              <div className="flex items-center space-x-2">
-                {lastCheckinResult.status === "SUCCESS" ? (
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0" />
-                ) : (
-                  <AlertTriangle className="w-5 h-5 text-amber-600 shrink-0" />
-                )}
-                <h3
-                  className={`text-sm font-bold ${
-                    lastCheckinResult.status === "SUCCESS"
-                      ? "text-emerald-900"
-                      : lastCheckinResult.status === "DUPLICATE"
-                      ? "text-amber-900"
-                      : "text-rose-900"
-                  }`}
-                >
-                  {lastCheckinResult.message}
-                </h3>
-              </div>
-
-              {lastCheckinResult.participant && (
-                <div className="bg-white rounded-xl p-4 border border-slate-200/80 space-y-2 text-xs">
-                  <div className="flex justify-between items-center border-b pb-2">
-                    <span className="font-mono font-bold text-emerald-800">{lastCheckinResult.participant.code}</span>
-                    <StatusBadge label="TERKONFIRMASI" variant="success" />
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 uppercase font-medium block">Nama Peserta</span>
-                    <span className="font-bold text-slate-900 text-sm block">{lastCheckinResult.participant.name}</span>
-                  </div>
-                  <div>
-                    <span className="text-[10px] text-slate-400 uppercase font-medium block">Lembaga Afiliasi</span>
-                    <span className="text-slate-700 block">{lastCheckinResult.participant.institution}</span>
-                  </div>
-                  <div className="pt-1 flex justify-between text-[11px] text-slate-500">
-                    <span>Waktu Check-in:</span>
-                    <span className="font-mono font-bold text-slate-900">{lastCheckinResult.participant.checkinTime}</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Stream Check-in Terbaru */}
-          <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-sm space-y-4">
-            <h3 className="text-sm font-bold text-slate-900 border-b pb-3 flex items-center justify-between">
-              <div className="flex items-center space-x-2">
-                <UserCheck className="w-4 h-4 text-emerald-600" />
-                <span>Riwayat Check-in Terbaru</span>
-              </div>
-              <span className="text-[11px] font-mono text-slate-500">{recentLogs.length} Aktivitas</span>
-            </h3>
-
-            <div className="space-y-2.5 max-h-80 overflow-y-auto pr-1">
-              {recentLogs.map((log) => (
-                <div key={log.id} className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between text-xs">
-                  <div className="space-y-0.5">
-                    <span className="font-bold text-slate-900 block">{log.name}</span>
-                    <span className="text-[10px] text-slate-500 block">{log.institution} • {log.code}</span>
-                  </div>
-                  <div className="text-right">
-                    <span className="font-mono font-bold text-slate-700 text-[11px] block">{log.time}</span>
-                    <span
-                      className={`text-[9px] font-bold px-1.5 py-0.5 rounded inline-block mt-0.5 ${
-                        log.status === "SUCCESS" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"
-                      }`}
-                    >
-                      {log.status === "SUCCESS" ? "SUKSES" : "SCAN GANDA"}
-                    </span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
+        <aside className="border border-slate-200 bg-white">
+          <div className="flex items-center justify-between border-b border-slate-200 p-4"><div><h2 className="text-sm font-black text-slate-900">Aktivitas terbaru</h2><p className="mt-1 text-xs text-slate-500">{selectedAssignment?.eventCode || "Event"}</p></div><button type="button" onClick={() => void loadSchedule(eventId, preview)} disabled={loading} aria-label="Segarkan aktivitas" className="inline-flex h-11 w-11 items-center justify-center rounded-lg border border-slate-300 text-slate-700"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /></button></div>
+          {logs.length ? <ol className="divide-y divide-slate-100">{logs.map((log) => <li key={log.id} className="p-4"><div className="flex items-start justify-between gap-3"><div className="min-w-0"><p className="truncate text-sm font-black text-slate-900">{log.ustadzName || log.participantCode || "Pemindaian tanpa peserta"}</p><p className="mt-1 truncate text-xs text-slate-500">{log.institutionName || log.failureReason || log.method}</p></div><StatusBadge label={log.result} variant={log.result === "SUCCESS" ? "success" : log.result === "DUPLICATE" ? "warning" : "danger"} /></div><time className="mt-2 block text-[11px] font-bold text-slate-400">{new Date(log.createdAt).toLocaleString("id-ID")}</time></li>)}</ol> : <p className="p-8 text-center text-sm text-slate-500">Belum ada aktivitas check-in.</p>}
+        </aside>
       </div>
     </div>
   );

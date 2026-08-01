@@ -18,7 +18,7 @@ export const PublicLayout: React.FC<PublicLayoutProps> = ({ children }) => {
               Aman Daurah Asatidz
             </span>
           </div>
-          <span className="text-xs text-slate-500 font-medium bg-slate-100 px-2.5 py-1 rounded">
+          <span className="text-xs text-slate-600 font-medium bg-slate-100 px-2.5 py-1 rounded">
             Portal Daurah
           </span>
         </div>

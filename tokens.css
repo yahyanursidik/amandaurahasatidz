@@ -179,3 +179,66 @@
   --shadow-poster-card-hover: 0 14px 34px rgb(15 23 42 / 0.1);
   --shadow-poster-hero: 0 18px 46px rgb(15 23 42 / 0.16);
 }
+
+:root {
+  --color-invitation-paper: oklch(98% 0.006 160);
+  --color-invitation-surface: oklch(99% 0.004 160);
+  --color-invitation-surface-muted: oklch(95% 0.012 160);
+  --color-invitation-ink: oklch(20% 0.022 160);
+  --color-invitation-muted: oklch(43% 0.022 160);
+  --color-invitation-rule: oklch(84% 0.018 160);
+  --color-invitation-accent: oklch(45% 0.135 160);
+  --color-invitation-accent-hover: oklch(39% 0.125 160);
+  --color-invitation-accent-ink: oklch(98% 0.006 160);
+  --color-invitation-focus: oklch(39% 0.15 160);
+  --color-invitation-danger: oklch(46% 0.17 25);
+  --color-invitation-danger-paper: oklch(96% 0.028 25);
+  --color-invitation-warning: oklch(43% 0.11 75);
+  --color-invitation-warning-paper: oklch(96% 0.04 80);
+  --color-invitation-success-paper: oklch(95% 0.03 160);
+  --font-invitation-display: var(--font-event-display);
+  --font-invitation-body: var(--font-event-body);
+  --font-invitation-code: ui-monospace, "Cascadia Code", monospace;
+  --space-invitation-xs: 0.5rem;
+  --space-invitation-sm: 0.75rem;
+  --space-invitation-md: 1rem;
+  --space-invitation-lg: 1.5rem;
+  --space-invitation-xl: 2rem;
+  --space-invitation-2xl: 3rem;
+  --text-invitation-small: 0.875rem;
+  --text-invitation-body: 1rem;
+  --text-invitation-title: clamp(1.75rem, 4vw, 2.5rem);
+  --radius-invitation-control: 0.625rem;
+  --radius-invitation-panel: 0.875rem;
+  --shadow-invitation-panel: 0 0.75rem 2rem oklch(20% 0.022 160 / 0.08);
+  --dur-invitation-micro: 120ms;
+  --dur-invitation-short: 220ms;
+  --ease-invitation-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --color-delegation-paper: var(--color-portal-paper);
+  --color-delegation-surface: var(--color-portal-surface);
+  --color-delegation-ink: var(--color-portal-ink);
+  --color-delegation-muted: var(--color-portal-muted);
+  --color-delegation-rule: var(--color-portal-rule);
+  --color-delegation-accent: var(--color-portal-accent);
+  --color-delegation-accent-ink: var(--color-portal-accent-ink);
+  --color-delegation-focus: var(--color-portal-focus);
+  --color-delegation-danger: oklch(46% 0.17 25);
+  --color-delegation-danger-paper: oklch(96% 0.028 25);
+  --color-delegation-success: oklch(38% 0.11 160);
+  --color-delegation-success-paper: oklch(95% 0.03 160);
+  --font-delegation-display: var(--font-portal-display);
+  --font-delegation-body: var(--font-portal-body);
+  --space-delegation-xs: 0.5rem;
+  --space-delegation-sm: 0.75rem;
+  --space-delegation-md: 1rem;
+  --space-delegation-lg: 1.5rem;
+  --space-delegation-xl: 2rem;
+  --text-delegation-small: 0.875rem;
+  --text-delegation-body: 1rem;
+  --text-delegation-title: 1.25rem;
+  --radius-delegation-control: 0.625rem;
+  --dur-delegation-micro: 120ms;
+  --dur-delegation-short: 220ms;
+  --ease-delegation-out: cubic-bezier(0.16, 1, 0.3, 1);
+}

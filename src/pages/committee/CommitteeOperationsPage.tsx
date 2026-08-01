@@ -32,6 +32,8 @@ import {
 
 type AttendanceRecap = {
   eventId: string;
+  attendanceMode?: string;
+  requiredUnits?: Array<{ id: string; type: "DAY" | "SESSION"; title: string; date: string }>;
   totalParticipants: number;
   recapSummary: {
     fullAttendance: number;
@@ -46,7 +48,11 @@ type AttendanceRecap = {
     ustadzName: string;
     institutionName?: string | null;
     totalSessionsAttended: number;
+    totalUnitsAttended?: number;
+    requiredUnits?: number;
+    completionPercentage?: number;
     statusCategory: string;
+    unitStatuses?: Array<{ unitId: string; status: string }>;
   }>;
 };
 
@@ -120,6 +126,12 @@ const previewAssignments: CommitteeAssignment[] = [
 
 const previewRecap: AttendanceRecap = {
   eventId: "preview-event",
+  attendanceMode: "DAILY_AND_SESSION",
+  requiredUnits: [
+    { id: "DAY:preview-1", type: "DAY", title: "Kehadiran harian", date: "2026-08-15" },
+    { id: "SESSION:preview-1", type: "SESSION", title: "Pembukaan", date: "2026-08-15" },
+    { id: "SESSION:preview-2", type: "SESSION", title: "Materi utama", date: "2026-08-15" },
+  ],
   totalParticipants: 3,
   recapSummary: {
     fullAttendance: 1,
@@ -135,7 +147,11 @@ const previewRecap: AttendanceRecap = {
       ustadzName: "Ustadz Abdullah, Lc.",
       institutionName: "Ma'had Ilmu Sunnah Bandung",
       totalSessionsAttended: 2,
-      statusCategory: "HADIR",
+      totalUnitsAttended: 3,
+      requiredUnits: 3,
+      completionPercentage: 100,
+      statusCategory: "HADIR_PENUH",
+      unitStatuses: [{ unitId: "DAY:preview-1", status: "PRESENT" }, { unitId: "SESSION:preview-1", status: "PRESENT" }, { unitId: "SESSION:preview-2", status: "PRESENT" }],
     },
     {
       participantId: "preview-2",
@@ -143,7 +159,11 @@ const previewRecap: AttendanceRecap = {
       ustadzName: "Ustadz Ahmad",
       institutionName: "Markaz Sunnah",
       totalSessionsAttended: 1,
-      statusCategory: "HADIR",
+      totalUnitsAttended: 2,
+      requiredUnits: 3,
+      completionPercentage: 67,
+      statusCategory: "HADIR_SEBAGIAN",
+      unitStatuses: [{ unitId: "DAY:preview-1", status: "PRESENT" }, { unitId: "SESSION:preview-1", status: "PRESENT" }, { unitId: "SESSION:preview-2", status: "NOT_RECORDED" }],
     },
     {
       participantId: "preview-3",
@@ -151,7 +171,11 @@ const previewRecap: AttendanceRecap = {
       ustadzName: "Ustadz Hasan",
       institutionName: "Peserta individual",
       totalSessionsAttended: 0,
+      totalUnitsAttended: 0,
+      requiredUnits: 3,
+      completionPercentage: 0,
       statusCategory: "TIDAK_HADIR",
+      unitStatuses: [{ unitId: "DAY:preview-1", status: "ABSENT" }, { unitId: "SESSION:preview-1", status: "ABSENT" }, { unitId: "SESSION:preview-2", status: "ABSENT" }],
     },
   ],
 };
@@ -272,8 +296,9 @@ export const CommitteeOperationsPage: React.FC<{
         participant.ustadzName.toLowerCase().includes(needle) ||
         participant.participantCode.toLowerCase().includes(needle) ||
         (participant.institutionName || "").toLowerCase().includes(needle);
-      const matchesStatus =
-        attendanceFilter === "ALL" || participant.statusCategory === attendanceFilter;
+      const isAttended = !["TIDAK_HADIR", "BELUM_DIATUR", "BELUM_DIMULAI"].includes(participant.statusCategory);
+      const matchesStatus = attendanceFilter === "ALL" ||
+        (attendanceFilter === "HADIR" ? isAttended : !isAttended);
       return matchesSearch && matchesStatus;
     });
   }, [attendanceFilter, recap?.participantDetails, search]);
@@ -568,7 +593,7 @@ export const CommitteeOperationsPage: React.FC<{
               {filteredParticipants.map((participant) => (
                 <article
                   key={participant.participantId}
-                  className="grid items-center gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_10rem_auto]"
+                  className="grid items-center gap-4 p-4 sm:grid-cols-[minmax(0,1fr)_8rem_auto_auto]"
                 >
                   <div className="min-w-0">
                     <h3 className="font-black text-slate-950">{participant.ustadzName}</h3>
@@ -578,12 +603,13 @@ export const CommitteeOperationsPage: React.FC<{
                     </p>
                   </div>
                   <p className="text-sm font-bold text-slate-700">
-                    {participant.totalSessionsAttended} sesi
+                    {participant.totalUnitsAttended ?? participant.totalSessionsAttended}/{participant.requiredUnits ?? "—"} unit
                   </p>
                   <StatusBadge
-                    label={participant.statusCategory === "HADIR" ? "Sudah hadir" : "Belum hadir"}
-                    variant={participant.statusCategory === "HADIR" ? "success" : "warning"}
+                    label={participant.statusCategory.replaceAll("_", " ")}
+                    variant={participant.statusCategory === "HADIR_PENUH" ? "success" : participant.statusCategory === "TIDAK_HADIR" ? "danger" : participant.statusCategory === "BELUM_DIMULAI" ? "neutral" : "warning"}
                   />
+                  <Link to={`/committee/attendance/${eventId}/${participant.participantId}/report`} className="inline-flex min-h-[40px] items-center justify-center whitespace-nowrap rounded-lg border border-teal-300 bg-teal-50 px-3 text-xs font-black text-teal-900 hover:bg-teal-100">Rapor</Link>
                 </article>
               ))}
               {!filteredParticipants.length && (
@@ -593,6 +619,20 @@ export const CommitteeOperationsPage: React.FC<{
               )}
             </div>
           </section>
+          {recap?.requiredUnits?.length ? (
+            <section className="border border-slate-200 bg-white">
+              <div className="border-b border-slate-200 p-4">
+                <h2 className="text-sm font-black text-slate-950">Matriks harian dan sesi</h2>
+                <p className="mt-1 text-xs text-slate-500">Mode {recap.attendanceMode?.replaceAll("_", " ")} · gunakan untuk memastikan unit mana yang belum tercatat.</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-max text-left text-xs">
+                  <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500"><tr><th className="sticky left-0 z-10 min-w-56 border-r border-slate-200 bg-slate-50 px-4 py-3">Peserta</th>{recap.requiredUnits.map((unit) => <th key={unit.id} className="min-w-36 border-r border-slate-200 px-3 py-3"><span className="block text-teal-800">{unit.type === "DAY" ? "Harian" : "Sesi"} · {new Date(`${unit.date}T00:00:00`).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}</span><span className="mt-1 block normal-case tracking-normal text-slate-700">{unit.title}</span></th>)}</tr></thead>
+                  <tbody className="divide-y divide-slate-100">{filteredParticipants.map((participant) => <tr key={participant.participantId}><th className="sticky left-0 z-10 border-r border-slate-200 bg-white px-4 py-3"><span className="block font-black text-slate-900">{participant.ustadzName}</span><span className="mt-1 block font-mono text-[10px] text-slate-500">{participant.participantCode}</span></th>{recap.requiredUnits!.map((unit) => { const status = participant.unitStatuses?.find((item) => item.unitId === unit.id)?.status || "NOT_RECORDED"; return <td key={unit.id} className="border-r border-slate-100 px-3 py-3"><StatusBadge label={status.replaceAll("_", " ")} variant={["PRESENT", "LATE"].includes(status) ? "success" : ["EXCUSED", "PERMITTED"].includes(status) ? "warning" : status === "ABSENT" ? "danger" : "neutral"} /></td>; })}</tr>)}</tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
         </div>
       ) : (
         <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_21rem]">

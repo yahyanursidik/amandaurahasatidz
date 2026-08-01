@@ -19,6 +19,10 @@ export interface UstadzEventHistory {
   participantCode: string;
   confirmationStatus: string;
   approvalStatus: string;
+  registrationSource: string;
+  institutionId?: string | null;
+  institutionName?: string | null;
+  institutionCode?: string | null;
   eventId: string;
   eventCode: string;
   eventName: string;
@@ -26,6 +30,10 @@ export interface UstadzEventHistory {
   eventStartDate: string;
   eventEndDate: string;
   attendanceCount: number;
+  attendedUnits: number;
+  requiredUnits: number;
+  completionPercentage: number;
+  attendanceStatus: string;
 }
 
 export interface UstadzProfile {
