@@ -126,10 +126,10 @@ export const InvitationPage: React.FC = () => {
 
   const handleVerifyEmail = (e: React.FormEvent) => {
     e.preventDefault();
-    if (repEmail.trim().toLowerCase() === mockData.representativeEmail.toLowerCase() || verificationCode === "123456") {
+    if (repEmail.trim().toLowerCase() === mockData.representativeEmail.toLowerCase() && /^\d{6}$/.test(verificationCode)) {
       setEmailVerified(true);
     } else {
-      alert("Email perwakilan tidak sesuai. Gunakan kode OTP 123456 untuk simulasi.");
+      alert("Email atau format kode OTP tidak sesuai.");
     }
   };
 
@@ -345,12 +345,12 @@ export const InvitationPage: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Kode OTP Verifikasi (Gunakan: 123456)</label>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Kode OTP Verifikasi</label>
                 <input
                   type="text"
                   value={verificationCode}
                   onChange={(e) => setVerificationCode(e.target.value)}
-                  placeholder="123456"
+                  placeholder="000000"
                   required
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs outline-none focus:ring-2 focus:ring-emerald-500 font-mono tracking-wider"
                 />

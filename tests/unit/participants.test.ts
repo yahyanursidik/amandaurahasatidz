@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { updateParticipantStatusSchema, replaceParticipantSchema } from "../../netlify/functions/lib/validations/participantValidation";
+import {
+  replaceParticipantSchema,
+  replacePortalDelegationMemberSchema,
+  updateParticipantStatusSchema,
+} from "../../netlify/functions/lib/validations/participantValidation";
 
 describe("Management Peserta, Quota Enforcement & Replacement Unit Tests", () => {
   it("should enforce quota limit (reject adding delegates exceeding quota)", () => {
@@ -31,6 +35,29 @@ describe("Management Peserta, Quota Enforcement & Replacement Unit Tests", () =>
 
     const parsed = replaceParticipantSchema.safeParse(payload);
     expect(parsed.success).toBe(true);
+  });
+
+  it("validates a complete delegation replacement submitted by a group leader", () => {
+    const parsed = replacePortalDelegationMemberSchema.safeParse({
+      targetParticipantId: "00000000-0000-0000-0000-000000000001",
+      fullName: "Ustadz Ahmad, Lc.",
+      email: "ahmad@lembaga.or.id",
+      whatsapp: "081234567890",
+      phone: "081234567890",
+      address: "Bandung, Jawa Barat",
+      reason: "Peserta sebelumnya berhalangan hadir.",
+    });
+    expect(parsed.success).toBe(true);
+  });
+
+  it("requires an email and a meaningful reason for a replacement", () => {
+    const parsed = replacePortalDelegationMemberSchema.safeParse({
+      targetParticipantId: "00000000-0000-0000-0000-000000000001",
+      fullName: "Ustadz Ahmad",
+      whatsapp: "081234567890",
+      reason: "izin",
+    });
+    expect(parsed.success).toBe(false);
   });
 
   it("should verify replacement workflow preserves old record (status REPLACED, not deleted)", () => {

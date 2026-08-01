@@ -97,7 +97,12 @@ import {
   updateCommitteeMemberService,
 } from "./lib/services/committeeService";
 
-import { createInvitationSchema, submitResponseSchema } from "./lib/validations/invitationValidation";
+import {
+  createInvitationSchema,
+  requestInvitationOtpSchema,
+  submitResponseSchema,
+  verifyInvitationOtpSchema,
+} from "./lib/validations/invitationValidation";
 import {
   getInvitationsService,
   createInvitationService,
@@ -108,6 +113,8 @@ import {
   getPublicIndividualInvitationService,
   submitInstitutionResponseService,
   submitIndividualResponseService,
+  requestInstitutionInvitationOtpService,
+  verifyInstitutionInvitationOtpService,
 } from "./lib/services/invitationService";
 
 import {
@@ -118,7 +125,14 @@ import {
   declineParticipantSchema,
   cancelParticipantSchema,
   bulkApproveSchema,
+  replacePortalDelegationMemberSchema,
+  requestPasswordSetupSchema,
+  completePasswordSetupSchema,
 } from "./lib/validations/participantValidation";
+import {
+  completePasswordSetupService,
+  requestPasswordSetupService,
+} from "./lib/services/accountPasswordService";
 import {
   getParticipantsService,
   searchExistingUstadzProfilesService,
@@ -161,6 +175,8 @@ import {
   getPortalOverviewService,
   getPortalParticipantIdsService,
   getPortalParticipantQrService,
+  getPortalDelegationService,
+  replacePortalDelegationMemberService,
   resolvePortalUstadzIdService,
 } from "./lib/services/portalService";
 
@@ -185,6 +201,7 @@ import {
   manualMarkAttendanceService,
   correctAttendanceRecordService,
   getAttendanceSummaryRecapService,
+  getParticipantAttendanceReportService,
 } from "./lib/services/attendanceReportService";
 
 import {
@@ -266,6 +283,50 @@ export const handler: Handler = async (event, _context) => {
       return buildSuccessResponse(invData, requestId);
     }
 
+    const pubInvOtpRequestMatch = path.match(
+      /^\/invitations\/public\/institution\/([a-z0-9_]+)\/otp\/request$/i,
+    );
+    if (pubInvOtpRequestMatch && method === "POST") {
+      const rawToken = pubInvOtpRequestMatch[1];
+      const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+      const limitCheck = checkRateLimit(`pub_inv_otp_${rawToken.slice(-12)}_${clientIp}`, 3, 600000);
+      if (!limitCheck.allowed) {
+        return buildErrorResponse(
+          "TOO_MANY_REQUESTS",
+          `Terlalu banyak permintaan kode. Coba lagi dalam ${limitCheck.retryAfterSeconds} detik.`,
+          requestId,
+          429,
+          { retryAfterSeconds: limitCheck.retryAfterSeconds },
+        );
+      }
+      const body = event.body ? JSON.parse(event.body) : {};
+      const validated = validateRequestData(requestInvitationOtpSchema, body);
+      const result = await requestInstitutionInvitationOtpService(rawToken, validated.email, requestId);
+      return buildSuccessResponse(result, requestId);
+    }
+
+    const pubInvOtpVerifyMatch = path.match(
+      /^\/invitations\/public\/institution\/([a-z0-9_]+)\/otp\/verify$/i,
+    );
+    if (pubInvOtpVerifyMatch && method === "POST") {
+      const rawToken = pubInvOtpVerifyMatch[1];
+      const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+      const limitCheck = checkRateLimit(`pub_inv_otp_verify_${rawToken.slice(-12)}_${clientIp}`, 6, 600000);
+      if (!limitCheck.allowed) {
+        return buildErrorResponse(
+          "TOO_MANY_REQUESTS",
+          `Terlalu banyak percobaan kode. Coba lagi dalam ${limitCheck.retryAfterSeconds} detik.`,
+          requestId,
+          429,
+          { retryAfterSeconds: limitCheck.retryAfterSeconds },
+        );
+      }
+      const body = event.body ? JSON.parse(event.body) : {};
+      const validated = validateRequestData(verifyInvitationOtpSchema, body);
+      const result = await verifyInstitutionInvitationOtpService(rawToken, validated, requestId);
+      return buildSuccessResponse(result, requestId);
+    }
+
     const pubInvRespMatch = path.match(/^\/invitations\/public\/institution\/([a-z0-9_]+)\/response$/i);
     if (pubInvRespMatch && method === "POST") {
       const rawToken = pubInvRespMatch[1];
@@ -283,6 +344,44 @@ export const handler: Handler = async (event, _context) => {
     }
 
     // 5. Auth Endpoints
+    if (path === "/auth/password/setup/request" && method === "POST") {
+      const body = event.body ? JSON.parse(event.body) : {};
+      const validated = validateRequestData(requestPasswordSetupSchema, body);
+      const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+      const limit = checkRateLimit(`password_setup_${validated.email}_${clientIp}`, 3, 600000);
+      if (!limit.allowed) {
+        return buildErrorResponse(
+          "TOO_MANY_REQUESTS",
+          `Terlalu banyak permintaan aktivasi. Coba kembali dalam ${limit.retryAfterSeconds} detik.`,
+          requestId,
+          429,
+        );
+      }
+      const result = await requestPasswordSetupService(
+        validated.email,
+        validated.portal,
+        requestId,
+      );
+      return buildSuccessResponse(result, requestId);
+    }
+
+    if (path === "/auth/password/setup/complete" && method === "POST") {
+      const body = event.body ? JSON.parse(event.body) : {};
+      const validated = validateRequestData(completePasswordSetupSchema, body);
+      const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+      const limit = checkRateLimit(`password_setup_complete_${validated.email}_${clientIp}`, 6, 600000);
+      if (!limit.allowed) {
+        return buildErrorResponse(
+          "TOO_MANY_REQUESTS",
+          `Terlalu banyak percobaan kode. Coba kembali dalam ${limit.retryAfterSeconds} detik.`,
+          requestId,
+          429,
+        );
+      }
+      const result = await completePasswordSetupService(validated, requestId);
+      return buildSuccessResponse(result, requestId);
+    }
+
     if (path === "/auth/password/login" && method === "POST") {
       const body = event.body ? JSON.parse(event.body) : {};
       const email = String(body.email || "").trim().toLowerCase();
@@ -340,7 +439,13 @@ export const handler: Handler = async (event, _context) => {
       }
 
       const otpCode = generateEmailOtp(email);
-      logInfo(requestId, `OTP Code Generated for ${email}: ${otpCode}`);
+      await enqueueEmailJob({
+        templateCode: "OTP_CODE",
+        recipientEmail: email,
+        variables: { otpCode, expiresMinutes: 5 },
+        idempotencyKey: `auth_otp_${email}_${Date.now()}`,
+      });
+      logInfo(requestId, `OTP login queued for ${email}.`);
 
       return buildSuccessResponse({ message: "Kode OTP telah dikirimkan ke email Anda." }, requestId);
     }
@@ -350,7 +455,7 @@ export const handler: Handler = async (event, _context) => {
       const email = (body.email || "admin@yts.or.id").trim().toLowerCase();
       const otp = (body.otp || "").trim();
 
-      const isValid = otp === "123456" || verifyEmailOtp(email, otp);
+      const isValid = verifyEmailOtp(email, otp);
       if (!isValid) {
         throw new UnauthorizedError("Kode OTP tidak valid.");
       }
@@ -435,6 +540,36 @@ export const handler: Handler = async (event, _context) => {
       const validated = validateRequestData(updateUstadzSelfProfileSchema, body);
       const updated = await updateUstadzSelfProfileService(ustadzId, validated, session.userId, requestId);
       return buildSuccessResponse(updated, requestId);
+    }
+
+    const portalDelegationMatch = path.match(
+      /^\/portal\/delegations\/([a-f0-9-]+)$/i,
+    );
+    if (portalDelegationMatch && method === "GET") {
+      const session = requireAuth(userSession);
+      const delegation = await getPortalDelegationService(
+        session.userId,
+        session.email,
+        portalDelegationMatch[1],
+      );
+      return buildSuccessResponse(delegation, requestId);
+    }
+
+    const portalDelegationReplaceMatch = path.match(
+      /^\/portal\/delegations\/([a-f0-9-]+)\/replace$/i,
+    );
+    if (portalDelegationReplaceMatch && method === "POST") {
+      const session = requireAuth(userSession);
+      const body = event.body ? JSON.parse(event.body) : {};
+      const validated = validateRequestData(replacePortalDelegationMemberSchema, body);
+      const replaced = await replacePortalDelegationMemberService(
+        session.userId,
+        session.email,
+        portalDelegationReplaceMatch[1],
+        validated,
+        requestId,
+      );
+      return buildSuccessResponse(replaced, requestId, null, 201);
     }
 
     // Event workspace CRUD and command endpoints
@@ -1164,7 +1299,8 @@ export const handler: Handler = async (event, _context) => {
         validated.qrTokenOrCode,
         validated.method || "QR_SCAN",
         session.userId,
-        requestId
+        requestId,
+        { sessionId: validated.sessionId, dayId: validated.dayId },
       );
       return buildSuccessResponse(result, requestId);
     }
@@ -1243,6 +1379,18 @@ export const handler: Handler = async (event, _context) => {
       requirePermission(userSession, "attendance.read", eventId);
       const recap = await getAttendanceSummaryRecapService(eventId);
       return buildSuccessResponse(recap, requestId);
+    }
+
+    const participantAttendanceReportMatch = path.match(
+      /^\/events\/([a-f0-9-]+)\/attendance\/([a-f0-9-]+)\/report$/i,
+    );
+    if (participantAttendanceReportMatch && method === "GET") {
+      const eventId = participantAttendanceReportMatch[1];
+      requirePermission(userSession, "attendance.read", eventId);
+      return buildSuccessResponse(
+        await getParticipantAttendanceReportService(eventId, participantAttendanceReportMatch[2]),
+        requestId,
+      );
     }
 
     // Dashboard & Report Endpoints

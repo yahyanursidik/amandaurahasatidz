@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import {
   Bell,
   CheckCircle2,
@@ -20,7 +20,9 @@ type Mode = "attendance" | "communications" | "reports";
 type Props = { mode: Mode };
 
 type AttendanceRecap = {
+  attendanceMode?: string;
   totalParticipants: number;
+  requiredUnits?: Array<{ id: string; type: "DAY" | "SESSION"; title: string; date: string }>;
   recapSummary: {
     fullAttendance: number;
     partialAttendance: number;
@@ -34,7 +36,11 @@ type AttendanceRecap = {
     ustadzName: string;
     institutionName: string | null;
     totalSessionsAttended: number;
+    totalUnitsAttended?: number;
+    requiredUnits?: number;
+    completionPercentage?: number;
     statusCategory: string;
+    unitStatuses?: Array<{ unitId: string; type: "DAY" | "SESSION"; title: string; date: string; status: string }>;
   }>;
 };
 
@@ -194,11 +200,21 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
     setBusy(true);
     setError("");
     try {
-      const result = await eventApi<{ filename?: string }>("/reports/export", {
+      const result = await eventApi<{ filename?: string; data?: string; contentType?: string; truncated?: boolean }>("/reports/export", {
         method: "POST",
         body: JSON.stringify({ reportType, format: "CSV", eventId: id }),
       });
-      setNotice(result.filename ? `Ekspor dibuat: ${result.filename}` : "Ekspor laporan berhasil dibuat.");
+      if (!result.data || !result.filename) throw new Error("Konten berkas ekspor tidak tersedia.");
+      const blob = new Blob(["\uFEFF", result.data], { type: result.contentType || "text/csv;charset=utf-8" });
+      const downloadUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = downloadUrl;
+      anchor.download = result.filename;
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      URL.revokeObjectURL(downloadUrl);
+      setNotice(result.truncated ? `Ekspor ${result.filename} berhasil, tetapi dibatasi sesuai batas maksimum.` : `Ekspor ${result.filename} berhasil diunduh.`);
     } catch (exportError) {
       setError(exportError instanceof Error ? exportError.message : "Laporan gagal diekspor.");
     } finally {
@@ -252,23 +268,45 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
             ))}
           </section>
           <div className="overflow-hidden border border-slate-200 bg-white">
-            <div className="hidden grid-cols-[9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_8rem_9rem] gap-3 bg-slate-50 px-4 py-3 text-[10px] font-black uppercase tracking-wide text-slate-500 lg:grid">
-              <span>Kode</span><span>Asatidz</span><span>Lembaga</span><span>Sesi hadir</span><span>Status</span>
+            <div className="hidden grid-cols-[9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_8rem_9rem_7rem] gap-3 bg-slate-50 px-4 py-3 text-[10px] font-black uppercase tracking-wide text-slate-500 lg:grid">
+              <span>Kode</span><span>Asatidz</span><span>Lembaga</span><span>Unit hadir</span><span>Status</span><span>Rapor</span>
             </div>
             {loading ? <div className="h-64 animate-pulse bg-slate-100" /> : attendance?.participantDetails.length ? (
               <ul className="divide-y divide-slate-100">
                 {attendance.participantDetails.map((participant) => (
-                  <li key={participant.participantId} className="grid gap-2 px-4 py-4 text-xs lg:grid-cols-[9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_8rem_9rem] lg:items-center lg:gap-3">
+                  <li key={participant.participantId} className="grid gap-2 px-4 py-4 text-xs lg:grid-cols-[9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_8rem_9rem_7rem] lg:items-center lg:gap-3">
                     <span className="font-mono font-bold text-emerald-800">{participant.participantCode}</span>
                     <span className="font-black text-slate-900">{participant.ustadzName}</span>
                     <span className="text-slate-500">{participant.institutionName || "Individu"}</span>
-                    <span className="font-bold tabular-nums text-slate-700">{participant.totalSessionsAttended}</span>
-                    <StatusBadge label={participant.statusCategory.replaceAll("_", " ")} variant={participant.statusCategory === "HADIR" ? "success" : "warning"} />
+                    <span className="font-bold tabular-nums text-slate-700">{participant.totalUnitsAttended ?? participant.totalSessionsAttended}/{participant.requiredUnits ?? "—"}</span>
+                    <StatusBadge label={participant.statusCategory.replaceAll("_", " ")} variant={participant.statusCategory === "HADIR_PENUH" ? "success" : participant.statusCategory === "TIDAK_HADIR" ? "danger" : participant.statusCategory === "BELUM_DIMULAI" ? "neutral" : "warning"} />
+                    <Link to={`/admin/events/${id}/attendance/${participant.participantId}/report`} className="inline-flex min-h-[40px] items-center justify-center whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-3 font-bold text-emerald-900 hover:bg-emerald-100">Buka rapor</Link>
                   </li>
                 ))}
               </ul>
             ) : <div className="p-10 text-center text-xs text-slate-500">Belum ada data kehadiran untuk event ini.</div>}
           </div>
+          {attendance?.requiredUnits?.length ? (
+            <section className="border border-slate-200 bg-white">
+              <div className="border-b border-slate-200 p-4">
+                <h2 className="text-sm font-black text-slate-900">Matriks kehadiran wajib</h2>
+                <p className="mt-1 text-xs text-slate-500">Mode {attendance.attendanceMode?.replaceAll("_", " ")} · tanggal tanpa kegiatan tidak dihitung.</p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="min-w-max text-left text-xs">
+                  <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500">
+                    <tr>
+                      <th className="sticky left-0 z-10 min-w-56 border-r border-slate-200 bg-slate-50 px-4 py-3">Peserta</th>
+                      {attendance.requiredUnits.map((unit) => <th key={unit.id} className="min-w-40 border-r border-slate-200 px-3 py-3"><span className="block text-emerald-700">{unit.type === "DAY" ? "Harian" : "Sesi"} · {new Date(`${unit.date}T00:00:00`).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}</span><span className="mt-1 block normal-case tracking-normal text-slate-700">{unit.title}</span></th>)}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {attendance.participantDetails.map((participant) => <tr key={participant.participantId}><th className="sticky left-0 z-10 border-r border-slate-200 bg-white px-4 py-3"><span className="block font-black text-slate-900">{participant.ustadzName}</span><span className="mt-1 block font-mono text-[10px] text-slate-500">{participant.participantCode}</span></th>{attendance.requiredUnits!.map((unit) => { const status = participant.unitStatuses?.find((item) => item.unitId === unit.id)?.status || "NOT_RECORDED"; return <td key={unit.id} className="border-r border-slate-100 px-3 py-3"><StatusBadge label={status.replaceAll("_", " ")} variant={["PRESENT", "LATE"].includes(status) ? "success" : ["EXCUSED", "PERMITTED"].includes(status) ? "warning" : status === "ABSENT" ? "danger" : "neutral"} /></td>; })}</tr>)}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          ) : null}
         </div>
       )}
 

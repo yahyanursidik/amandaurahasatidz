@@ -3,6 +3,9 @@
   publish = "dist"
   functions = "netlify/functions"
 
+[functions."emailWorker"]
+  schedule = "* * * * *"
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api/:splat"

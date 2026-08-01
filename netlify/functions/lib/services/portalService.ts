@@ -7,11 +7,13 @@ import {
   eventSessions,
   events,
   institutions,
+  invitations,
   ustadzInstitutionAffiliations,
   ustadzProfiles,
 } from "../db/schema";
-import { NotFoundError } from "../utils/errors";
+import { ForbiddenError, NotFoundError } from "../utils/errors";
 import { getParticipantQrTokenService } from "./participantQrService";
+import { replacePortalDelegationMemberTxRepository } from "../repositories/participantRepository";
 
 export async function resolvePortalUstadzIdService(userId: string, email: string) {
   const db = getDbClient();
@@ -63,6 +65,8 @@ export async function getPortalOverviewService(userId: string, email: string) {
         participantId: eventParticipants.id,
         participantCode: eventParticipants.participantCode,
         registrationSource: eventParticipants.registrationSource,
+        invitationId: eventParticipants.invitationId,
+        isDelegationLead: eventParticipants.isDelegationLead,
         confirmationStatus: eventParticipants.confirmationStatus,
         approvalStatus: eventParticipants.approvalStatus,
         registeredAt: eventParticipants.createdAt,
@@ -155,6 +159,116 @@ export async function getPortalOverviewService(userId: string, email: string) {
       ),
     })),
   };
+}
+
+export async function getPortalDelegationService(
+  userId: string,
+  email: string,
+  actorParticipantId: string,
+) {
+  const db = getDbClient();
+  const ustadzId = await resolvePortalUstadzIdService(userId, email);
+  const actorRows = await db
+    .select({
+      participantId: eventParticipants.id,
+      eventId: eventParticipants.eventId,
+      invitationId: eventParticipants.invitationId,
+      institutionId: eventParticipants.institutionId,
+      isDelegationLead: eventParticipants.isDelegationLead,
+      confirmationStatus: eventParticipants.confirmationStatus,
+      eventName: events.name,
+      institutionName: institutions.name,
+      quota: invitations.quota,
+    })
+    .from(eventParticipants)
+    .innerJoin(events, eq(eventParticipants.eventId, events.id))
+    .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
+    .leftJoin(invitations, eq(eventParticipants.invitationId, invitations.id))
+    .where(
+      and(
+        eq(eventParticipants.id, actorParticipantId),
+        eq(eventParticipants.ustadzId, ustadzId),
+      ),
+    )
+    .limit(1);
+  const actor = actorRows[0];
+  if (!actor) throw new NotFoundError("Kepesertaan kepala rombongan tidak ditemukan.");
+  if (!actor.isDelegationLead || !actor.invitationId || !actor.institutionId) {
+    throw new ForbiddenError("Akun ini bukan kepala rombongan untuk delegasi yang dipilih.");
+  }
+
+  const members = await db
+    .select({
+      participantId: eventParticipants.id,
+      participantCode: eventParticipants.participantCode,
+      fullName: ustadzProfiles.fullName,
+      email: ustadzProfiles.email,
+      phone: ustadzProfiles.phone,
+      whatsapp: ustadzProfiles.whatsapp,
+      address: ustadzProfiles.address,
+      isDelegationLead: eventParticipants.isDelegationLead,
+      confirmationStatus: eventParticipants.confirmationStatus,
+      approvalStatus: eventParticipants.approvalStatus,
+      registeredAt: eventParticipants.createdAt,
+    })
+    .from(eventParticipants)
+    .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
+    .where(
+      and(
+        eq(eventParticipants.eventId, actor.eventId),
+        eq(eventParticipants.institutionId, actor.institutionId),
+        eq(eventParticipants.invitationId, actor.invitationId),
+        inArray(eventParticipants.confirmationStatus, ["INVITED", "CONFIRMED", "APPROVED"]),
+      ),
+    )
+    .orderBy(desc(eventParticipants.isDelegationLead), asc(ustadzProfiles.fullName));
+  const memberIds = members.map((member) => member.participantId);
+  const attendance = memberIds.length
+    ? await db
+        .select({ participantId: attendanceRecords.participantId })
+        .from(attendanceRecords)
+        .where(inArray(attendanceRecords.participantId, memberIds))
+    : [];
+  const checkedInIds = new Set(attendance.map((record) => record.participantId));
+
+  return {
+    actorParticipantId: actor.participantId,
+    eventId: actor.eventId,
+    eventName: actor.eventName,
+    institutionId: actor.institutionId,
+    institutionName: actor.institutionName,
+    quota: actor.quota || members.length,
+    members: members.map((member) => ({
+      ...member,
+      hasCheckedIn: checkedInIds.has(member.participantId),
+      canReplace: !member.isDelegationLead && !checkedInIds.has(member.participantId),
+    })),
+  };
+}
+
+export async function replacePortalDelegationMemberService(
+  userId: string,
+  email: string,
+  actorParticipantId: string,
+  payload: {
+    targetParticipantId: string;
+    fullName: string;
+    email: string;
+    phone?: string | null;
+    whatsapp: string;
+    address?: string | null;
+    reason: string;
+  },
+  requestId: string,
+) {
+  const ustadzId = await resolvePortalUstadzIdService(userId, email);
+  return replacePortalDelegationMemberTxRepository(
+    ustadzId,
+    userId,
+    actorParticipantId,
+    payload,
+    requestId,
+  );
 }
 
 export async function getPortalParticipantIdsService(userId: string, email: string) {

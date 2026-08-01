@@ -6,6 +6,10 @@ export interface CookieOptions {
   path?: string;
 }
 
+function isProductionRuntime() {
+  return process.env.APP_ENV === "production" || process.env.CONTEXT === "production";
+}
+
 export function parseCookies(cookieHeader?: string): Record<string, string> {
   const list: Record<string, string> = {};
   if (!cookieHeader) return list;
@@ -26,7 +30,7 @@ export function serializeCookie(name: string, value: string, options: CookieOpti
   const {
     maxAge = 604800, // 7 days default
     httpOnly = true,
-    secure = process.env.APP_ENV === "production",
+    secure = isProductionRuntime(),
     sameSite = "Lax",
     path = "/",
   } = options;

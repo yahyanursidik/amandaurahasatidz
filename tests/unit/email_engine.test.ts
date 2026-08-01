@@ -110,7 +110,7 @@ describe("Email Engine, Queue & Template Whitelist Unit Tests", () => {
     expect(html).toContain("847261");
     expect(html).toContain("10");
     expect(html).toContain("Jangan bagikan kode ini");
-    expect(html).toContain("Kode Otentikasi Masuk");
+    expect(html).toContain("Kode Verifikasi");
   });
 
   it("should render THANK_YOU_ATTENDED HTML template with Islamic quote", () => {

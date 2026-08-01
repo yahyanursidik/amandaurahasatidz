@@ -15,14 +15,10 @@ describe("Dashboard Executive, Portal Panitia & Laporan Export Unit Tests", () =
     expect(csv).toContain('"Ma\'had Bandung"');
   });
 
-  it("should route large dataset exports (>500 items) to background job processing", async () => {
-    if (!process.env.DATABASE_URL) {
-      process.env.DATABASE_URL = "postgresql://mock_owner:mock_pass@ep-mock-12345.us-east-2.aws.neon.tech/neondb?sslmode=require";
-    }
-
+  it("should allow paginated exports beyond the old 500-row threshold", () => {
     const totalCount = 650;
-    const isBackgroundJob = totalCount > 500;
-    expect(isBackgroundJob).toBe(true);
+    const pageSize = 500;
+    expect(Math.ceil(totalCount / pageSize)).toBe(2);
   });
 
   it("should verify 8 report types are defined and queryable", () => {

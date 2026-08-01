@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, timestamp, integer, jsonb, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
+import { pgTable, uuid, text, timestamp, integer, jsonb, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "./foundation";
 import { events, eventDays, eventSessions } from "./events";
 import { eventParticipants } from "./participants";
@@ -27,6 +28,12 @@ export const attendanceRecords = pgTable(
   (table) => [
     index("idx_attendance_event_part").on(table.eventId, table.participantId),
     index("idx_attendance_sess_status").on(table.eventSessionId, table.attendanceStatus),
+    uniqueIndex("uniq_attendance_part_session")
+      .on(table.participantId, table.eventSessionId)
+      .where(sql`${table.eventSessionId} is not null`),
+    uniqueIndex("uniq_attendance_part_day")
+      .on(table.participantId, table.eventDayId)
+      .where(sql`${table.eventDayId} is not null and ${table.eventSessionId} is null`),
   ]
 );
 

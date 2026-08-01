@@ -1,6 +1,5 @@
 import { getPaginatedReportService } from "./reportService";
 import { createAuditLog } from "./auditService";
-import { logInfo } from "../utils/logger";
 
 export interface ExportRequestParams {
   reportType: string;
@@ -28,43 +27,29 @@ export async function generateReportExportService(
   actorUserId?: string,
   requestId = "req-export"
 ) {
-  // Fetch up to 1000 records for export
-  const reportResult = await getPaginatedReportService(params.reportType, {
+  const maxRecords = Math.min(10_000, Math.max(1, params.maxRecords || 5_000));
+  const pageSize = Math.min(1_000, maxRecords);
+  const firstPage = await getPaginatedReportService(params.reportType, {
     page: 1,
-    pageSize: Math.min(1000, params.maxRecords || 500),
+    pageSize,
     eventId: params.eventId,
   });
-
-  const totalCount = reportResult.meta.total;
-  const isBackgroundJob = totalCount > 500;
-
-  // Background Async Queue for large datasets (>500 items) (Compliance Point 6)
-  if (isBackgroundJob) {
-    logInfo(requestId, `Dataset export '${params.reportType}' (${totalCount} entri) dialihkan ke background job.`);
-
-    if (requestId) {
-      await createAuditLog({
-        actorUserId: actorUserId || null,
-        action: "REPORT_EXPORTED",
-        resourceType: "REPORT",
-        resourceId: params.reportType,
-        reason: `Export ${params.format} laporan '${params.reportType}' (${totalCount} entri) diproses di latar belakang (background job).`,
-        requestId,
-      });
-    }
-
-    return {
-      status: "BACKGROUND_JOB_QUEUED",
-      message: `Export laporan '${params.reportType}' berisi ${totalCount} entri dialihkan ke antrean background job. File akan dikirimkan via email setelah selesai.`,
-      jobId: `export_job_${Date.now()}`,
-      totalCount,
-    };
+  const totalCount = firstPage.meta.total;
+  const targetCount = Math.min(totalCount, maxRecords);
+  const rows = [...firstPage.data];
+  for (let page = 2; rows.length < targetCount; page += 1) {
+    const next = await getPaginatedReportService(params.reportType, {
+      page,
+      pageSize: Math.min(pageSize, targetCount - rows.length),
+      eventId: params.eventId,
+    });
+    if (!next.data.length) break;
+    rows.push(...next.data);
   }
 
-  // Synchronous Export formatting for datasets <= 500 items
-  const sampleRow = reportResult.data[0] || {};
+  const sampleRow = rows[0] || {};
   const headers = Object.keys(sampleRow);
-  const csvContent = formatDataToCsv(headers, reportResult.data);
+  const csvContent = formatDataToCsv(headers, rows);
 
   if (requestId) {
     await createAuditLog({
@@ -72,7 +57,7 @@ export async function generateReportExportService(
       action: "REPORT_EXPORTED",
       resourceType: "REPORT",
       resourceId: params.reportType,
-      reason: `Export ${params.format} laporan '${params.reportType}' (${reportResult.data.length} entri) berhasil diunduh.`,
+      reason: `Export ${params.format} laporan '${params.reportType}' (${rows.length} entri) berhasil dibuat.`,
       requestId,
     });
   }
@@ -82,7 +67,9 @@ export async function generateReportExportService(
     format: params.format,
     filename: `laporan_${params.reportType}_${Date.now()}.${params.format.toLowerCase()}`,
     contentType: params.format === "CSV" ? "text/csv" : "application/octet-stream",
-    recordCount: reportResult.data.length,
+    recordCount: rows.length,
+    totalCount,
+    truncated: rows.length < totalCount,
     data: csvContent,
   };
 }

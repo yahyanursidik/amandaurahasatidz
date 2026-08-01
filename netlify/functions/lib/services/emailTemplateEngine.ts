@@ -41,7 +41,7 @@ export const TEMPLATE_WHITELISTS: Record<string, TemplateDefinition> = {
     code: "OTP_CODE",
     subjectTemplate: "🔐 Kode Otentikasi Masuk Sistem Daurah YTS: {{otpCode}}",
     bodyTemplate:
-      "Kode OTP untuk verifikasi masuk Sistem Informasi Daurah Asatidz YTS Anda adalah:\n\n{{otpCode}}\n\nKode ini berlaku selama {{expiresMinutes}} menit. Jangan bagikan kode ini kepada siapapun.",
+      "Kode OTP untuk verifikasi Aman Daurah Asatidz Anda adalah:\n\n{{otpCode}}\n\nKode ini berlaku selama {{expiresMinutes}} menit. Jangan bagikan kode ini kepada siapa pun.",
     allowedVariables: ["otpCode", "expiresMinutes"],
   },
   THANK_YOU_CONFIRMED: {

@@ -3,7 +3,10 @@ import { z } from "zod";
 export const processCheckinSchema = z.object({
   qrTokenOrCode: z.string().min(4, "Token QR atau Kode Peserta wajib diisi"),
   sessionId: z.string().uuid().optional().nullable(),
+  dayId: z.string().uuid().optional().nullable(),
   method: z.enum(["QR_SCAN", "MANUAL_CODE", "SEARCH_SELECT"]).default("QR_SCAN"),
+}).refine((data) => !(data.sessionId && data.dayId), {
+  message: "Pilih salah satu unit kehadiran: harian atau sesi.",
 });
 
 export const queryCheckinLogsSchema = z.object({

@@ -12,9 +12,9 @@ export const createInvitationSchema = z.object({
 
 export const submitResponseSchema = z.object({
   captchaToken: z.string().optional(),
-  emailVerificationCode: z.string().optional(),
+  verificationToken: z.string().min(20, "Bukti verifikasi undangan tidak valid"),
   responseStatus: z.enum(["ACCEPTED", "DECLINED"]),
-  notes: z.string().optional().nullable(),
+  notes: z.string().max(1000, "Catatan maksimal 1000 karakter").optional().nullable(),
   isFinal: z.boolean().default(false),
   delegates: z
     .array(
@@ -22,11 +22,37 @@ export const submitResponseSchema = z.object({
         existingProfileId: z.string().uuid().optional().nullable(),
         fullName: z.string().min(2, "Nama delegasi minimal 2 karakter"),
         email: z.string().email("Format email delegasi tidak valid").optional().nullable(),
-        phone: z.string().optional().nullable(),
-        whatsapp: z.string().optional().nullable(),
+        phone: z.string().min(8, "Nomor telepon minimal 8 digit").optional().nullable(),
+        whatsapp: z.string().min(8, "Nomor WhatsApp minimal 8 digit").optional().nullable(),
         address: z.string().max(500, "Alamat delegasi maksimal 500 karakter").optional().nullable(),
         isLead: z.boolean().default(false),
       })
     )
     .optional(),
+}).superRefine((value, context) => {
+  const delegates = value.delegates || [];
+  if (value.responseStatus === "ACCEPTED" && delegates.length === 0) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["delegates"],
+      message: "Minimal satu delegasi wajib didaftarkan saat lembaga menyatakan hadir",
+    });
+  }
+  if (value.responseStatus === "ACCEPTED" && delegates.filter((delegate) => delegate.isLead).length !== 1) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["delegates"],
+      message: "Pilih tepat satu ketua rombongan",
+    });
+  }
+});
+
+export const requestInvitationOtpSchema = z.object({
+  email: z.string().trim().email("Format email perwakilan tidak valid"),
+});
+
+export const verifyInvitationOtpSchema = z.object({
+  email: z.string().trim().email("Format email perwakilan tidak valid"),
+  code: z.string().trim().regex(/^\d{6}$/, "Kode OTP harus terdiri dari 6 digit"),
+  challengeToken: z.string().min(20, "Sesi OTP tidak valid"),
 });

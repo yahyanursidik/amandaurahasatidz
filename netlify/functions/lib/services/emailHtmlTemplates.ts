@@ -400,12 +400,12 @@ export function renderOtpCodeHtml(vars: {
     <td style="padding:36px 40px 20px;">
       <div style="text-align:center;margin-bottom:24px;">
         <div style="font-size:36px;">🔐</div>
-        <h2 style="margin:12px 0 4px;font-size:20px;color:${BRAND_PRIMARY};font-weight:700;">Kode Otentikasi Masuk</h2>
-        <p style="margin:0;font-size:13px;color:#8a9b8a;">Sistem Informasi Daurah Asatidz YTS</p>
+        <h2 style="margin:12px 0 4px;font-size:20px;color:${BRAND_PRIMARY};font-weight:700;">Kode Verifikasi</h2>
+        <p style="margin:0;font-size:13px;color:#8a9b8a;">Aman Daurah Asatidz</p>
       </div>
 
       <p style="margin:0 0 24px;font-size:14px;color:${BRAND_TEXT};line-height:1.6;text-align:center;">
-        Gunakan kode OTP berikut untuk masuk ke sistem. Kode hanya berlaku sekali dan akan kadaluwarsa.
+        Gunakan kode OTP berikut untuk memverifikasi permintaan Anda. Kode akan kedaluwarsa dalam waktu singkat.
       </p>
 
       <!-- OTP Display -->

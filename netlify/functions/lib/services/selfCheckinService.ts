@@ -1,5 +1,5 @@
 import { getDbClient } from "../db/client";
-import { eventParticipants, checkinTokens, events } from "../db/schema";
+import { eventParticipants, checkinTokens, events, eventSessions, eventDays } from "../db/schema";
 import { eq, and, isNull, gt } from "drizzle-orm";
 import { recordCheckinTransactionRepository, recordCheckinLogRepository } from "../repositories/attendanceRepository";
 import { hashToken } from "../utils/token";
@@ -72,6 +72,14 @@ export async function processSelfCheckinService(
     throw new ValidationError("Token QR Lokasi telah kedaluwarsa (expired) atau tidak valid. Silakan pindai ulang dari layar lokasi daurah.");
   }
 
+  const sessionRecord = (await db
+    .select({ dayId: eventSessions.eventDayId })
+    .from(eventSessions)
+    .innerJoin(eventDays, eq(eventSessions.eventDayId, eventDays.id))
+    .where(and(eq(eventSessions.id, sessionId), eq(eventDays.eventId, eventId)))
+    .limit(1))[0];
+  if (!sessionRecord) throw new ValidationError("Sesi tidak termasuk dalam event ini.");
+
   // 4. Resolve Participant ID for this Ustadz on this Event
   const participant = await db
     .select()
@@ -92,6 +100,7 @@ export async function processSelfCheckinService(
   // 5. Execute Transaction-Safe Check-in with method = SELF_SCAN (Compliance Point 7)
   const record = await recordCheckinTransactionRepository({
     eventId,
+    dayId: sessionRecord.dayId,
     sessionId,
     participantId: p.id,
     method: "SELF_SCAN",

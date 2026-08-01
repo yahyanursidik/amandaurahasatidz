@@ -8,6 +8,9 @@ import {
   ustadzProfiles,
   ustadzInstitutionAffiliations,
   eventParticipants,
+  roles,
+  userRoleAssignments,
+  users,
 } from "../db/schema";
 import { eq, and, desc, sql, or, isNull } from "drizzle-orm";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
@@ -128,6 +131,53 @@ export async function saveInstitutionDelegationRepository(
           .update(ustadzProfiles)
           .set(submittedContactData)
           .where(eq(ustadzProfiles.id, ustadzId));
+
+        if (normalizedEmail) {
+          const currentProfile = (
+            await tx.select().from(ustadzProfiles).where(eq(ustadzProfiles.id, ustadzId)).limit(1)
+          )[0];
+          let portalUser = currentProfile?.userId
+            ? (await tx.select().from(users).where(eq(users.id, currentProfile.userId)).limit(1))[0]
+            : (await tx.select().from(users).where(eq(users.email, normalizedEmail)).limit(1))[0];
+          if (!portalUser) {
+            portalUser = (
+              await tx
+                .insert(users)
+                .values({ email: normalizedEmail, name: delegate.fullName.trim(), status: "ACTIVE" })
+                .returning()
+            )[0];
+          }
+          if (!currentProfile?.userId) {
+            await tx
+              .update(ustadzProfiles)
+              .set({ userId: portalUser.id, updatedAt: new Date() })
+              .where(eq(ustadzProfiles.id, ustadzId));
+          }
+          const ustadzRole = (
+            await tx.select().from(roles).where(eq(roles.code, "USTADZ")).limit(1)
+          )[0];
+          if (ustadzRole) {
+            const assignment = await tx
+              .select({ id: userRoleAssignments.id })
+              .from(userRoleAssignments)
+              .where(
+                and(
+                  eq(userRoleAssignments.userId, portalUser.id),
+                  eq(userRoleAssignments.roleId, ustadzRole.id),
+                  eq(userRoleAssignments.eventId, invitation.eventId),
+                ),
+              )
+              .limit(1);
+            if (!assignment[0]) {
+              await tx.insert(userRoleAssignments).values({
+                userId: portalUser.id,
+                roleId: ustadzRole.id,
+                eventId: invitation.eventId,
+                institutionId: invitation.institutionId,
+              });
+            }
+          }
+        }
 
         if (invitation.institutionId) {
           const existingAffiliation = await tx

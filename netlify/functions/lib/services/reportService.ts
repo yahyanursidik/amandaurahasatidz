@@ -6,8 +6,11 @@ import {
   ustadzProfiles,
   attendanceRecords,
   invitationResponses,
+  eventDays,
+  eventSessions,
+  events,
 } from "../db/schema";
-import { eq, and, count, desc, sql } from "drizzle-orm";
+import { eq, and, count, countDistinct, desc, sql, isNull, isNotNull } from "drizzle-orm";
 import { ValidationError } from "../utils/errors";
 
 export interface PaginationParams {
@@ -21,7 +24,7 @@ export async function getPaginatedReportService(
   params: PaginationParams
 ) {
   const page = Math.max(1, params.page || 1);
-  const pageSize = Math.min(100, Math.max(1, params.pageSize || 15));
+  const pageSize = Math.min(1000, Math.max(1, params.pageSize || 15));
   const offset = (page - 1) * pageSize;
   const db = getDbClient();
 
@@ -105,50 +108,94 @@ export async function getPaginatedReportService(
       break;
     }
 
-    case "attendance-daily":
-    case "attendance-session": {
-      // 4 & 5. Laporan Attendance per Hari & per Sesi
-      const totalRes = await db.select({ total: count() }).from(attendanceRecords);
-      if (params.eventId) {
-        const scopedTotal = await db
-          .select({ total: count() })
-          .from(attendanceRecords)
-          .where(eq(attendanceRecords.eventId, params.eventId));
-        totalRes[0] = scopedTotal[0];
-      }
-      total = totalRes[0]?.total || 0;
-
+    case "attendance-daily": {
+      const condition = params.eventId
+        ? and(eq(attendanceRecords.eventId, params.eventId), isNull(attendanceRecords.eventSessionId))
+        : isNull(attendanceRecords.eventSessionId);
+      total = (await db.select({ total: count() }).from(attendanceRecords).where(condition))[0]?.total || 0;
       data = await db
         .select({
           id: attendanceRecords.id,
+          eventCode: events.code,
+          eventName: events.name,
+          activityDate: eventDays.date,
+          dayNumber: eventDays.dayNumber,
+          dayTitle: eventDays.title,
           participantCode: eventParticipants.participantCode,
           ustadzName: ustadzProfiles.fullName,
+          institutionName: institutions.name,
           status: attendanceRecords.attendanceStatus,
           checkinAt: attendanceRecords.checkinAt,
+          checkinMethod: attendanceRecords.checkinMethod,
+          notes: attendanceRecords.notes,
         })
         .from(attendanceRecords)
+        .innerJoin(events, eq(attendanceRecords.eventId, events.id))
+        .innerJoin(eventDays, eq(attendanceRecords.eventDayId, eventDays.id))
         .innerJoin(eventParticipants, eq(attendanceRecords.participantId, eventParticipants.id))
         .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
-        .where(params.eventId ? eq(attendanceRecords.eventId, params.eventId) : undefined)
+        .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
+        .where(condition)
         .orderBy(desc(attendanceRecords.createdAt))
         .limit(pageSize)
         .offset(offset);
       break;
     }
 
+    case "attendance-session": {
+      const condition = params.eventId
+        ? and(eq(attendanceRecords.eventId, params.eventId), isNotNull(attendanceRecords.eventSessionId))
+        : isNotNull(attendanceRecords.eventSessionId);
+      total = (await db.select({ total: count() }).from(attendanceRecords).where(condition))[0]?.total || 0;
+      data = await db
+        .select({
+          id: attendanceRecords.id,
+          eventCode: events.code,
+          eventName: events.name,
+          activityDate: eventDays.date,
+          sessionTitle: eventSessions.title,
+          sessionType: eventSessions.sessionType,
+          sessionStartAt: eventSessions.startAt,
+          room: eventSessions.room,
+          participantCode: eventParticipants.participantCode,
+          ustadzName: ustadzProfiles.fullName,
+          institutionName: institutions.name,
+          status: attendanceRecords.attendanceStatus,
+          checkinAt: attendanceRecords.checkinAt,
+          checkinMethod: attendanceRecords.checkinMethod,
+          notes: attendanceRecords.notes,
+        })
+        .from(attendanceRecords)
+        .innerJoin(events, eq(attendanceRecords.eventId, events.id))
+        .innerJoin(eventSessions, eq(attendanceRecords.eventSessionId, eventSessions.id))
+        .innerJoin(eventDays, eq(eventSessions.eventDayId, eventDays.id))
+        .innerJoin(eventParticipants, eq(attendanceRecords.participantId, eventParticipants.id))
+        .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
+        .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
+        .where(condition)
+        .orderBy(desc(eventSessions.startAt), desc(attendanceRecords.createdAt))
+        .limit(pageSize)
+        .offset(offset);
+      break;
+    }
+
     case "no-show": {
-      // 6. Laporan No-Show (Confirmed but absent)
+      const noAttendance = sql`not exists (
+        select 1 from attendance_records ar
+        where ar.participant_id = ${eventParticipants.id}
+          and ar.attendance_status in ('PRESENT', 'LATE')
+      )`;
+      const noShowCondition = params.eventId
+        ? and(
+            eq(eventParticipants.confirmationStatus, "CONFIRMED"),
+            eq(eventParticipants.eventId, params.eventId),
+            noAttendance,
+          )
+        : and(eq(eventParticipants.confirmationStatus, "CONFIRMED"), noAttendance);
       const totalRes = await db
         .select({ total: count() })
         .from(eventParticipants)
-        .where(
-          params.eventId
-            ? and(
-                eq(eventParticipants.confirmationStatus, "CONFIRMED"),
-                eq(eventParticipants.eventId, params.eventId)
-              )
-            : eq(eventParticipants.confirmationStatus, "CONFIRMED")
-        );
+        .where(noShowCondition);
       total = totalRes[0]?.total || 0;
 
       data = await db
@@ -162,36 +209,33 @@ export async function getPaginatedReportService(
         .from(eventParticipants)
         .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
         .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
-        .where(
-          params.eventId
-            ? and(
-                eq(eventParticipants.confirmationStatus, "CONFIRMED"),
-                eq(eventParticipants.eventId, params.eventId)
-              )
-            : eq(eventParticipants.confirmationStatus, "CONFIRMED")
-        )
+        .where(noShowCondition)
         .limit(pageSize)
         .offset(offset);
       break;
     }
 
     case "returning-participants": {
-      // 7. Laporan Peserta Berulang across events
-      const totalRes = await db.select({ total: count() }).from(ustadzProfiles);
-      total = totalRes[0]?.total || 0;
-
-      data = await db
+      const returningRows = await db
         .select({
           ustadzId: ustadzProfiles.id,
           fullName: ustadzProfiles.fullName,
           email: ustadzProfiles.email,
-          eventCount: count(eventParticipants.id),
+          eventCount: countDistinct(eventParticipants.eventId),
+          attendanceRecordCount: count(attendanceRecords.id),
+          institutionCount: countDistinct(eventParticipants.institutionId),
+          institutions: sql<string>`string_agg(distinct coalesce(${institutions.name}, 'Individu'), ', ')`,
+          lastAttendanceAt: sql<Date | null>`max(${attendanceRecords.checkinAt})`,
         })
         .from(ustadzProfiles)
-        .leftJoin(eventParticipants, eq(ustadzProfiles.id, eventParticipants.ustadzId))
+        .innerJoin(eventParticipants, eq(ustadzProfiles.id, eventParticipants.ustadzId))
+        .innerJoin(attendanceRecords, eq(eventParticipants.id, attendanceRecords.participantId))
+        .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
         .groupBy(ustadzProfiles.id, ustadzProfiles.fullName, ustadzProfiles.email)
-        .limit(pageSize)
-        .offset(offset);
+        .having(sql`count(distinct ${eventParticipants.eventId}) > 1`)
+        .orderBy(desc(countDistinct(eventParticipants.eventId)));
+      total = returningRows.length;
+      data = returningRows.slice(offset, offset + pageSize);
       break;
     }
 

@@ -33,14 +33,33 @@ export async function enqueueEmailJob(options: EnqueueOptions) {
   // Render template with variable whitelist (plain text for payload storage)
   const rendered = renderEmailTemplate(options.templateCode, options.variables);
 
-  // Fallback dummy templateId UUID for queue insertion
-  const templateId = "00000000-0000-0000-0000-000000000001";
+  let template = (
+    await db
+      .select()
+      .from(emailTemplates)
+      .where(eq(emailTemplates.code, options.templateCode))
+      .limit(1)
+  )[0];
+  if (!template) {
+    template = (
+      await db
+        .insert(emailTemplates)
+        .values({
+          code: options.templateCode,
+          name: options.templateCode === "OTP_CODE" ? "Kode verifikasi akun" : options.templateCode,
+          subjectTemplate: rendered.subject,
+          bodyTemplate: rendered.body,
+          status: "ACTIVE",
+        })
+        .returning()
+    )[0];
+  }
 
   const inserted = await db
     .insert(emailJobs)
     .values({
       idempotencyKey: options.idempotencyKey,
-      templateId,
+      templateId: template.id,
       recipientEmail: options.recipientEmail,
       recipientName: options.recipientName || null,
       payload: {

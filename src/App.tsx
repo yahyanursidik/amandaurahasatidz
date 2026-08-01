@@ -26,6 +26,7 @@ import { EventEditPage } from "./pages/admin/events/EventEditPage";
 import { EventShowPage } from "./pages/admin/events/EventShowPage";
 import { EventRegistrationsPage } from "./pages/admin/events/EventRegistrationsPage";
 import { EventOperationsPage } from "./pages/admin/events/EventOperationsPage";
+import { AttendanceReportPage } from "./pages/admin/events/AttendanceReportPage";
 import { CommitteeDirectoryPage } from "./pages/admin/committee/CommitteeDirectoryPage";
 import { CommitteeCreatePage } from "./pages/admin/committee/CommitteeCreatePage";
 import { CommitteeDetailPage } from "./pages/admin/committee/CommitteeDetailPage";
@@ -38,7 +39,7 @@ import { CommitteeParticipantsPage } from "./pages/committee/CommitteeParticipan
 import { CommitteeAssignmentsPage } from "./pages/committee/CommitteeAssignmentsPage";
 import { ParticipantPortalPage } from "./pages/portal/ParticipantPortalPage";
 import { EventPublicPage } from "./pages/public/EventPublicPage";
-import { InvitationPage } from "./pages/public/InvitationPage";
+import { InvitationRegistrationPage } from "./pages/public/InvitationRegistrationPage";
 import { CheckInPublicPage } from "./pages/public/CheckInPublicPage";
 import { ProtectedRoute } from "./components/common/ProtectedRoute";
 import { CommitteeLayout } from "./components/layouts/CommitteeLayout";
@@ -87,9 +88,9 @@ export const App: React.FC = () => {
           <Route path="/login/committee" element={<LoginPage />} />
           <Route path="/login/ustadz" element={<LoginPage />} />
           <Route path="/events/:slug" element={<EventPublicPage />} />
-          <Route path="/invitation/:token" element={<InvitationPage />} />
-          <Route path="/invitation/institution/:token" element={<InvitationPage />} />
-          <Route path="/invitation/individual/:token" element={<InvitationPage />} />
+          <Route path="/invitation/:token" element={<InvitationRegistrationPage />} />
+          <Route path="/invitation/institution/:token" element={<InvitationRegistrationPage />} />
+          <Route path="/invitation/individual/:token" element={<InvitationRegistrationPage />} />
           <Route path="/check-in/:eventSlug" element={<CheckInPublicPage />} />
           <Route path="/check-in" element={<CheckInPublicPage />} />
 
@@ -149,6 +150,14 @@ export const App: React.FC = () => {
             element={
               <ProtectedRoute>
                 <EventShowPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/events/:id/attendance/:participantId/report"
+            element={
+              <ProtectedRoute>
+                <AttendanceReportPage />
               </ProtectedRoute>
             }
           />
@@ -303,6 +312,14 @@ export const App: React.FC = () => {
             element={
               <ProtectedRoute>
                 <CommitteeQrDisplayPage />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/committee/attendance/:id/:participantId/report"
+            element={
+              <ProtectedRoute>
+                <AttendanceReportPage />
               </ProtectedRoute>
             }
           />

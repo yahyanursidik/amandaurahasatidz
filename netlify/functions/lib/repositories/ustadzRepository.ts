@@ -8,9 +8,16 @@ import {
   events,
   attendanceRecords,
   auditLogs,
+  eventDays,
+  eventSessions,
 } from "../db/schema";
 import { eq, ilike, and, or, isNull, count, desc, inArray } from "drizzle-orm";
 import { normalizeName, normalizeEmail, normalizePhone } from "../utils/normalization";
+import {
+  AttendanceMode,
+  buildRequiredAttendanceUnits,
+  summarizeParticipantAttendance,
+} from "../services/attendanceModel";
 
 export interface UstadzQueryParams {
   page?: number;
@@ -208,28 +215,47 @@ export async function findUstadzByIdRepository(id: string) {
       participantCode: eventParticipants.participantCode,
       confirmationStatus: eventParticipants.confirmationStatus,
       approvalStatus: eventParticipants.approvalStatus,
+      registrationSource: eventParticipants.registrationSource,
+      institutionId: eventParticipants.institutionId,
+      institutionName: institutions.name,
+      institutionCode: institutions.code,
       eventId: events.id,
       eventCode: events.code,
       eventName: events.name,
       eventStatus: events.status,
       eventStartDate: events.startDate,
       eventEndDate: events.endDate,
+      attendanceMode: events.attendanceMode,
+      timezone: events.timezone,
     })
     .from(eventParticipants)
     .innerJoin(events, eq(eventParticipants.eventId, events.id))
+    .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
     .where(eq(eventParticipants.ustadzId, id))
     .orderBy(desc(events.startDate));
 
-  const attendanceRows = eventHistory.length
-    ? await db
-        .select({
+  const eventIds = [...new Set(eventHistory.map((item) => item.eventId))];
+  const [attendanceRows, eventDayRows, eventSessionRows] = eventHistory.length
+    ? await Promise.all([
+        db.select({
           participantId: attendanceRecords.participantId,
-          total: count(),
-        })
-        .from(attendanceRecords)
-        .where(inArray(attendanceRecords.participantId, eventHistory.map((item) => item.participantId)))
-        .groupBy(attendanceRecords.participantId)
-    : [];
+          eventDayId: attendanceRecords.eventDayId,
+          eventSessionId: attendanceRecords.eventSessionId,
+          attendanceStatus: attendanceRecords.attendanceStatus,
+        }).from(attendanceRecords).where(inArray(attendanceRecords.participantId, eventHistory.map((item) => item.participantId))),
+        db.select().from(eventDays).where(inArray(eventDays.eventId, eventIds)),
+        db.select({
+          id: eventSessions.id,
+          eventId: eventDays.eventId,
+          eventDayId: eventSessions.eventDayId,
+          title: eventSessions.title,
+          startAt: eventSessions.startAt,
+          endAt: eventSessions.endAt,
+          attendanceRequired: eventSessions.attendanceRequired,
+          checkinCloseAt: eventSessions.checkinCloseAt,
+        }).from(eventSessions).innerJoin(eventDays, eq(eventSessions.eventDayId, eventDays.id)).where(inArray(eventDays.eventId, eventIds)),
+      ])
+    : [[], [], []];
 
   const activeAffiliations = affiliations.filter((affiliation) => affiliation.status === "ACTIVE");
   const primaryInstitution =
@@ -254,10 +280,24 @@ export async function findUstadzByIdRepository(id: string) {
         completenessFields.length) *
         100,
     ),
-    eventHistory: eventHistory.map((item) => ({
-      ...item,
-      attendanceCount: attendanceRows.find((row) => row.participantId === item.participantId)?.total || 0,
-    })),
+    eventHistory: eventHistory.map((item) => {
+      const units = buildRequiredAttendanceUnits(
+        item.attendanceMode as AttendanceMode,
+        eventDayRows.filter((day) => day.eventId === item.eventId),
+        eventSessionRows.filter((session) => session.eventId === item.eventId),
+        item.timezone,
+      );
+      const participantAttendance = attendanceRows.filter((row) => row.participantId === item.participantId);
+      const summary = summarizeParticipantAttendance(units, participantAttendance);
+      return {
+        ...item,
+        attendanceCount: participantAttendance.length,
+        attendedUnits: summary.attended,
+        requiredUnits: summary.required,
+        completionPercentage: summary.completionPercentage,
+        attendanceStatus: summary.statusCategory,
+      };
+    }),
   };
 }
 

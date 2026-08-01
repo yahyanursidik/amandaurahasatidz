@@ -23,6 +23,7 @@ import {
   ShieldCheck,
 } from "lucide-react";
 import { AppFooter } from "@/components/common/AppFooter";
+import { ENV } from "@/config/env";
 
 type PortalCode = "admin" | "committee" | "ustadz";
 
@@ -84,6 +85,15 @@ export const LoginPage: React.FC = () => {
   const [capsLockOn, setCapsLockOn] = useState(false);
   const [error, setError] = useState("");
   const [isPending, setIsPending] = useState(false);
+  const [activationOpen, setActivationOpen] = useState(false);
+  const [activationStep, setActivationStep] = useState<"request" | "complete" | "success">("request");
+  const [activationPending, setActivationPending] = useState(false);
+  const [activationError, setActivationError] = useState("");
+  const [challengeToken, setChallengeToken] = useState("");
+  const [activationCode, setActivationCode] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [previewCode, setPreviewCode] = useState("");
 
   useEffect(() => {
     window.scrollTo(0, 0);
@@ -92,7 +102,75 @@ export const LoginPage: React.FC = () => {
     setShowPassword(false);
     setCapsLockOn(false);
     setError("");
+    setActivationOpen(false);
+    setActivationStep("request");
+    setActivationError("");
   }, [config.defaultEmail]);
+
+  const readApiError = async (response: Response) => {
+    const payload = await response.json().catch(() => ({}));
+    return payload.error?.message || "Permintaan akun tidak dapat diproses.";
+  };
+
+  const requestActivation = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setActivationPending(true);
+    setActivationError("");
+    try {
+      const response = await fetch(`${ENV.API_BASE_URL}/auth/password/setup/request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, portal }),
+      });
+      if (!response.ok) throw new Error(await readApiError(response));
+      const payload = await response.json();
+      setChallengeToken(payload.data.challengeToken);
+      setPreviewCode(payload.data.previewCode || "");
+      setActivationStep("complete");
+    } catch (activationRequestError) {
+      setActivationError(
+        activationRequestError instanceof Error
+          ? activationRequestError.message
+          : "Kode aktivasi gagal dikirim.",
+      );
+    } finally {
+      setActivationPending(false);
+    }
+  };
+
+  const completeActivation = async (event: React.FormEvent) => {
+    event.preventDefault();
+    setActivationError("");
+    if (newPassword !== confirmPassword) {
+      setActivationError("Konfirmasi password tidak sama. Ketik ulang password yang sama.");
+      return;
+    }
+    setActivationPending(true);
+    try {
+      const response = await fetch(`${ENV.API_BASE_URL}/auth/password/setup/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          portal,
+          challengeToken,
+          otp: activationCode,
+          newPassword,
+        }),
+      });
+      if (!response.ok) throw new Error(await readApiError(response));
+      setPassword(newPassword);
+      setActivationStep("success");
+    } catch (activationCompleteError) {
+      setActivationError(
+        activationCompleteError instanceof Error
+          ? activationCompleteError.message
+          : "Password baru gagal disimpan.",
+      );
+    } finally {
+      setActivationPending(false);
+    }
+  };
 
   const fillDevelopmentAccount = () => {
     setEmail(config.defaultEmail);
@@ -277,6 +355,113 @@ export const LoginPage: React.FC = () => {
                 )}
               </button>
             </form>
+
+            <div className="login-activation">
+              <button
+                type="button"
+                className="login-activation__toggle"
+                aria-expanded={activationOpen}
+                aria-controls={`${portal}-activation-panel`}
+                onClick={() => {
+                  setActivationOpen((current) => !current);
+                  setActivationError("");
+                }}
+              >
+                {activationOpen ? "Tutup aktivasi akun" : "Aktivasi atau atur ulang password"}
+              </button>
+
+              {activationOpen && (
+                <section id={`${portal}-activation-panel`} className="login-activation__panel" aria-live="polite">
+                  {activationStep === "request" && (
+                    <form onSubmit={requestActivation} className="login-activation__form">
+                      <div>
+                        <strong>Aktivasi akun</strong>
+                        <p>Kode 6 digit akan dikirim ke email akun yang terdaftar pada portal ini.</p>
+                      </div>
+                      <button type="submit" disabled={activationPending} className="login-activation__action">
+                        {activationPending ? <Loader2 className="login-spinner" aria-hidden="true" /> : <Mail aria-hidden="true" />}
+                        {activationPending ? "Mengirim kode…" : "Kirim kode aktivasi"}
+                      </button>
+                    </form>
+                  )}
+
+                  {activationStep === "complete" && (
+                    <form onSubmit={completeActivation} className="login-activation__form">
+                      <div>
+                        <strong>Buat password baru</strong>
+                        <p>Kode berlaku 10 menit. Password minimal 10 karakter, memakai huruf besar, huruf kecil, dan angka.</p>
+                      </div>
+                      {previewCode && (
+                        <p className="login-activation__preview">
+                          Mode development · kode lokal <strong>{previewCode}</strong>
+                        </p>
+                      )}
+                      <label className="login-activation__field">
+                        <span>Kode aktivasi</span>
+                        <input
+                          value={activationCode}
+                          onChange={(event) => setActivationCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          pattern="[0-9]{6}"
+                          required
+                          disabled={activationPending}
+                        />
+                      </label>
+                      <label className="login-activation__field">
+                        <span>Password baru</span>
+                        <input
+                          type="password"
+                          value={newPassword}
+                          onChange={(event) => setNewPassword(event.target.value)}
+                          autoComplete="new-password"
+                          minLength={10}
+                          required
+                          disabled={activationPending}
+                        />
+                      </label>
+                      <label className="login-activation__field">
+                        <span>Ulangi password baru</span>
+                        <input
+                          type="password"
+                          value={confirmPassword}
+                          onChange={(event) => setConfirmPassword(event.target.value)}
+                          autoComplete="new-password"
+                          minLength={10}
+                          required
+                          disabled={activationPending}
+                        />
+                      </label>
+                      <button type="submit" disabled={activationPending} className="login-activation__action">
+                        {activationPending ? <Loader2 className="login-spinner" aria-hidden="true" /> : <KeyRound aria-hidden="true" />}
+                        {activationPending ? "Menyimpan password…" : "Simpan password baru"}
+                      </button>
+                    </form>
+                  )}
+
+                  {activationStep === "success" && (
+                    <div className="login-activation__success">
+                      <CheckCircle2 aria-hidden="true" />
+                      <div>
+                        <strong>Password berhasil disimpan.</strong>
+                        <p>Email dan password baru sudah terisi pada formulir masuk.</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setActivationOpen(false);
+                          setActivationStep("request");
+                        }}
+                      >
+                        Kembali masuk
+                      </button>
+                    </div>
+                  )}
+
+                  {activationError && <p role="alert" className="login-activation__error">{activationError}</p>}
+                </section>
+              )}
+            </div>
 
             <div className="login-form__support">
               <div className="login-form__verified">

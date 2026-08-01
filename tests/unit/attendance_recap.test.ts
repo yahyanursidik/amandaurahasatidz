@@ -34,10 +34,10 @@ describe("Rekap Kehadiran, Mode Presensi & Correction Workflow Unit Tests", () =
     expect(validParsed.success).toBe(true);
   });
 
-  it("should verify 4 Attendance Modes supported in event configuration", () => {
-    const supportedModes = ["DAILY", "SESSION", "DAILY_AND_SESSION", "CHECKIN_CHECKOUT"];
-    expect(supportedModes).toHaveLength(4);
-    expect(supportedModes).toContain("CHECKIN_CHECKOUT");
+  it("should verify the three operational attendance modes", () => {
+    const supportedModes = ["DAILY_ONLY", "SESSION_ONLY", "DAILY_AND_SESSION"];
+    expect(supportedModes).toHaveLength(3);
+    expect(supportedModes).toContain("DAILY_AND_SESSION");
   });
 
   it("should categorize 5 attendance recap statuses (full, partial, late, excused, absent)", () => {

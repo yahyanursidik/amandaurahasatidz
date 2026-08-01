@@ -13,7 +13,9 @@ type DeadlineEvent = {
 const asDate = (value?: Date | string | null) => value ? new Date(value) : null;
 
 export function validateEventDeadlines(data: DeadlineEvent) {
-  const start = data.startDate ? new Date(`${data.startDate}T23:59:59`) : null;
+  const start = data.startDate
+    ? new Date(data.startDate.includes("T") ? data.startDate : `${data.startDate}T00:00:00`)
+    : null;
   const registrationOpen = asDate(data.registrationOpenAt);
   const registrationClose = asDate(data.registrationCloseAt);
   const invitationDeadline = asDate(data.invitationResponseDeadline);
@@ -22,7 +24,10 @@ export function validateEventDeadlines(data: DeadlineEvent) {
   if (registrationOpen && registrationClose && registrationOpen >= registrationClose) {
     throw new ValidationError("Pembukaan pendaftaran harus lebih awal daripada penutupannya.");
   }
-  // (Removed constraints: registration, invitation, and attendance deadlines are now allowed to pass the event start date to support on-the-spot registrations)
+  if (start && invitationDeadline && invitationDeadline > start) {
+    throw new ValidationError("Batas respons undangan tidak boleh melewati waktu mulai event.");
+  }
+  // Pendaftaran di lokasi dan konfirmasi kehadiran tetap boleh berlangsung setelah event dimulai.
 }
 
 export function assertAttendanceConfirmationAllowed(event: DeadlineEvent, now = new Date()) {
