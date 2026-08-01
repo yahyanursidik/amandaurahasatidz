@@ -13,7 +13,7 @@ import {
   users,
   ustadzInstitutionAffiliations,
 } from "../db/schema";
-import { eq, and, count, desc, inArray, or } from "drizzle-orm";
+import { eq, and, count, desc, inArray, or, sql } from "drizzle-orm";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../utils/errors";
 
@@ -62,13 +62,134 @@ export async function findParticipantsRepository(eventId: string) {
       approvalStatus: eventParticipants.approvalStatus,
       replacementForParticipantId: eventParticipants.replacementForParticipantId,
       registeredAt: eventParticipants.createdAt,
+      portalUserId: ustadzProfiles.userId,
+      portalAccountStatus: users.status,
+      portalPasswordConfigured: sql<boolean>`${users.passwordHash} is not null`,
     })
     .from(eventParticipants)
     .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
     .innerJoin(events, eq(eventParticipants.eventId, events.id))
     .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
+    .leftJoin(users, eq(ustadzProfiles.userId, users.id))
     .where(eq(eventParticipants.eventId, eventId))
     .orderBy(desc(eventParticipants.createdAt));
+}
+
+export async function provisionParticipantPortalAccountRepository(
+  eventId: string,
+  participantId: string,
+  passwordHash: string,
+  resetExisting: boolean,
+  actorUserId: string,
+) {
+  return await withTransaction(async (tx) => {
+    const target = (
+      await tx
+        .select({
+          participantId: eventParticipants.id,
+          institutionId: eventParticipants.institutionId,
+          ustadzId: ustadzProfiles.id,
+          fullName: ustadzProfiles.fullName,
+          profileEmail: ustadzProfiles.email,
+          profileUserId: ustadzProfiles.userId,
+        })
+        .from(eventParticipants)
+        .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
+        .where(and(eq(eventParticipants.id, participantId), eq(eventParticipants.eventId, eventId)))
+        .limit(1)
+    )[0];
+
+    if (!target) throw new NotFoundError("Peserta tidak ditemukan pada event ini.");
+    const normalizedEmail = normalizeEmail(target.profileEmail || "");
+    if (!normalizedEmail) {
+      throw new ValidationError(
+        "Email peserta belum diisi. Lengkapi email profil asatidz sebelum membuat login portal.",
+      );
+    }
+
+    let portalUser = target.profileUserId
+      ? (await tx.select().from(users).where(eq(users.id, target.profileUserId)).limit(1))[0]
+      : (await tx.select().from(users).where(eq(users.email, normalizedEmail)).limit(1))[0];
+
+    if (target.profileUserId && !portalUser) {
+      throw new ConflictError("Profil peserta terhubung ke akun yang sudah tidak tersedia.");
+    }
+    const existingAccountLinkedByEmail = Boolean(!target.profileUserId && portalUser?.passwordHash);
+    if (portalUser?.passwordHash && target.profileUserId && !resetExisting) {
+      throw new ConflictError(
+        "Akun portal peserta sudah aktif. Gunakan tindakan reset hanya bila peserta kehilangan akses.",
+      );
+    }
+    let passwordUpdated = false;
+    if (!portalUser) {
+      portalUser = (
+        await tx
+          .insert(users)
+          .values({
+            email: normalizedEmail,
+            name: target.fullName,
+            passwordHash,
+            status: "ACTIVE",
+          })
+          .returning()
+      )[0];
+      passwordUpdated = true;
+    } else {
+      const shouldUpdatePassword = !portalUser.passwordHash || resetExisting;
+      portalUser = (
+        await tx
+          .update(users)
+          .set({
+            ...(shouldUpdatePassword ? { passwordHash } : {}),
+            status: "ACTIVE",
+            name: portalUser.name || target.fullName,
+            updatedAt: new Date(),
+          })
+          .where(eq(users.id, portalUser.id))
+          .returning()
+      )[0];
+      passwordUpdated = shouldUpdatePassword;
+    }
+
+    if (!target.profileUserId) {
+      await tx
+        .update(ustadzProfiles)
+        .set({ userId: portalUser.id, email: portalUser.email, updatedAt: new Date() })
+        .where(eq(ustadzProfiles.id, target.ustadzId));
+    }
+
+    const ustadzRole = (await tx.select().from(roles).where(eq(roles.code, "USTADZ")).limit(1))[0];
+    if (!ustadzRole) throw new ConflictError("Role USTADZ belum tersedia pada database.");
+    const roleAssignment = await tx
+      .select({ id: userRoleAssignments.id })
+      .from(userRoleAssignments)
+      .where(
+        and(
+          eq(userRoleAssignments.userId, portalUser.id),
+          eq(userRoleAssignments.roleId, ustadzRole.id),
+          eq(userRoleAssignments.eventId, eventId),
+        ),
+      )
+      .limit(1);
+    if (!roleAssignment[0]) {
+      await tx.insert(userRoleAssignments).values({
+        userId: portalUser.id,
+        roleId: ustadzRole.id,
+        eventId,
+        institutionId: target.institutionId,
+        createdBy: actorUserId,
+      });
+    }
+
+    return {
+      participantId: target.participantId,
+      participantName: target.fullName,
+      userId: portalUser.id,
+      email: portalUser.email,
+      passwordUpdated,
+      existingAccountLinkedByEmail,
+    };
+  });
 }
 
 export async function findParticipantByIdRepository(id: string) {

@@ -13,7 +13,6 @@ import {
   Info,
   KeyRound,
   Loader2,
-  Mail,
   MapPin,
   Plus,
   Save,
@@ -59,6 +58,7 @@ type InvitationData = {
     code: string;
     representativeEmailMasked?: string | null;
     verificationRequired?: boolean;
+    verificationMethod?: "INSTITUTION_ACCESS_CODE";
   } | null;
 };
 
@@ -91,8 +91,8 @@ const PREVIEW_INVITATION: InvitationData = {
   institution: {
     name: "Ma’had Ilmu Sunnah Bandung",
     code: "MISB-01",
-    representativeEmailMasked: "ko••••@mahadsunnah.or.id",
     verificationRequired: true,
+    verificationMethod: "INSTITUTION_ACCESS_CODE",
   },
 };
 
@@ -124,17 +124,10 @@ export const InvitationRegistrationPage: React.FC = () => {
   const [isPreview, setIsPreview] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [pageError, setPageError] = useState("");
-  const [email, setEmail] = useState("");
-  const [otpCode, setOtpCode] = useState("");
-  const [challengeToken, setChallengeToken] = useState("");
+  const [accessCode, setAccessCode] = useState("");
   const [verificationToken, setVerificationToken] = useState("");
-  const [previewCode, setPreviewCode] = useState("");
-  const [otpExpiresAt, setOtpExpiresAt] = useState("");
-  const [otpMessage, setOtpMessage] = useState("");
-  const [otpError, setOtpError] = useState("");
-  const [isRequestingOtp, setIsRequestingOtp] = useState(false);
-  const [isVerifyingOtp, setIsVerifyingOtp] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
+  const [verificationError, setVerificationError] = useState("");
+  const [isVerifyingAccess, setIsVerifyingAccess] = useState(false);
   const [responseStatus, setResponseStatus] = useState<ResponseStatus>("ACCEPTED");
   const [delegates, setDelegates] = useState<Delegate[]>([]);
   const [notes, setNotes] = useState("");
@@ -177,14 +170,7 @@ export const InvitationRegistrationPage: React.FC = () => {
     return () => controller.abort();
   }, [invitationType, token]);
 
-  useEffect(() => {
-    if (cooldown <= 0) return;
-    const timer = window.setInterval(() => setCooldown((value) => Math.max(0, value - 1)), 1000);
-    return () => window.clearInterval(timer);
-  }, [cooldown]);
-
   const quota = Math.max(1, data?.invitation.quota || 1);
-  const verificationRequired = invitationType === "institution" && Boolean(data?.institution?.verificationRequired);
   const verified = invitationType === "individual" || Boolean(verificationToken);
   const deadlineExpired = Boolean(
     data?.invitation.responseDeadline && new Date(data.invitation.responseDeadline) < new Date(),
@@ -197,88 +183,39 @@ export const InvitationRegistrationPage: React.FC = () => {
     return start === end ? start : `${start} – ${end}`;
   }, [data]);
 
-  const requestOtp = async () => {
-    if (!token || !email.trim()) {
-      setOtpError("Masukkan email perwakilan yang menerima undangan.");
-      return;
-    }
-    setIsRequestingOtp(true);
-    setOtpError("");
-    setOtpMessage("");
-    try {
-      if (isPreview) {
-        if (email.trim().toLowerCase() !== "kontak@mahadsunnah.or.id") {
-          throw new Error("Email uji tidak cocok. Gunakan kontak@mahadsunnah.or.id pada mode pratinjau.");
-        }
-        const randomValues = new Uint32Array(1);
-        window.crypto.getRandomValues(randomValues);
-        const localCode = (randomValues[0] % 1_000_000).toString().padStart(6, "0");
-        setChallengeToken(`preview-${Date.now()}`);
-        setOtpExpiresAt(new Date(Date.now() + 5 * 60 * 1000).toISOString());
-        setPreviewCode(localCode);
-        setOtpMessage("Kode uji lokal dibuat untuk pratinjau.");
-        setCooldown(30);
-        setOtpCode("");
-        return;
-      }
-      const response = await fetch(
-        `${ENV.API_BASE_URL}/invitations/public/institution/${token}/otp/request`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email }),
-        },
-      );
-      const result = await response.json();
-      if (!response.ok) throw new Error(apiError(result, "Kode OTP tidak dapat dikirim."));
-      setChallengeToken(result.data.challengeToken);
-      setOtpExpiresAt(result.data.expiresAt);
-      setPreviewCode(result.data.previewCode || "");
-      setOtpMessage(`Kode dikirim ke ${result.data.maskedEmail}.`);
-      setCooldown(30);
-      setOtpCode("");
-    } catch (error) {
-      setOtpError(error instanceof Error ? error.message : "Kode OTP tidak dapat dikirim.");
-    } finally {
-      setIsRequestingOtp(false);
-    }
-  };
-
-  const verifyOtp = async (event: React.FormEvent) => {
+  const verifyAccessCode = async (event: React.FormEvent) => {
     event.preventDefault();
-    if (!token || !challengeToken) {
-      setOtpError("Minta kode OTP terlebih dahulu.");
+    if (!token || accessCode.replace(/[^A-Za-z0-9]/g, "").length !== 8) {
+      setVerificationError("Masukkan kode unik lembaga 8 karakter dari panitia.");
       return;
     }
-    setIsVerifyingOtp(true);
-    setOtpError("");
+    setIsVerifyingAccess(true);
+    setVerificationError("");
     try {
       if (isPreview) {
-        if (otpCode !== previewCode) throw new Error("Kode OTP uji tidak cocok. Salin kode yang tampil pada panel pratinjau.");
+        if (accessCode.toUpperCase() !== "AMAN-2026") {
+          throw new Error("Kode pratinjau tidak cocok. Gunakan AMAN-2026.");
+        }
         setVerificationToken("preview-verification-token");
-        setOtpMessage("");
-        setPreviewCode("");
         setDelegates([EMPTY_DELEGATE]);
         return;
       }
       const response = await fetch(
-        `${ENV.API_BASE_URL}/invitations/public/institution/${token}/otp/verify`,
+        `${ENV.API_BASE_URL}/invitations/public/institution/${token}/code/verify`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, code: otpCode, challengeToken }),
+          body: JSON.stringify({ code: accessCode }),
         },
       );
       const result = await response.json();
-      if (!response.ok) throw new Error(apiError(result, "Kode OTP tidak dapat diverifikasi."));
+      if (!response.ok) throw new Error(apiError(result, "Kode unik lembaga tidak dapat diverifikasi."));
       setVerificationToken(result.data.verificationToken);
-      setOtpMessage("");
-      setPreviewCode("");
       setDelegates([EMPTY_DELEGATE]);
     } catch (error) {
-      setOtpError(error instanceof Error ? error.message : "Kode OTP tidak dapat diverifikasi.");
+      setVerificationError(error instanceof Error ? error.message : "Kode unik lembaga tidak dapat diverifikasi.");
     } finally {
-      setIsVerifyingOtp(false);
+      setIsVerifyingAccess(false);
     }
   };
 
@@ -429,7 +366,7 @@ export const InvitationRegistrationPage: React.FC = () => {
             {isPreview && (
               <div className="invitation-registration__preview-banner" role="status">
                 <Info aria-hidden="true" />
-                <div><strong>Mode pratinjau lokal</strong><span>Database tidak dapat dijangkau. Gunakan email uji kontak@mahadsunnah.or.id; seluruh interaksi hanya simulasi.</span></div>
+                <div><strong>Mode pratinjau lokal</strong><span>Database tidak dapat dijangkau. Gunakan kode lembaga AMAN-2026; seluruh interaksi hanya simulasi.</span></div>
               </div>
             )}
             <section className="invitation-registration__event" aria-labelledby="invitation-event-title">
@@ -477,83 +414,57 @@ export const InvitationRegistrationPage: React.FC = () => {
               <section className="invitation-registration__verification" aria-labelledby="verification-title">
                 <div className="invitation-registration__security-copy">
                   <ShieldCheck aria-hidden="true" />
-                  <h2 id="verification-title">Verifikasi perwakilan lembaga</h2>
-                  <p>Kode referensi di atas bukan kata sandi. Untuk membuka data delegasi, minta OTP yang dikirim ke email perwakilan terdaftar.</p>
+                  <h2 id="verification-title">Verifikasi kode unik lembaga</h2>
+                  <p>Masukkan kode akses yang disertakan panitia bersama tautan undangan. Tidak ada OTP atau pengiriman kode melalui email.</p>
                   <div className="invitation-registration__masked-email">
-                    <Mail aria-hidden="true" />
-                    <span>Email tujuan</span>
-                    <strong>{data.institution?.representativeEmailMasked || "Belum tercatat"}</strong>
+                    <KeyRound aria-hidden="true" />
+                    <span>Identitas lembaga</span>
+                    <strong>{data.institution?.code || "Undangan lembaga"}</strong>
                   </div>
                 </div>
 
-                {verificationRequired ? (
-                  <form onSubmit={verifyOtp} className="invitation-registration__otp-form" noValidate>
+                  <form onSubmit={verifyAccessCode} className="invitation-registration__otp-form" noValidate>
                     <div className="invitation-field">
-                      <label htmlFor="representative-email">Email perwakilan</label>
-                      <div className="invitation-field__action-row">
+                      <label htmlFor="institution-access-code">Kode unik lembaga</label>
+                      <div className="invitation-field__otp">
+                        <KeyRound aria-hidden="true" />
                         <input
-                          id="representative-email"
-                          type="email"
-                          autoComplete="email"
-                          value={email}
-                          onChange={(event) => setEmail(event.target.value)}
-                          placeholder="nama@lembaga.or.id"
-                          aria-invalid={Boolean(otpError)}
-                          aria-describedby="otp-feedback"
+                          id="institution-access-code"
+                          type="text"
+                          autoComplete="off"
+                          value={accessCode}
+                          onChange={(event) => {
+                            const compact = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, 8);
+                            setAccessCode(compact.length > 4 ? `${compact.slice(0, 4)}-${compact.slice(4)}` : compact);
+                            setVerificationError("");
+                          }}
+                          placeholder="ABCD-2345"
+                          aria-invalid={Boolean(verificationError)}
+                          aria-describedby="access-code-feedback"
                           disabled={verified}
                         />
-                        <button type="button" onClick={() => void requestOtp()} disabled={isRequestingOtp || cooldown > 0}>
-                          {isRequestingOtp ? <Loader2 className="invitation-spinner" aria-hidden="true" /> : <Mail aria-hidden="true" />}
-                          <span>{cooldown > 0 ? `Kirim ulang ${cooldown}s` : challengeToken ? "Kirim ulang" : "Kirim kode"}</span>
-                        </button>
                       </div>
-                      <p>Email harus sama dengan data lembaga pada undangan.</p>
+                      <p>Format 8 karakter, misalnya ABCD-2345. Minta panitia mengirim ulang bila kode tidak ditemukan.</p>
                     </div>
 
-                    {challengeToken && (
-                      <div className="invitation-field">
-                        <label htmlFor="invitation-otp">Kode OTP 6 digit</label>
-                        <div className="invitation-field__otp">
-                          <KeyRound aria-hidden="true" />
-                          <input
-                            id="invitation-otp"
-                            type="text"
-                            inputMode="numeric"
-                            autoComplete="one-time-code"
-                            maxLength={6}
-                            value={otpCode}
-                            onChange={(event) => setOtpCode(event.target.value.replace(/\D/g, "").slice(0, 6))}
-                            placeholder="000000"
-                            aria-invalid={Boolean(otpError)}
-                          />
-                        </div>
-                        <p>Berlaku sampai {otpExpiresAt ? formatDate(otpExpiresAt, true) : "5 menit setelah dikirim"}.</p>
-                      </div>
-                    )}
-
-                    {previewCode && (
+                    {isPreview && (
                       <div className="invitation-registration__preview-code" role="status">
                         <Info aria-hidden="true" />
-                        <span>Mode development · kode uji lokal</span>
-                        <strong>{previewCode}</strong>
-                        <small>Kode ini tidak pernah ditampilkan di produksi.</small>
+                        <span>Mode development · kode lembaga uji</span>
+                        <strong>AMAN-2026</strong>
+                        <small>Gunakan kode ini hanya untuk pratinjau lokal.</small>
                       </div>
                     )}
 
-                    <div id="otp-feedback" className={otpError ? "invitation-feedback is-error" : "invitation-feedback"} aria-live="polite">
-                      {otpError || otpMessage || "Kode OTP hanya berlaku untuk tautan dan email undangan ini."}
+                    <div id="access-code-feedback" className={verificationError ? "invitation-feedback is-error" : "invitation-feedback"} aria-live="polite">
+                      {verificationError || "Kode unik hanya berlaku untuk undangan lembaga ini. Jangan bagikan ke pihak lain."}
                     </div>
 
-                    <button className="invitation-primary-action" type="submit" disabled={!challengeToken || otpCode.length !== 6 || isVerifyingOtp || deadlineExpired}>
-                      {isVerifyingOtp ? <Loader2 className="invitation-spinner" aria-hidden="true" /> : <ShieldCheck aria-hidden="true" />}
-                      <span>{isVerifyingOtp ? "Memverifikasi…" : "Verifikasi dan buka formulir"}</span>
+                    <button className="invitation-primary-action" type="submit" disabled={accessCode.replace(/[^A-Z0-9]/g, "").length !== 8 || isVerifyingAccess || deadlineExpired}>
+                      {isVerifyingAccess ? <Loader2 className="invitation-spinner" aria-hidden="true" /> : <ShieldCheck aria-hidden="true" />}
+                      <span>{isVerifyingAccess ? "Memverifikasi…" : "Verifikasi dan buka formulir"}</span>
                     </button>
                   </form>
-                ) : (
-                  <div className="invitation-feedback is-error" role="alert">
-                    Email perwakilan belum tersedia. Hubungi panitia agar data lembaga diperbarui sebelum pendaftaran dibuka.
-                  </div>
-                )}
               </section>
             )}
 

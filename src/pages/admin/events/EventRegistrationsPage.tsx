@@ -13,6 +13,7 @@ import {
   Clipboard,
   Clock3,
   Link2,
+  KeyRound,
   Loader2,
   Mail,
   Plus,
@@ -31,6 +32,8 @@ import { EventWorkspaceNav } from "@/components/admin/events/EventWorkspaceNav";
 import { ParticipantCommunicationPanel } from "@/components/communications/ParticipantCommunicationPanel";
 import { ParticipantProfileDialog } from "@/components/participants/ParticipantProfileDialog";
 import { InvitationShareActions } from "@/components/invitations/InvitationShareActions";
+import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
+import { buildInstitutionInvitationPath } from "@/lib/invitationUrl";
 
 type Invitation = {
   id: string;
@@ -67,6 +70,9 @@ type Participant = {
   institutionName: string | null;
   registrationSource: string | null;
   registeredAt: string | null;
+  portalUserId?: string | null;
+  portalAccountStatus?: string | null;
+  portalPasswordConfigured?: boolean | null;
 };
 
 type Institution = {
@@ -217,8 +223,10 @@ export const EventRegistrationsPage: React.FC = () => {
   const [selectedParticipants, setSelectedParticipants] = useState<string[]>([]);
   const [copied, setCopied] = useState("");
   const [createdLink, setCreatedLink] = useState("");
+  const [createdAccessCode, setCreatedAccessCode] = useState("");
   const [createdInvitation, setCreatedInvitation] = useState<Invitation | null>(null);
   const [invitationLinks, setInvitationLinks] = useState<Record<string, string>>({});
+  const [invitationAccessCodes, setInvitationAccessCodes] = useState<Record<string, string>>({});
   const [linkBusy, setLinkBusy] = useState("");
   const [eventDeadline, setEventDeadline] = useState<EventDeadline | null>(null);
   const [form, setForm] = useState({
@@ -306,6 +314,7 @@ export const EventRegistrationsPage: React.FC = () => {
     eventName: eventDeadline?.name || "Daurah Asatidz",
     invitationNumber: invitation.invitationNumber,
     invitationUrl,
+    accessCode: invitationAccessCodes[invitation.id] || (createdInvitation?.id === invitation.id ? createdAccessCode : ""),
     responseDeadline: invitation.responseDeadline || eventDeadline?.invitationResponseDeadline,
   });
 
@@ -316,7 +325,9 @@ export const EventRegistrationsPage: React.FC = () => {
     try {
       if (demoMode) {
         const rawToken = "inv_inst_demo_tautan_khusus_lembaga";
-        setCreatedLink(`${window.location.origin}/invitation/institution/${rawToken}`);
+        const institutionName = institutions.find((institution) => institution.id === form.institutionId)?.name || "Lembaga penerima";
+        setCreatedLink(`${window.location.origin}${buildInstitutionInvitationPath(institutionName, rawToken)}`);
+        setCreatedAccessCode("AMAN-2026");
         setCreatedInvitation({
           id: "inv-demo-created",
           institutionId: form.institutionId,
@@ -329,7 +340,7 @@ export const EventRegistrationsPage: React.FC = () => {
           responseDeadline: form.responseDeadline ? `${form.responseDeadline}T23:59:59+07:00` : null,
         });
       } else {
-        const created = await api<{ invitation: Invitation; publicUrl: string }>(`/events/${id}/invitations`, {
+        const created = await api<{ invitation: Invitation; publicUrl: string; accessCode: string }>(`/events/${id}/invitations`, {
           method: "POST",
           body: JSON.stringify({
             ...form,
@@ -340,8 +351,10 @@ export const EventRegistrationsPage: React.FC = () => {
         });
         const absoluteUrl = toAbsoluteInvitationUrl(created.publicUrl);
         setCreatedLink(absoluteUrl);
+        setCreatedAccessCode(created.accessCode);
         setCreatedInvitation(created.invitation);
         setInvitationLinks((current) => ({ ...current, [created.invitation.id]: absoluteUrl }));
+        setInvitationAccessCodes((current) => ({ ...current, [created.invitation.id]: created.accessCode }));
         await loadData();
       }
     } catch (submitError) {
@@ -378,19 +391,32 @@ export const EventRegistrationsPage: React.FC = () => {
     setLinkBusy(invitation.id);
     setError("");
     try {
-      const absoluteUrl = demoMode
-        ? `${window.location.origin}/invitation/institution/inv_inst_demo_${invitation.id}`
-        : toAbsoluteInvitationUrl(
-            (
-              await api<{ publicUrl: string }>(
-                `/events/${id}/invitations/${invitation.id}/regenerate-link`,
-                { method: "POST" },
-              )
-            ).publicUrl,
+      const regenerated = demoMode
+        ? { publicUrl: buildInstitutionInvitationPath(invitation.institutionName || "Lembaga penerima", `inv_inst_demo_${invitation.id}`), accessCode: "AMAN-2026" }
+        : await api<{ publicUrl: string; accessCode: string }>(
+            `/events/${id}/invitations/${invitation.id}/regenerate-link`,
+            { method: "POST" },
           );
+      const absoluteUrl = toAbsoluteInvitationUrl(regenerated.publicUrl);
       setInvitationLinks((current) => ({ ...current, [invitation.id]: absoluteUrl }));
+      setInvitationAccessCodes((current) => ({ ...current, [invitation.id]: regenerated.accessCode }));
     } catch (linkError) {
       setError(linkError instanceof Error ? linkError.message : "Tautan undangan gagal dibuat ulang.");
+    } finally {
+      setLinkBusy("");
+    }
+  };
+
+  const revealInvitationAccessCode = async (invitation: Invitation) => {
+    setLinkBusy(`code-${invitation.id}`);
+    setError("");
+    try {
+      const result = demoMode
+        ? { accessCode: "AMAN-2026" }
+        : await api<{ accessCode: string }>(`/events/${id}/invitations/${invitation.id}/access-code`);
+      setInvitationAccessCodes((current) => ({ ...current, [invitation.id]: result.accessCode }));
+    } catch (codeError) {
+      setError(codeError instanceof Error ? codeError.message : "Kode unik lembaga tidak dapat ditampilkan.");
     } finally {
       setLinkBusy("");
     }
@@ -540,6 +566,17 @@ export const EventRegistrationsPage: React.FC = () => {
                         venueName: participant.eventVenueName,
                         venueAddress: participant.eventVenueAddress,
                       }}
+                    />
+                    <ParticipantPortalAccessAction
+                      eventId={id}
+                      participant={{
+                        id: participant.id,
+                        name: participant.ustadzName,
+                        email: participant.ustadzEmail,
+                        portalPasswordConfigured: participant.portalPasswordConfigured,
+                      }}
+                      previewMode={demoMode}
+                      onCompleted={() => setParticipants((current) => current.map((item) => item.id === participant.id ? { ...item, portalPasswordConfigured: true, portalAccountStatus: "ACTIVE" } : item))}
                     />
                     {participant.approvalStatus === "PENDING_REVIEW" && (
                       <button
@@ -697,6 +734,17 @@ export const EventRegistrationsPage: React.FC = () => {
                         {!["REVOKED", "DECLINED"].includes(invitation.status) && (
                           <button
                             type="button"
+                            onClick={() => void revealInvitationAccessCode(invitation)}
+                            disabled={linkBusy === `code-${invitation.id}`}
+                            className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                          >
+                            {linkBusy === `code-${invitation.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+                            Lihat kode
+                          </button>
+                        )}
+                        {!["REVOKED", "DECLINED"].includes(invitation.status) && (
+                          <button
+                            type="button"
                             onClick={() => void regenerateInvitationLink(invitation)}
                             disabled={linkBusy === invitation.id}
                             className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-sm font-bold text-emerald-900 hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
@@ -744,11 +792,33 @@ export const EventRegistrationsPage: React.FC = () => {
                         <p className="mt-2 text-sm leading-6 text-emerald-900">
                           Tautan sebelumnya otomatis dinonaktifkan. Bagikan URL ini kepada lembaga terkait.
                         </p>
+                        {invitationAccessCodes[invitation.id] && (
+                          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-300 bg-white p-3">
+                            <div>
+                              <p className="text-xs font-bold text-emerald-800">Kode unik lembaga</p>
+                              <p className="mt-1 font-mono text-xl font-black tracking-[0.16em] text-emerald-950">{invitationAccessCodes[invitation.id]}</p>
+                            </div>
+                            <button type="button" onClick={() => void copyText(invitationAccessCodes[invitation.id], `code-${invitation.id}`)} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-emerald-300 px-3 text-sm font-bold text-emerald-900">
+                              {copied === `code-${invitation.id}` ? <Check className="h-4 w-4" /> : <Clipboard className="h-4 w-4" />}
+                              {copied === `code-${invitation.id}` ? "Tersalin" : "Salin kode"}
+                            </button>
+                          </div>
+                        )}
                         <InvitationShareActions
                           context={shareContextFor(invitation, invitationLinks[invitation.id])}
                           recipientWhatsapp={recipientInstitution?.whatsapp || recipientInstitution?.phone}
                           recipientEmail={recipientInstitution?.email}
                         />
+                      </div>
+                    )}
+
+                    {!invitationLinks[invitation.id] && invitationAccessCodes[invitation.id] && (
+                      <div className="border-t border-slate-200 bg-slate-50 px-4 py-3">
+                        <p className="text-xs font-bold text-slate-600">Kode unik lembaga</p>
+                        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
+                          <code className="font-mono text-lg font-black tracking-[0.14em] text-slate-950">{invitationAccessCodes[invitation.id]}</code>
+                          <p className="text-xs text-slate-600">Buat ulang tautan untuk memperoleh URL yang dapat dibagikan bersama kode ini.</p>
+                        </div>
                       </div>
                     )}
 
@@ -857,6 +927,12 @@ export const EventRegistrationsPage: React.FC = () => {
                 Tautan siap dibagikan
               </div>
               <p className="mt-2 break-all font-mono text-[10px] leading-relaxed text-emerald-950">{createdLink}</p>
+              {createdAccessCode && (
+                <div className="mt-3 rounded-lg border border-emerald-300 bg-white p-3 text-center">
+                  <p className="text-xs font-bold text-emerald-800">Kode unik lembaga</p>
+                  <p className="mt-1 font-mono text-xl font-black tracking-[0.16em] text-emerald-950">{createdAccessCode}</p>
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => void copyText(createdLink, "new-link")}

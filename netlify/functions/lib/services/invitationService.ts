@@ -23,6 +23,13 @@ import {
   verifyInvitationOtpChallenge,
   verifyInvitationVerificationToken,
 } from "./invitationOtpService";
+import {
+  createInstitutionAccessVerification,
+  getInstitutionAccessCode,
+  verifyInstitutionAccessCode,
+  verifyInstitutionAccessVerification,
+} from "./institutionAccessCodeService";
+import { buildInstitutionInvitationPath } from "../../../../src/lib/invitationUrl";
 
 function assertInvitationResponseOpen(result: { invitation: any; event: any; link?: any }) {
   if (result.invitation.status === "REVOKED" || result.link?.revokedAt) {
@@ -52,9 +59,10 @@ export async function createInvitationService(data: any, actorUserId: string, re
       { invitationId: existingInvitation.id, invitationStatus: existingInvitation.status },
     );
   }
+  let recipientInstitution: Awaited<ReturnType<typeof findInstitutionByIdRepository>> | null = null;
   if (data.invitationType === "INSTITUTION") {
-    const institution = await findInstitutionByIdRepository(data.institutionId);
-    if (!institution) throw new NotFoundError("Lembaga penerima undangan tidak ditemukan atau telah dinonaktifkan.");
+    recipientInstitution = await findInstitutionByIdRepository(data.institutionId);
+    if (!recipientInstitution) throw new NotFoundError("Lembaga penerima undangan tidak ditemukan atau telah dinonaktifkan.");
   }
   const responseDeadline = data.responseDeadline
     ? new Date(data.responseDeadline)
@@ -106,7 +114,12 @@ export async function createInvitationService(data: any, actorUserId: string, re
   return {
     invitation: result.invitation,
     rawToken: tokenInfo.rawToken, // Returned ONLY ONCE during creation for sending link
-    publicUrl: `/invitation/${routeType}/${tokenInfo.rawToken}`,
+    publicUrl: data.invitationType === "INSTITUTION"
+      ? buildInstitutionInvitationPath(recipientInstitution?.name || "Lembaga", tokenInfo.rawToken)
+      : `/invitation/${routeType}/${tokenInfo.rawToken}`,
+    ...(data.invitationType === "INSTITUTION"
+      ? { accessCode: getInstitutionAccessCode(result.invitation.id) }
+      : {}),
   };
 }
 
@@ -175,10 +188,45 @@ export async function regenerateInvitationLinkService(
   });
 
   const routeType = invitation.invitationType === "INDIVIDUAL" ? "individual" : "institution";
+  const recipientInstitution = invitation.institutionId
+    ? await findInstitutionByIdRepository(invitation.institutionId)
+    : null;
   return {
     invitationId: invitation.id,
     expiresAt: link.expiresAt,
-    publicUrl: `/invitation/${routeType}/${tokenInfo.rawToken}`,
+    publicUrl: invitation.invitationType === "INSTITUTION"
+      ? buildInstitutionInvitationPath(recipientInstitution?.name || "Lembaga", tokenInfo.rawToken)
+      : `/invitation/${routeType}/${tokenInfo.rawToken}`,
+    ...(invitation.invitationType === "INSTITUTION"
+      ? { accessCode: getInstitutionAccessCode(invitation.id) }
+      : {}),
+  };
+}
+
+export async function getInstitutionInvitationAccessCodeService(
+  eventId: string,
+  invitationId: string,
+  actorUserId: string,
+  requestId: string,
+) {
+  const invitation = await findInvitationByIdRepository(invitationId);
+  if (!invitation || invitation.eventId !== eventId) {
+    throw new NotFoundError("Undangan lembaga tidak ditemukan pada event ini.");
+  }
+  if (invitation.invitationType !== "INSTITUTION") {
+    throw new ValidationError("Kode unik hanya tersedia untuk undangan lembaga.");
+  }
+  await createAuditLog({
+    actorUserId,
+    action: "INVITATION_ACCESS_CODE_VIEWED",
+    resourceType: "INVITATION",
+    resourceId: invitation.id,
+    eventId,
+    requestId,
+  });
+  return {
+    invitationId: invitation.id,
+    accessCode: getInstitutionAccessCode(invitation.id),
   };
 }
 
@@ -229,13 +277,36 @@ export async function getPublicInstitutionInvitationService(rawToken: string, re
       ? {
           name: institution.name,
           code: institution.code,
-          representativeEmailMasked: institution.email
-            ? maskInvitationEmail(institution.email)
-            : null,
-          verificationRequired: Boolean(institution.email),
+          verificationRequired: true,
+          verificationMethod: "INSTITUTION_ACCESS_CODE",
         }
       : null,
   };
+}
+
+export async function verifyInstitutionInvitationAccessCodeService(
+  rawToken: string,
+  code: string,
+  requestId: string,
+) {
+  const result = await findInvitationByTokenHashRepository(hashToken(rawToken));
+  if (!result) throw new NotFoundError("Tautan undangan tidak valid.");
+  assertInvitationResponseOpen(result);
+
+  if (!verifyInstitutionAccessCode(result.invitation.id, code)) {
+    throw new ValidationError("Kode unik lembaga tidak sesuai. Periksa pesan undangan dari panitia.");
+  }
+
+  const verification = createInstitutionAccessVerification(result.invitation.id);
+  await createAuditLog({
+    actorUserId: null,
+    action: "INVITATION_ACCESS_CODE_VERIFIED",
+    resourceType: "INVITATION",
+    resourceId: result.invitation.id,
+    eventId: result.event.id,
+    requestId,
+  });
+  return verification;
 }
 
 export async function requestInstitutionInvitationOtpService(
@@ -330,8 +401,13 @@ export async function submitInstitutionResponseService(
   const { invitation, event } = result;
   assertInvitationResponseOpen(result);
 
-  if (!payload.verificationToken || !verifyInvitationVerificationToken(payload.verificationToken, invitation.id)) {
-    throw new ForbiddenError("Verifikasi undangan telah berakhir. Verifikasi ulang email perwakilan untuk melanjutkan.");
+  const verificationValid = Boolean(
+    payload.verificationToken &&
+      (verifyInstitutionAccessVerification(payload.verificationToken, invitation.id) ||
+        verifyInvitationVerificationToken(payload.verificationToken, invitation.id)),
+  );
+  if (!verificationValid) {
+    throw new ForbiddenError("Verifikasi undangan telah berakhir. Masukkan kembali kode unik lembaga untuk melanjutkan.");
   }
 
   if (payload.captchaToken) {

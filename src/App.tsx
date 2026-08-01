@@ -89,6 +89,7 @@ export const App: React.FC = () => {
           <Route path="/login/ustadz" element={<LoginPage />} />
           <Route path="/events/:slug" element={<EventPublicPage />} />
           <Route path="/invitation/:token" element={<InvitationRegistrationPage />} />
+          <Route path="/invitation/institution/:institutionSlug/:token" element={<InvitationRegistrationPage />} />
           <Route path="/invitation/institution/:token" element={<InvitationRegistrationPage />} />
           <Route path="/invitation/individual/:token" element={<InvitationRegistrationPage />} />
           <Route path="/check-in/:eventSlug" element={<CheckInPublicPage />} />

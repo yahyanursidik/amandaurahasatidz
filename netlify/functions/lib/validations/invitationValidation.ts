@@ -71,3 +71,12 @@ export const verifyInvitationOtpSchema = z.object({
   code: z.string().trim().regex(/^\d{6}$/, "Kode OTP harus terdiri dari 6 digit"),
   challengeToken: z.string().min(20, "Sesi OTP tidak valid"),
 });
+
+export const verifyInstitutionAccessCodeSchema = z.object({
+  code: z
+    .string()
+    .trim()
+    .min(8, "Kode unik lembaga tidak lengkap")
+    .max(12, "Kode unik lembaga tidak valid")
+    .regex(/^[A-Za-z0-9-]+$/, "Kode unik lembaga hanya boleh berisi huruf, angka, dan tanda hubung"),
+});

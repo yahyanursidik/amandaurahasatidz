@@ -5,6 +5,7 @@ import {
   buildWhatsAppShareUrl,
   normalizeWhatsAppRecipient,
 } from "../../src/lib/invitationShare";
+import { buildInstitutionInvitationPath, toInstitutionInvitationSlug } from "../../src/lib/invitationUrl";
 
 const context = {
   institutionName: "Ma'had Ilmu Sunnah Bandung",
@@ -15,6 +16,12 @@ const context = {
 };
 
 describe("invitation share helpers", () => {
+  it("builds a unique, readable institution invitation path", () => {
+    expect(toInstitutionInvitationSlug("Ma'had Ilmu Sunnah Bandung")).toBe("mahad-ilmu-sunnah-bandung");
+    expect(buildInstitutionInvitationPath("Pesantren Al-Hikmah Garut", "inv_inst_abc123"))
+      .toBe("/invitation/institution/pesantren-al-hikmah-garut/inv_inst_abc123");
+  });
+
   it("normalizes Indonesian WhatsApp numbers for wa.me", () => {
     expect(normalizeWhatsAppRecipient("0812-0000-1111")).toBe("6281200001111");
     expect(normalizeWhatsAppRecipient("+62 812 0000 1111")).toBe("6281200001111");
