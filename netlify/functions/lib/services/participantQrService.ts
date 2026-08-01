@@ -1,7 +1,7 @@
 import { getDbClient } from "../db/client";
 import { eventParticipants, ustadzProfiles, events } from "../db/schema";
 import { eq, and } from "drizzle-orm";
-import { generateOpaqueQrToken, hashToken, generateUnpredictableParticipantCode } from "../utils/token";
+import { signParticipantQrToken, verifyParticipantQrToken } from "../utils/token";
 import { NotFoundError, ValidationError, ForbiddenError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
 import { assertParticipantEligibleForCheckin } from "./deadlineService";
@@ -24,6 +24,8 @@ export async function getParticipantQrTokenService(participantId: string): Promi
       id: eventParticipants.id,
       eventId: eventParticipants.eventId,
       participantCode: eventParticipants.participantCode,
+      qrTokenVersion: eventParticipants.qrTokenVersion,
+      qrIssuedAt: eventParticipants.qrIssuedAt,
       status: eventParticipants.confirmationStatus,
       eventName: events.name,
       ustadzName: ustadzProfiles.fullName,
@@ -47,15 +49,25 @@ export async function getParticipantQrTokenService(participantId: string): Promi
     );
   }
 
-  // Generate opaque QR token containing NO PII
-  const tokenInfo = generateOpaqueQrToken();
+  const issuedAt = p.qrIssuedAt || new Date();
+  if (!p.qrIssuedAt) {
+    await db
+      .update(eventParticipants)
+      .set({ qrIssuedAt: issuedAt, updatedAt: issuedAt })
+      .where(eq(eventParticipants.id, p.id));
+  }
+  const opaqueQrToken = signParticipantQrToken({
+    participantId: p.id,
+    eventId: p.eventId,
+    version: p.qrTokenVersion,
+  });
 
   return {
     participantId: p.id,
     eventId: p.eventId,
     eventName: p.eventName,
     participantCode: p.participantCode,
-    opaqueQrToken: tokenInfo.rawToken,
+    opaqueQrToken,
     status: p.status,
     ustadzName: p.ustadzName,
   };
@@ -69,40 +81,63 @@ export async function verifyQrTokenForCheckinService(
 ) {
   const db = getDbClient();
 
-  // Search participant by fallback participantCode first
-  let participant = await db
+  const normalizedInput = qrTokenOrCode.trim();
+  let participant = normalizedInput.startsWith("pqr_")
+    ? []
+    : await db
     .select({
       id: eventParticipants.id,
       eventId: eventParticipants.eventId,
       participantCode: eventParticipants.participantCode,
+      qrTokenVersion: eventParticipants.qrTokenVersion,
       confirmationStatus: eventParticipants.confirmationStatus,
       approvalStatus: eventParticipants.approvalStatus,
       ustadzName: ustadzProfiles.fullName,
     })
     .from(eventParticipants)
     .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
-    .where(eq(eventParticipants.participantCode, qrTokenOrCode.trim()))
+    .where(
+      and(
+        eq(eventParticipants.eventId, currentEventId),
+        eq(eventParticipants.participantCode, normalizedInput),
+      ),
+    )
     .limit(1);
 
-  // If not found by fallback code, query by opaque QR token format check
-  if (participant.length === 0 && qrTokenOrCode.startsWith("qr_tok_")) {
-    // Simulated token hash lookup
+  if (normalizedInput.startsWith("pqr_")) {
+    const payload = verifyParticipantQrToken(normalizedInput);
+    if (!payload) throw new ValidationError("Token QR peserta tidak valid atau telah dimodifikasi.");
+    if (payload.eventId !== currentEventId) {
+      throw new ForbiddenError("QR peserta ini terikat pada event lain.");
+    }
     participant = await db
       .select({
         id: eventParticipants.id,
         eventId: eventParticipants.eventId,
         participantCode: eventParticipants.participantCode,
+        qrTokenVersion: eventParticipants.qrTokenVersion,
         confirmationStatus: eventParticipants.confirmationStatus,
         approvalStatus: eventParticipants.approvalStatus,
         ustadzName: ustadzProfiles.fullName,
       })
       .from(eventParticipants)
       .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
+      .where(
+        and(
+          eq(eventParticipants.id, payload.participantId),
+          eq(eventParticipants.eventId, payload.eventId),
+        ),
+      )
       .limit(1);
+    if (participant[0] && participant[0].qrTokenVersion !== payload.version) {
+      throw new ValidationError("Token QR peserta sudah dirotasi dan tidak berlaku lagi.");
+    }
+  } else if (normalizedInput.startsWith("qr_tok_")) {
+    throw new ValidationError("Format QR lama sudah tidak berlaku. Muat ulang kartu peserta.");
   }
 
   if (participant.length === 0) {
-    throw new NotFoundError(`Token QR atau Kode Peserta '${qrTokenOrCode}' tidak dikenali.`);
+    throw new NotFoundError(`Token QR atau Kode Peserta '${normalizedInput}' tidak dikenali.`);
   }
 
   const p = participant[0];
@@ -137,11 +172,32 @@ export async function rotateParticipantQrTokenService(
   requestId = "req-qr-rotate"
 ) {
   const db = getDbClient();
-  const found = await db.select().from(eventParticipants).where(eq(eventParticipants.id, participantId)).limit(1);
+  const found = await db
+    .select()
+    .from(eventParticipants)
+    .where(eq(eventParticipants.id, participantId))
+    .limit(1);
 
   if (found.length === 0) throw new NotFoundError(`Peserta ID ${participantId} tidak ditemukan.`);
 
-  const newQr = generateOpaqueQrToken();
+  const rotatedAt = new Date();
+  const nextVersion = found[0].qrTokenVersion + 1;
+  const updatedRows = await db
+    .update(eventParticipants)
+    .set({
+      qrTokenVersion: nextVersion,
+      qrIssuedAt: rotatedAt,
+      qrRotatedAt: rotatedAt,
+      updatedAt: rotatedAt,
+    })
+    .where(eq(eventParticipants.id, participantId))
+    .returning();
+  const updated = updatedRows[0];
+  const newOpaqueQrToken = signParticipantQrToken({
+    participantId: updated.id,
+    eventId: updated.eventId,
+    version: updated.qrTokenVersion,
+  });
 
   if (requestId) {
     await createAuditLog({
@@ -158,7 +214,7 @@ export async function rotateParticipantQrTokenService(
   return {
     participantId,
     participantCode: found[0].participantCode,
-    newOpaqueQrToken: newQr.rawToken,
-    rotatedAt: new Date(),
+    newOpaqueQrToken,
+    rotatedAt,
   };
 }

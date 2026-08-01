@@ -1,5 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertTriangle, CheckCircle2, Clock3, QrCode, RefreshCw, ScanLine } from "lucide-react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AlertTriangle, Camera, CameraOff, CheckCircle2, Clock3, QrCode, RefreshCw, ScanLine } from "lucide-react";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { CommitteeAssignment, committeeApi } from "@/lib/committeeApi";
 
@@ -70,6 +70,12 @@ export const OnSiteCheckinPage: React.FC = () => {
   const [preview, setPreview] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; message: string } | null>(null);
   const [lastResult, setLastResult] = useState<CheckinResult | null>(null);
+  const [cameraActive, setCameraActive] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+  const streamRef = useRef<MediaStream | null>(null);
+  const scanTimerRef = useRef<number | null>(null);
+  const detectingRef = useRef(false);
 
   const selectedUnit = units.find((unit) => unit.id === unitId) || units[0];
   const selectedAssignment = assignments.find((assignment) => assignment.eventId === eventId);
@@ -78,6 +84,75 @@ export const OnSiteCheckinPage: React.FC = () => {
     for (const unit of units) groups.set(unit.date, [...(groups.get(unit.date) || []), unit]);
     return [...groups.entries()];
   }, [units]);
+
+  const stopCamera = useCallback(() => {
+    if (scanTimerRef.current !== null) window.clearInterval(scanTimerRef.current);
+    scanTimerRef.current = null;
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    if (videoRef.current) videoRef.current.srcObject = null;
+    detectingRef.current = false;
+    setCameraActive(false);
+  }, []);
+
+  useEffect(() => () => stopCamera(), [stopCamera]);
+
+  const startCamera = async () => {
+    setCameraError(null);
+    const Detector = (window as typeof window & {
+      BarcodeDetector?: new (options: { formats: string[] }) => {
+        detect: (source: HTMLVideoElement) => Promise<Array<{ rawValue?: string }>>;
+      };
+    }).BarcodeDetector;
+    if (!navigator.mediaDevices?.getUserMedia) {
+      setCameraError("Kamera tidak tersedia pada perangkat atau koneksi ini.");
+      return;
+    }
+    if (!Detector) {
+      setCameraError("Pemindai QR kamera belum didukung browser ini. Gunakan Chrome/Edge terbaru atau masukkan kode peserta.");
+      return;
+    }
+    try {
+      stopCamera();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: "environment" } },
+        audio: false,
+      });
+      streamRef.current = stream;
+      if (!videoRef.current) throw new Error("Pratinjau kamera belum siap.");
+      videoRef.current.srcObject = stream;
+      await videoRef.current.play();
+      setCameraActive(true);
+      const detector = new Detector({ formats: ["qr_code"] });
+      scanTimerRef.current = window.setInterval(async () => {
+        if (!videoRef.current || detectingRef.current) return;
+        detectingRef.current = true;
+        try {
+          const result = await detector.detect(videoRef.current);
+          const value = result[0]?.rawValue?.trim();
+          if (value) {
+            setInputCode(value);
+            setFeedback({
+              kind: "success",
+              message: "QR berhasil dibaca. Pastikan unit kehadiran sudah benar, lalu proses check-in.",
+            });
+            stopCamera();
+          }
+        } catch {
+          // Frame tanpa QR adalah kondisi normal selama kamera aktif.
+        } finally {
+          detectingRef.current = false;
+        }
+      }, 350);
+    } catch (error) {
+      stopCamera();
+      setCameraError(
+        error instanceof Error
+          ? `Kamera tidak dapat dibuka: ${error.message}`
+          : "Kamera tidak dapat dibuka.",
+      );
+    }
+  };
 
   const loadSchedule = useCallback(async (targetEventId: string, previewMode: boolean) => {
     if (!targetEventId) return;
@@ -149,7 +224,7 @@ export const OnSiteCheckinPage: React.FC = () => {
             method: "POST",
             body: JSON.stringify({
               qrTokenOrCode: inputCode.trim(),
-              method: "MANUAL_CODE",
+              method: inputCode.trim().startsWith("pqr_") ? "QR_SCAN" : "MANUAL_CODE",
               sessionId: selectedUnit.sessionId,
               dayId: selectedUnit.type === "DAY" ? selectedUnit.dayId : null,
             }),
@@ -195,6 +270,21 @@ export const OnSiteCheckinPage: React.FC = () => {
             </div>
             <button disabled={submitting || loading || !selectedUnit?.isOpen || !inputCode.trim()} className="mt-auto inline-flex min-h-[48px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-5 text-sm font-black text-white hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-55"><ScanLine className="h-5 w-5" />{submitting ? "Memproses…" : "Proses check-in"}</button>
           </form>
+
+          <div className="border-t border-slate-200 p-4 sm:p-5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 className="text-sm font-black text-slate-900">Pindai dengan kamera perangkat</h2>
+                <p className="mt-1 text-xs leading-5 text-slate-500">Arahkan kamera ke QR peserta. Token akan masuk ke formulir tanpa menyimpan gambar.</p>
+              </div>
+              <button type="button" onClick={() => cameraActive ? stopCamera() : void startCamera()} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-black text-slate-800 hover:bg-slate-50">
+                {cameraActive ? <CameraOff className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
+                {cameraActive ? "Matikan kamera" : "Aktifkan kamera"}
+              </button>
+            </div>
+            {cameraError && <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-xs font-bold leading-5 text-amber-900">{cameraError}</p>}
+            <video ref={videoRef} muted playsInline aria-label="Pratinjau kamera pemindai QR" className={`${cameraActive ? "mt-4 block" : "hidden"} max-h-80 w-full rounded-xl bg-slate-950 object-cover`} />
+          </div>
 
           {lastResult && <div className="border-t border-emerald-200 bg-emerald-50 p-4 sm:p-5"><p className="text-xs font-black uppercase tracking-wide text-emerald-700">Check-in terakhir</p><p className="mt-1 text-lg font-black text-emerald-950">{lastResult.participant.ustadzName}</p><p className="mt-1 text-sm text-emerald-900">{lastResult.participant.participantCode} · {lastResult.attendanceUnit.title}</p></div>}
         </section>

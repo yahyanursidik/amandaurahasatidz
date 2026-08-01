@@ -43,6 +43,13 @@
       "when": 1785561228940,
       "tag": "0005_mature_mephistopheles",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1785564322401,
+      "tag": "0006_lush_silk_fever",
+      "breakpoints": true
     }
   ]
 }

@@ -15,7 +15,7 @@
     "db:migrate": "drizzle-kit migrate",
     "db:migrate:committee": "node scripts/apply-committee-deadline-migration.mjs",
     "db:migrate:event-poster": "node scripts/apply-event-poster-migration.mjs",
-    "db:seed": "node --loader ts-node/register netlify/functions/lib/db/seed.ts"
+    "db:seed": "node scripts/run-seed.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",

@@ -1,5 +1,14 @@
 import { describe, it, expect } from "vitest";
-import { generateUnpredictableParticipantCode, generateOpaqueQrToken } from "../../netlify/functions/lib/utils/token";
+import {
+  generateUnpredictableParticipantCode,
+  generateOpaqueQrToken,
+  signParticipantQrToken,
+  verifyParticipantQrToken,
+} from "../../netlify/functions/lib/utils/token";
+
+const QR_SECRET = "test-participant-qr-secret-at-least-32-characters";
+const PARTICIPANT_ID = "00000000-0000-4000-8000-000000000001";
+const EVENT_ID = "00000000-0000-4000-8000-000000000002";
 
 describe("Identitas & QR Peserta Aman Unit Tests", () => {
   it("should generate unpredictable participant code with cryptographic entropy", () => {
@@ -28,6 +37,28 @@ describe("Identitas & QR Peserta Aman Unit Tests", () => {
     expect(isMatch).toBe(false);
   });
 
+  it("binds a signed QR token to participant, event, and rotation version", () => {
+    const token = signParticipantQrToken(
+      { participantId: PARTICIPANT_ID, eventId: EVENT_ID, version: 3 },
+      QR_SECRET,
+    );
+    expect(token).toMatch(/^pqr_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/);
+    expect(verifyParticipantQrToken(token, QR_SECRET)).toEqual({
+      participantId: PARTICIPANT_ID,
+      eventId: EVENT_ID,
+      version: 3,
+    });
+  });
+
+  it("rejects a modified QR signature and a token verified with another secret", () => {
+    const token = signParticipantQrToken(
+      { participantId: PARTICIPANT_ID, eventId: EVENT_ID, version: 1 },
+      QR_SECRET,
+    );
+    expect(verifyParticipantQrToken(`${token.slice(0, -1)}x`, QR_SECRET)).toBeNull();
+    expect(verifyParticipantQrToken(token, "another-secret-at-least-32-characters-long")).toBeNull();
+  });
+
   it("should reject CANCELLED or REPLACED participants during check-in verification", () => {
     const cancelledParticipant = { status: "CANCELLED" };
     const replacedParticipant = { status: "REPLACED" };
@@ -42,15 +73,17 @@ describe("Identitas & QR Peserta Aman Unit Tests", () => {
     expect(isActiveRejected).toBe(false);
   });
 
-  it("should rotate and revoke old QR token when participant is replaced", () => {
-    let oldQrToken = "qr_tok_old_token_123";
-    let isOldTokenRevoked = false;
-
-    // Simulate replacement action:
-    isOldTokenRevoked = true;
-    const newQrToken = generateOpaqueQrToken();
-
-    expect(isOldTokenRevoked).toBe(true);
-    expect(newQrToken.rawToken).not.toEqual(oldQrToken);
+  it("changes the signed token when its stored rotation version increases", () => {
+    const oldQrToken = signParticipantQrToken(
+      { participantId: PARTICIPANT_ID, eventId: EVENT_ID, version: 1 },
+      QR_SECRET,
+    );
+    const newQrToken = signParticipantQrToken(
+      { participantId: PARTICIPANT_ID, eventId: EVENT_ID, version: 2 },
+      QR_SECRET,
+    );
+    expect(newQrToken).not.toEqual(oldQrToken);
+    expect(verifyParticipantQrToken(oldQrToken, QR_SECRET)?.version).toBe(1);
+    expect(verifyParticipantQrToken(newQrToken, QR_SECRET)?.version).toBe(2);
   });
 });
