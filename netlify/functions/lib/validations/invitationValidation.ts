@@ -36,7 +36,7 @@ export const submitResponseSchema = z.object({
       z.object({
         existingProfileId: z.string().uuid().optional().nullable(),
         fullName: z.string().min(2, "Nama delegasi minimal 2 karakter"),
-        email: z.string().email("Format email delegasi tidak valid").optional().nullable(),
+        email: z.string().trim().email("Format email delegasi tidak valid"),
         phone: z.string().min(8, "Nomor telepon minimal 8 digit").optional().nullable(),
         whatsapp: z.string().min(8, "Nomor WhatsApp minimal 8 digit").optional().nullable(),
         address: z.string().max(500, "Alamat delegasi maksimal 500 karakter").optional().nullable(),
@@ -58,6 +58,14 @@ export const submitResponseSchema = z.object({
       code: z.ZodIssueCode.custom,
       path: ["delegates"],
       message: "Pilih tepat satu ketua rombongan",
+    });
+  }
+  const normalizedEmails = delegates.map((delegate) => delegate.email.toLowerCase());
+  if (new Set(normalizedEmails).size !== normalizedEmails.length) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["delegates"],
+      message: "Setiap peserta wajib menggunakan email portal yang berbeda",
     });
   }
 });

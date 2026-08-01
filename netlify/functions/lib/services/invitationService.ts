@@ -30,6 +30,7 @@ import {
   verifyInstitutionAccessVerification,
 } from "./institutionAccessCodeService";
 import { buildInstitutionInvitationPath } from "../../../../src/lib/invitationUrl";
+import { provisionParticipantPortalAccountService } from "./participantService";
 
 function assertInvitationResponseOpen(result: { invitation: any; event: any; link?: any }) {
   if (result.invitation.status === "REVOKED" || result.link?.revokedAt) {
@@ -425,6 +426,45 @@ export async function submitInstitutionResponseService(
 
   const saved = await saveInstitutionDelegationRepository(invitation.id, payload);
   const savedResponse = saved.response;
+  const portalAccounts: Array<{
+    participantId: string;
+    participantName: string;
+    email: string;
+    temporaryPassword: string | null;
+    loginUrl: string;
+    action: string;
+    shownOnce: boolean;
+    setupError?: string;
+  }> = [];
+
+  if (payload.isFinal && payload.responseStatus === "ACCEPTED") {
+    for (const participant of saved.participants) {
+      try {
+        portalAccounts.push(
+          await provisionParticipantPortalAccountService(
+            event.id,
+            participant.id,
+            false,
+            null,
+            requestId,
+          ),
+        );
+      } catch (error) {
+        portalAccounts.push({
+          participantId: participant.id,
+          participantName: "Peserta terdaftar",
+          email: "",
+          temporaryPassword: null,
+          loginUrl: "/login/ustadz",
+          action: "SETUP_REQUIRED",
+          shownOnce: false,
+          setupError: error instanceof Error
+            ? error.message
+            : "Akses portal perlu dibantu oleh panitia.",
+        });
+      }
+    }
+  }
 
   if (payload.isFinal) {
     await createAuditLog({
@@ -441,6 +481,7 @@ export async function submitInstitutionResponseService(
   return {
     response: savedResponse,
     participants: saved.participants,
+    portalAccounts,
     message: payload.isFinal
       ? "Konfirmasi final undangan berhasil disimpan. Terima kasih atas partisipasi lembaga Anda."
       : "Draft respon undangan berhasil disimpan sementara.",

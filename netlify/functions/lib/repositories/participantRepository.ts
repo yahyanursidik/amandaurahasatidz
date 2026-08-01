@@ -80,7 +80,7 @@ export async function provisionParticipantPortalAccountRepository(
   participantId: string,
   passwordHash: string,
   resetExisting: boolean,
-  actorUserId: string,
+  actorUserId: string | null,
 ) {
   return await withTransaction(async (tx) => {
     const target = (
@@ -114,12 +114,7 @@ export async function provisionParticipantPortalAccountRepository(
     if (target.profileUserId && !portalUser) {
       throw new ConflictError("Profil peserta terhubung ke akun yang sudah tidak tersedia.");
     }
-    const existingAccountLinkedByEmail = Boolean(!target.profileUserId && portalUser?.passwordHash);
-    if (portalUser?.passwordHash && target.profileUserId && !resetExisting) {
-      throw new ConflictError(
-        "Akun portal peserta sudah aktif. Gunakan tindakan reset hanya bila peserta kehilangan akses.",
-      );
-    }
+    const existingAccountLinkedByEmail = Boolean(portalUser?.passwordHash && !resetExisting);
     let passwordUpdated = false;
     if (!portalUser) {
       portalUser = (

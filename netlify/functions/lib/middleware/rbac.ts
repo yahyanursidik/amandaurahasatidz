@@ -49,7 +49,7 @@ export function evaluatePermission(user: UserContext, params: AccessCheckParams)
     // Event scope requirement check
     if (params.eventId) {
       if (assignment.eventId) {
-        if (assignment.eventId !== params.eventId) continue;
+        if (assignment.eventId !== "*" && assignment.eventId !== params.eventId) continue;
       } else {
         const eventScopedRoles: RoleCode[] = [
           "EVENT_ADMIN",
@@ -119,7 +119,7 @@ export function requireEventScope(userSession: UserContext | null, targetEventId
   const hasEventScope = session.assignments.some((a) => {
     if (a.startsAt && new Date(a.startsAt) > now) return false;
     if (a.endsAt && new Date(a.endsAt) < now) return false;
-    return a.eventId === targetEventId;
+    return a.eventId === "*" || a.eventId === targetEventId;
   });
 
   if (!hasEventScope) {

@@ -37,7 +37,7 @@ export async function provisionParticipantPortalAccountService(
   eventId: string,
   participantId: string,
   resetExisting: boolean,
-  actorUserId: string,
+  actorUserId: string | null,
   requestId: string,
 ) {
   const temporaryPassword = generateTemporaryPassword();

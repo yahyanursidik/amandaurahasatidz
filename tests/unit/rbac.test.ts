@@ -48,4 +48,29 @@ describe("RBAC Evaluation Unit Tests", () => {
     expect(evaluatePermission(user, { action: "attendance.record", eventId: "event-uuid-100" })).toBe(true);
     expect(evaluatePermission(user, { action: "events.archive", eventId: "event-uuid-100" })).toBe(false);
   });
+
+  it("allows a committee lead to complete participant operations in its event", () => {
+    const user: UserContext = {
+      userId: "user-committee-lead-1",
+      email: "lead@yts.or.id",
+      assignments: [{ roleCode: "COMMITTEE_LEAD", eventId: "event-uuid-100" }],
+    };
+
+    expect(evaluatePermission(user, { action: "participants.read", eventId: "event-uuid-100" })).toBe(true);
+    expect(evaluatePermission(user, { action: "participants.approve", eventId: "event-uuid-100" })).toBe(true);
+    expect(evaluatePermission(user, { action: "participants.waitlist", eventId: "event-uuid-100" })).toBe(true);
+    expect(evaluatePermission(user, { action: "participants.cancel", eventId: "event-uuid-100" })).toBe(true);
+    expect(evaluatePermission(user, { action: "participants.approve", eventId: "event-uuid-200" })).toBe(false);
+  });
+
+  it("supports the explicit all-events scope used only by local demo sessions", () => {
+    const user: UserContext = {
+      userId: "local-committee-demo",
+      email: "panitia@yts.or.id",
+      assignments: [{ roleCode: "COMMITTEE_LEAD", eventId: "*" }],
+    };
+
+    expect(evaluatePermission(user, { action: "participants.read", eventId: "event-uuid-100" })).toBe(true);
+    expect(evaluatePermission(user, { action: "participants.approve", eventId: "event-uuid-200" })).toBe(true);
+  });
 });

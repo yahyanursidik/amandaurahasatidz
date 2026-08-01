@@ -64,13 +64,34 @@ describe("Undangan Lembaga, Token Security & Delegation Form Unit Tests", () => 
       notes: "Delegasi insyaAllah hadir tepat waktu",
       isFinal: true,
       delegates: [
-        { fullName: "Ustadz Abdullah, Lc.", phone: "081299990000", isLead: true },
-        { fullName: "Ustadz Hasan Basri", phone: "081288881111" },
+        { fullName: "Ustadz Abdullah, Lc.", email: "abdullah@lembaga.or.id", phone: "081299990000", isLead: true },
+        { fullName: "Ustadz Hasan Basri", email: "hasan@lembaga.or.id", phone: "081288881111" },
       ],
     };
 
     const parsed = submitResponseSchema.safeParse(payload);
     expect(parsed.success).toBe(true);
+  });
+
+  it("requires a distinct portal email for every registered participant", () => {
+    const missingEmail = submitResponseSchema.safeParse({
+      verificationToken: "signed-verification-token-with-safe-length",
+      responseStatus: "ACCEPTED",
+      isFinal: true,
+      delegates: [{ fullName: "Ustadz Abdullah", whatsapp: "081299990000", isLead: true }],
+    });
+    expect(missingEmail.success).toBe(false);
+
+    const duplicateEmail = submitResponseSchema.safeParse({
+      verificationToken: "signed-verification-token-with-safe-length",
+      responseStatus: "ACCEPTED",
+      isFinal: true,
+      delegates: [
+        { fullName: "Ustadz Abdullah", email: "sama@lembaga.or.id", whatsapp: "081299990000", isLead: true },
+        { fullName: "Ustadz Hasan", email: "SAMA@lembaga.or.id", whatsapp: "081288881111", isLead: false },
+      ],
+    });
+    expect(duplicateEmail.success).toBe(false);
   });
 
   it("should reject public delegation submission without verification proof", () => {

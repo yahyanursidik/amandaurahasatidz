@@ -49,7 +49,7 @@ export async function seedDatabase() {
     (process.env.APP_ENV !== "production" ? "DemoAsatidz2026!" : undefined);
   const accountDefinitions = [
     { email: "admin@yts.or.id", name: "Super Admin YTS", roleCode: "SUPER_ADMIN" },
-    { email: "panitia@yts.or.id", name: "Panitia Daurah YTS", roleCode: "CHECKIN_OFFICER" },
+    { email: "panitia@yts.or.id", name: "Koordinator Panitia Daurah", roleCode: "COMMITTEE_LEAD" },
     { email: "ustadz.demo@yts.or.id", name: "Ustadz Peserta Demo", roleCode: "USTADZ" },
   ];
 
@@ -190,6 +190,28 @@ export async function seedDatabase() {
     .where(eq(events.id, developmentEvent.id))
     .returning();
   developmentEvent = updatedEvents[0] || developmentEvent;
+
+  // Akun uji panitia harus memiliki peran operasional dan lingkup event agar
+  // seluruh modul portal panitia dapat diuji tanpa melonggarkan RBAC produksi.
+  const committeeUser = (await db.select().from(users).where(eq(users.email, "panitia@yts.or.id")).limit(1))[0];
+  const committeeLeadRole = (await db.select().from(roles).where(eq(roles.code, "COMMITTEE_LEAD")).limit(1))[0];
+  if (committeeUser && committeeLeadRole) {
+    const committeeAssignment = (
+      await db.select().from(userRoleAssignments).where(eq(userRoleAssignments.userId, committeeUser.id)).limit(1)
+    )[0];
+    if (committeeAssignment) {
+      await db
+        .update(userRoleAssignments)
+        .set({ roleId: committeeLeadRole.id, eventId: developmentEvent.id, startsAt: null, endsAt: null })
+        .where(eq(userRoleAssignments.id, committeeAssignment.id));
+    } else {
+      await db.insert(userRoleAssignments).values({
+        userId: committeeUser.id,
+        roleId: committeeLeadRole.id,
+        eventId: developmentEvent.id,
+      });
+    }
+  }
 
   let firstDay = (
     await db.select().from(eventDays).where(eq(eventDays.eventId, developmentEvent.id)).limit(1)
