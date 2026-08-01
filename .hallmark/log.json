@@ -1,6 +1,13 @@
 [
   {
     "date": "2026-08-01",
+    "macrostructure": "Feature Stack",
+    "theme": "existing emerald-slate system",
+    "enrichment": "none",
+    "brief": "Committee participant operations with actionable triage, bulk decisions, export, portal access, communication, and responsive filters"
+  },
+  {
+    "date": "2026-08-01",
     "macrostructure": "Ecosystem Index",
     "theme": "existing emerald-slate system",
     "enrichment": "none",

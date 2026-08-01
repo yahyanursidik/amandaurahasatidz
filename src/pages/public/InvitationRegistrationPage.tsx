@@ -9,7 +9,9 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
+  Copy,
   Crown,
+  ExternalLink,
   Info,
   KeyRound,
   Loader2,
@@ -19,6 +21,7 @@ import {
   Send,
   ShieldCheck,
   Trash2,
+  UserRoundCheck,
 } from "lucide-react";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { ENV } from "@/config/env";
@@ -34,6 +37,17 @@ type Delegate = {
   email: string;
   address: string;
   isLead: boolean;
+};
+
+type PortalAccount = {
+  participantId: string;
+  participantName: string;
+  email: string;
+  temporaryPassword: string | null;
+  loginUrl: string;
+  action: "CREATED" | "LINKED_EXISTING" | "RESET" | "SETUP_REQUIRED";
+  shownOnce: boolean;
+  setupError?: string;
 };
 
 type InvitationData = {
@@ -135,6 +149,7 @@ export const InvitationRegistrationPage: React.FC = () => {
   const [isSaving, setIsSaving] = useState(false);
   const [draftSaved, setDraftSaved] = useState(false);
   const [submission, setSubmission] = useState<any>(null);
+  const [copiedCredential, setCopiedCredential] = useState("");
 
   useEffect(() => {
     if (!token) {
@@ -257,10 +272,17 @@ export const InvitationRegistrationPage: React.FC = () => {
     for (const [index, delegate] of delegates.entries()) {
       if (delegate.fullName.trim().length < 2) return `Lengkapi nama asatidz ke-${index + 1}.`;
       if (delegate.whatsapp.replace(/\D/g, "").length < 8) return `Lengkapi nomor WhatsApp asatidz ke-${index + 1}.`;
+      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(delegate.email.trim())) {
+        return `Lengkapi email portal yang valid untuk asatidz ke-${index + 1}.`;
+      }
     }
     const whatsappNumbers = delegates.map((delegate) => delegate.whatsapp.replace(/\D/g, ""));
     if (new Set(whatsappNumbers).size !== whatsappNumbers.length) {
       return "Setiap asatidz harus memakai nomor WhatsApp yang berbeda.";
+    }
+    const portalEmails = delegates.map((delegate) => delegate.email.trim().toLowerCase());
+    if (new Set(portalEmails).size !== portalEmails.length) {
+      return "Setiap asatidz harus memakai email portal yang berbeda.";
     }
     return "";
   };
@@ -272,7 +294,23 @@ export const InvitationRegistrationPage: React.FC = () => {
         message: isFinal
           ? "Mode pratinjau: konfirmasi berhasil disimulasikan tanpa menyimpan data produksi."
           : "Mode pratinjau: draft berhasil disimulasikan.",
-        participants: [],
+        participants: isFinal && responseStatus === "ACCEPTED"
+          ? delegates.map((delegate, index) => ({
+              id: `preview-participant-${index + 1}`,
+              participantCode: `ADA-DEMO-${String(index + 1).padStart(3, "0")}`,
+            }))
+          : [],
+        portalAccounts: isFinal && responseStatus === "ACCEPTED"
+          ? delegates.map((delegate, index) => ({
+              participantId: `preview-participant-${index + 1}`,
+              participantName: delegate.fullName,
+              email: delegate.email,
+              temporaryPassword: `AmanDemo${String(index + 1).padStart(2, "0")}!`,
+              loginUrl: "/login/ustadz",
+              action: "CREATED",
+              shownOnce: true,
+            }))
+          : [],
       };
     }
     const endpoint = `${ENV.API_BASE_URL}/invitations/public/${invitationType}/${token}/response`;
@@ -340,6 +378,26 @@ export const InvitationRegistrationPage: React.FC = () => {
     }
   };
 
+  const absolutePortalUrl = (loginUrl?: string) => {
+    if (!loginUrl) return `${window.location.origin}/login/ustadz`;
+    return /^https?:\/\//i.test(loginUrl) ? loginUrl : `${window.location.origin}${loginUrl}`;
+  };
+
+  const copyPortalCredential = async (account: PortalAccount) => {
+    const passwordLine = account.temporaryPassword
+      ? `Password sementara: ${account.temporaryPassword}`
+      : "Password: gunakan password akun yang sudah aktif";
+    await navigator.clipboard.writeText([
+      `Portal Peserta Aman Daurah Asatidz`,
+      `Nama: ${account.participantName}`,
+      `Username/email: ${account.email}`,
+      passwordLine,
+      `Login: ${absolutePortalUrl(account.loginUrl)}`,
+    ].join("\n"));
+    setCopiedCredential(account.participantId);
+    window.setTimeout(() => setCopiedCredential(""), 2500);
+  };
+
   return (
     <PublicLayout>
       <div className="invitation-registration" aria-busy={isLoading}>
@@ -369,7 +427,20 @@ export const InvitationRegistrationPage: React.FC = () => {
                 <div><strong>Mode pratinjau lokal</strong><span>Database tidak dapat dijangkau. Gunakan kode lembaga AMAN-2026; seluruh interaksi hanya simulasi.</span></div>
               </div>
             )}
-            <section className="invitation-registration__event" aria-labelledby="invitation-event-title">
+
+            <section className="invitation-registration__welcome" aria-labelledby="invitation-welcome-title">
+              <p>Assalamu&apos;alaikum warahmatullahi wabarakatuh</p>
+              <h1 id="invitation-welcome-title">
+                Ahlan, {data.institution?.name || "Bapak/Ibu penerima undangan"}
+              </h1>
+              <span>
+                Selamat datang di formulir resmi {data.event.name}. {verified
+                  ? "Silakan lanjutkan konfirmasi dan data asatidz yang akan hadir."
+                  : "Masukkan kode unik lembaga di bawah ini untuk membuka formulir delegasi."}
+              </span>
+            </section>
+
+            {verified && <section className="invitation-registration__event" aria-labelledby="invitation-event-title">
               <figure className="invitation-registration__poster">
                 <img
                   src={data.event.posterUrl || DEFAULT_EVENT_POSTER}
@@ -385,7 +456,7 @@ export const InvitationRegistrationPage: React.FC = () => {
                   <span>Kode referensi</span>
                   <strong>{data.invitation.invitationNumber}</strong>
                 </div>
-                <h1 id="invitation-event-title">{data.event.name}</h1>
+                <h2 id="invitation-event-title">{data.event.name}</h2>
                 {data.event.subtitle && <p>{data.event.subtitle}</p>}
                 <dl className="invitation-registration__facts">
                   <div><CalendarDays aria-hidden="true" /><dt>Pelaksanaan</dt><dd>{dates}</dd></div>
@@ -397,7 +468,7 @@ export const InvitationRegistrationPage: React.FC = () => {
                   <p className="invitation-registration__quota">Kuota undangan: <strong>{quota} asatidz</strong></p>
                 )}
               </div>
-            </section>
+            </section>}
 
             <ol className="invitation-registration__steps" aria-label="Tahapan pendaftaran">
               {["Verifikasi", "Data kehadiran", "Selesai"].map((label, index) => {
@@ -424,13 +495,17 @@ export const InvitationRegistrationPage: React.FC = () => {
                 </div>
 
                   <form onSubmit={verifyAccessCode} className="invitation-registration__otp-form" noValidate>
-                    <div className="invitation-field">
-                      <label htmlFor="institution-access-code">Kode unik lembaga</label>
+                    <div className="invitation-field invitation-field--access-code">
+                      <div className="invitation-field__label-row">
+                        <label htmlFor="institution-access-code">Kode unik lembaga</label>
+                        <span>Wajib diisi</span>
+                      </div>
                       <div className="invitation-field__otp">
                         <KeyRound aria-hidden="true" />
                         <input
                           id="institution-access-code"
                           type="text"
+                          autoFocus
                           autoComplete="off"
                           value={accessCode}
                           onChange={(event) => {
@@ -537,9 +612,9 @@ export const InvitationRegistrationPage: React.FC = () => {
                             <p>Boleh dikosongkan jika sama dengan nomor WhatsApp.</p>
                           </div>
                           <div className="invitation-field">
-                            <label htmlFor={`delegate-email-${index}`}>Email asatidz</label>
-                            <input id={`delegate-email-${index}`} type="email" value={delegate.email} onChange={(event) => updateDelegate(index, "email", event.target.value)} placeholder="ustadz@lembaga.or.id" autoComplete="email" />
-                            <p>Dipakai untuk akses portal peserta bila tersedia.</p>
+                            <label htmlFor={`delegate-email-${index}`}>Email portal peserta *</label>
+                            <input id={`delegate-email-${index}`} type="email" required value={delegate.email} onChange={(event) => updateDelegate(index, "email", event.target.value)} placeholder="ustadz@lembaga.or.id" autoComplete="email" />
+                            <p>Menjadi username login dan wajib berbeda untuk setiap peserta.</p>
                           </div>
                           <div className="invitation-field invitation-field--wide">
                             <label htmlFor={`delegate-address-${index}`}>Alamat domisili</label>
@@ -585,12 +660,58 @@ export const InvitationRegistrationPage: React.FC = () => {
                 <CheckCircle2 aria-hidden="true" />
                 <h2 id="success-title">Konfirmasi telah diterima</h2>
                 <p>{submission.message || "Panitia telah menerima jawaban undangan Anda."}</p>
-                {submission.participants?.length > 0 && (
-                  <div>
-                    <strong>Kode peserta individual</strong>
-                    <ul>{submission.participants.map((participant: any) => <li key={participant.id}>{participant.participantCode}</li>)}</ul>
-                    <small>Simpan kode masing-masing. Setiap asatidz tetap check-in secara individu.</small>
+                {submission.portalAccounts?.length > 0 && (
+                  <div className="invitation-registration__portal-access">
+                    <header>
+                      <UserRoundCheck aria-hidden="true" />
+                      <div>
+                        <strong>Akses Portal Peserta</strong>
+                        <small>Simpan dan kirimkan kredensial berikut kepada masing-masing peserta secara pribadi.</small>
+                      </div>
+                    </header>
+                    <div className="invitation-registration__credential-list">
+                      {submission.portalAccounts.map((account: PortalAccount) => {
+                        const participant = submission.participants?.find((item: any) => item.id === account.participantId);
+                        return (
+                          <article key={account.participantId} className="invitation-registration__credential">
+                            <div className="invitation-registration__credential-head">
+                              <div>
+                                <strong>{account.participantName}</strong>
+                                {participant?.participantCode && <span>{participant.participantCode}</span>}
+                              </div>
+                              <span>{account.action === "CREATED" ? "Akun baru" : account.action === "LINKED_EXISTING" ? "Akun sudah aktif" : "Perlu bantuan"}</span>
+                            </div>
+                            {account.setupError ? (
+                              <p className="invitation-registration__credential-error">{account.setupError} Hubungi panitia untuk mengaktifkan akses.</p>
+                            ) : (
+                              <dl>
+                                <div><dt>Username / email</dt><dd>{account.email}</dd></div>
+                                <div><dt>Password</dt><dd>{account.temporaryPassword || "Gunakan password akun yang sudah aktif"}</dd></div>
+                              </dl>
+                            )}
+                            <div className="invitation-registration__credential-actions">
+                              {!account.setupError && (
+                                <button type="button" onClick={() => void copyPortalCredential(account)}>
+                                  <Copy aria-hidden="true" />
+                                  <span>{copiedCredential === account.participantId ? "Berhasil disalin" : "Salin akses"}</span>
+                                </button>
+                              )}
+                              <a href={absolutePortalUrl(account.loginUrl)} target="_blank" rel="noreferrer">
+                                <ExternalLink aria-hidden="true" />
+                                <span>Buka portal</span>
+                              </a>
+                            </div>
+                          </article>
+                        );
+                      })}
+                    </div>
+                    <p className="invitation-registration__credential-warning">
+                      Password sementara hanya ditampilkan pada halaman ini. Peserta yang akunnya sudah aktif tetap menggunakan password sebelumnya atau memakai fitur atur ulang password.
+                    </p>
                   </div>
+                )}
+                {submission.participants?.length > 0 && !submission.portalAccounts?.length && (
+                  <div><strong>Kode peserta individual</strong><ul>{submission.participants.map((participant: any) => <li key={participant.id}>{participant.participantCode}</li>)}</ul><small>Simpan kode masing-masing. Setiap asatidz tetap check-in secara individu.</small></div>
                 )}
               </section>
             )}

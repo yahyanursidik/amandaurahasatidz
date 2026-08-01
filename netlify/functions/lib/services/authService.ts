@@ -87,7 +87,7 @@ const PORTAL_ROLES: Record<string, RoleCode[]> = {
 
 const DEVELOPMENT_ACCOUNTS: Record<string, { password: string; role: RoleCode }> = {
   "admin@yts.or.id": { password: "DemoAsatidz2026!", role: "SUPER_ADMIN" },
-  "panitia@yts.or.id": { password: "DemoAsatidz2026!", role: "CHECKIN_OFFICER" },
+  "panitia@yts.or.id": { password: "DemoAsatidz2026!", role: "COMMITTEE_LEAD" },
   "ustadz.demo@yts.or.id": { password: "DemoAsatidz2026!", role: "USTADZ" },
 };
 
@@ -138,13 +138,23 @@ export async function authenticatePasswordService(
         userId: "00000000-0000-0000-0000-000000000001",
         email: normalizedEmail,
         name: normalizedEmail.split("@")[0],
-        assignments: [{ roleCode: demo.role }],
+        assignments: [{ roleCode: demo.role, eventId: portal === "committee" ? "*" : undefined }],
       };
     }
   }
 
   if (!passwordValid || !context) {
     throw new UnauthorizedError("Email atau password tidak sesuai.");
+  }
+
+  // The local committee demo account is intentionally broad so every
+  // committee workflow can be exercised. Production always uses persisted,
+  // event-scoped assignments from the database.
+  if (!isProductionRuntime() && normalizedEmail === "panitia@yts.or.id") {
+    context = {
+      ...context,
+      assignments: [{ roleCode: "COMMITTEE_LEAD", eventId: "*" }],
+    };
   }
 
   const allowedRoles = PORTAL_ROLES[portal] || [];

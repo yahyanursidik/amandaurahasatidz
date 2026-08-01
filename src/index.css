@@ -3878,6 +3878,38 @@
   overflow-wrap: anywhere;
 }
 
+.invitation-registration__welcome {
+  background: var(--color-invitation-surface);
+  border-block-start: 4px solid var(--color-invitation-accent);
+  border-radius: var(--radius-invitation-control);
+  display: grid;
+  gap: var(--space-invitation-xs);
+  padding: var(--space-invitation-lg);
+}
+
+.invitation-registration__welcome p {
+  color: var(--color-invitation-accent-hover);
+  font-size: var(--text-invitation-small);
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  margin: 0;
+}
+
+.invitation-registration__welcome h1 {
+  font-size: clamp(1.6rem, 4vw, 2.35rem);
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  margin: var(--space-invitation-xs) 0;
+}
+
+.invitation-registration__welcome > span {
+  color: var(--color-invitation-muted);
+  font-size: var(--text-invitation-body);
+  line-height: 1.6;
+  max-width: 68ch;
+}
+
 .invitation-registration__preview-banner {
   align-items: flex-start;
   background: var(--color-invitation-warning-paper);
@@ -4185,6 +4217,30 @@
   min-width: 0;
 }
 
+.invitation-field--access-code {
+  background: var(--color-invitation-surface-muted);
+  border: 1px solid var(--color-invitation-accent);
+  border-radius: var(--radius-invitation-control);
+  padding: var(--space-invitation-md);
+}
+
+.invitation-field__label-row {
+  align-items: center;
+  display: flex;
+  gap: var(--space-invitation-sm);
+  justify-content: space-between;
+}
+
+.invitation-field__label-row > span {
+  background: var(--color-invitation-accent);
+  border-radius: var(--radius-invitation-control);
+  color: var(--color-invitation-accent-ink);
+  font-size: var(--text-invitation-small);
+  font-weight: 800;
+  padding: var(--space-invitation-xs) var(--space-invitation-sm);
+  white-space: nowrap;
+}
+
 .invitation-field label,
 .invitation-registration__decision legend {
   color: var(--color-invitation-ink);
@@ -4281,10 +4337,13 @@
 }
 
 .invitation-field__otp input {
+  background: var(--color-invitation-surface);
+  border-color: var(--color-invitation-accent);
   font-family: var(--font-invitation-code);
   font-size: 1.35rem;
   font-variant-numeric: tabular-nums;
-  letter-spacing: 0.3em;
+  grid-column: 1 / -1;
+  letter-spacing: 0.18em;
   padding-inline-start: 3rem;
 }
 
@@ -4583,6 +4642,182 @@
   font-family: var(--font-invitation-code);
   font-variant-numeric: tabular-nums;
   font-weight: 800;
+}
+
+.invitation-registration__success > .invitation-registration__portal-access {
+  background: var(--color-invitation-surface);
+  border: 1px solid var(--color-invitation-rule);
+  gap: var(--space-invitation-md);
+  max-width: 46rem;
+  padding: var(--space-invitation-lg);
+  text-align: start;
+  width: 100%;
+}
+
+.invitation-registration__portal-access > header {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--space-invitation-sm);
+}
+
+.invitation-registration__portal-access > header svg {
+  color: var(--color-invitation-accent);
+  flex: 0 0 auto;
+  height: 1.5rem;
+  width: 1.5rem;
+}
+
+.invitation-registration__portal-access > header div {
+  display: grid;
+  gap: var(--space-invitation-xs);
+}
+
+.invitation-registration__portal-access > header strong {
+  font-size: 1.05rem;
+}
+
+.invitation-registration__portal-access > header small,
+.invitation-registration__credential-warning {
+  color: var(--color-invitation-muted);
+  font-size: var(--text-invitation-small);
+  line-height: 1.5;
+}
+
+.invitation-registration__credential-list {
+  display: grid;
+  gap: var(--space-invitation-sm);
+}
+
+.invitation-registration__credential {
+  background: var(--color-invitation-surface-muted);
+  border: 1px solid var(--color-invitation-rule);
+  border-radius: var(--radius-invitation-control);
+  display: grid;
+  gap: var(--space-invitation-md);
+  min-width: 0;
+  padding: var(--space-invitation-md);
+}
+
+.invitation-registration__credential-head {
+  align-items: flex-start;
+  display: flex;
+  gap: var(--space-invitation-sm);
+  justify-content: space-between;
+}
+
+.invitation-registration__credential-head > div {
+  display: grid;
+  gap: var(--space-invitation-xs);
+  min-width: 0;
+}
+
+.invitation-registration__credential-head strong,
+.invitation-registration__credential-head > div > span {
+  overflow-wrap: anywhere;
+}
+
+.invitation-registration__credential-head > div > span {
+  color: var(--color-invitation-muted);
+  font-family: var(--font-invitation-code);
+  font-size: var(--text-invitation-small);
+}
+
+.invitation-registration__credential-head > span {
+  background: var(--color-invitation-success-paper);
+  border: 1px solid var(--color-invitation-accent);
+  border-radius: var(--radius-invitation-control);
+  color: var(--color-invitation-accent-hover);
+  flex: 0 0 auto;
+  font-size: var(--text-invitation-small);
+  font-weight: 800;
+  padding: var(--space-invitation-xs) var(--space-invitation-sm);
+  white-space: nowrap;
+}
+
+.invitation-registration__credential dl {
+  display: grid;
+  gap: var(--space-invitation-xs);
+  margin: 0;
+}
+
+.invitation-registration__credential dl > div {
+  background: var(--color-invitation-surface);
+  border: 1px solid var(--color-invitation-rule);
+  border-radius: var(--radius-invitation-control);
+  display: grid;
+  gap: var(--space-invitation-xs);
+  min-width: 0;
+  padding: var(--space-invitation-sm) var(--space-invitation-md);
+}
+
+.invitation-registration__credential dt {
+  color: var(--color-invitation-muted);
+  font-size: var(--text-invitation-small);
+}
+
+.invitation-registration__credential dd {
+  font-family: var(--font-invitation-code);
+  font-size: var(--text-invitation-small);
+  font-weight: 800;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.invitation-registration__credential-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-invitation-sm);
+}
+
+.invitation-registration__credential-actions button,
+.invitation-registration__credential-actions a {
+  align-items: center;
+  border: 1px solid var(--color-invitation-accent);
+  border-radius: var(--radius-invitation-control);
+  display: inline-flex;
+  font-size: var(--text-invitation-small);
+  font-weight: 800;
+  gap: var(--space-invitation-xs);
+  justify-content: center;
+  min-height: 2.75rem;
+  padding-inline: var(--space-invitation-md);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.invitation-registration__credential-actions button {
+  background: var(--color-invitation-accent);
+  color: var(--color-invitation-accent-ink);
+}
+
+.invitation-registration__credential-actions a {
+  background: var(--color-invitation-surface);
+  color: var(--color-invitation-accent-hover);
+}
+
+.invitation-registration__credential-actions svg {
+  height: 1rem;
+  width: 1rem;
+}
+
+.invitation-registration__credential-error,
+.invitation-registration__credential-warning {
+  margin: 0;
+}
+
+.invitation-registration__credential-error {
+  background: var(--color-invitation-danger-paper);
+  border: 1px solid var(--color-invitation-danger);
+  border-radius: var(--radius-invitation-control);
+  color: var(--color-invitation-danger);
+  font-size: var(--text-invitation-small);
+  line-height: 1.5;
+  padding: var(--space-invitation-sm) var(--space-invitation-md);
+}
+
+.invitation-registration__credential-warning {
+  border-block-start: 1px solid var(--color-invitation-rule);
+  padding-block-start: var(--space-invitation-md);
 }
 
 .invitation-spinner {

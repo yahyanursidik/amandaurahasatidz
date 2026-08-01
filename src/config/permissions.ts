@@ -107,12 +107,12 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     "reports.read", "reports.export", "audit.read"
   ],
   COMMITTEE_LEAD: [
-    "events.read", "participants.read", "participants.manage_portal_access", "schedule.read", "schedule.manage",
+    "events.read", "participants.read", "participants.update", "participants.approve", "participants.waitlist", "participants.cancel", "participants.export", "participants.manage_portal_access", "schedule.read", "schedule.manage",
     "announcements.read", "announcements.manage", "announcements.publish",
     "attendance.read", "attendance.record", "reports.read"
   ],
   REGISTRATION_OFFICER: [
-    "events.read", "participants.read", "participants.create", "participants.update", "participants.manage_portal_access", "attendance.read", "attendance.record"
+    "events.read", "participants.read", "participants.create", "participants.update", "participants.approve", "participants.waitlist", "participants.cancel", "participants.export", "participants.manage_portal_access", "attendance.read", "attendance.record"
   ],
   CHECKIN_OFFICER: [
     "events.read", "participants.read", "attendance.read", "attendance.record"

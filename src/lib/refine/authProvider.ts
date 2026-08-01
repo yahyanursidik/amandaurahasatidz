@@ -24,7 +24,7 @@ const destinationForPortal = (portal: string) =>
 
 const DEVELOPMENT_PORTAL_ROLES: Record<string, string> = {
   admin: "SUPER_ADMIN",
-  committee: "CHECKIN_OFFICER",
+  committee: "COMMITTEE_LEAD",
   ustadz: "USTADZ",
 };
 
