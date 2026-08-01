@@ -3,6 +3,7 @@ export interface InvitationShareContext {
   eventName: string;
   invitationNumber: string;
   invitationUrl: string;
+  accessCode?: string | null;
   responseDeadline?: string | null;
 }
 
@@ -36,10 +37,11 @@ export const buildInvitationShareText = (context: InvitationShareContext) =>
     "Silakan konfirmasi kehadiran dan daftarkan para asatidz yang mewakili lembaga melalui tautan khusus berikut:",
     context.invitationUrl,
     "",
+    ...(context.accessCode ? [`Kode unik lembaga: ${context.accessCode}`, ""] : []),
     `Nomor undangan: ${context.invitationNumber}`,
     `Batas konfirmasi: ${formatDeadline(context.responseDeadline)}`,
     "",
-    "Mohon menjaga tautan ini dan tidak meneruskannya kepada pihak di luar lembaga. Jazakumullahu khairan.",
+    "Mohon menjaga tautan dan kode unik ini serta tidak meneruskannya kepada pihak di luar lembaga. Jazakumullahu khairan.",
     "",
     "Wassalamu'alaikum warahmatullahi wabarakatuh.",
   ].join("\n");

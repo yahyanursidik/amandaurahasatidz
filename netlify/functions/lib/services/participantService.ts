@@ -6,15 +6,79 @@ import {
   updateParticipantStatusRepository,
   updateParticipantApprovalStatusRepository,
   replaceParticipantTxRepository,
+  provisionParticipantPortalAccountRepository,
 } from "../repositories/participantRepository";
+import { randomInt } from "node:crypto";
 import { findEventByIdRepository } from "../repositories/eventRepository";
 import { findDuplicateCandidatesRepository } from "../repositories/ustadzRepository";
 import { NotFoundError, ValidationError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
 import { assertAttendanceConfirmationAllowed, assertParticipantEligibleForCheckin } from "./deadlineService";
+import { hashPassword } from "../utils/password";
+
+function generateTemporaryPassword() {
+  const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
+  const characters = ["A", "a", "7", "!"];
+  for (let index = 0; index < 12; index += 1) {
+    characters.push(alphabet[randomInt(0, alphabet.length)]);
+  }
+  for (let index = characters.length - 1; index > 0; index -= 1) {
+    const swapIndex = randomInt(0, index + 1);
+    [characters[index], characters[swapIndex]] = [characters[swapIndex], characters[index]];
+  }
+  return characters.join("");
+}
 
 export async function getParticipantsService(eventId: string) {
   return await findParticipantsRepository(eventId);
+}
+
+export async function provisionParticipantPortalAccountService(
+  eventId: string,
+  participantId: string,
+  resetExisting: boolean,
+  actorUserId: string,
+  requestId: string,
+) {
+  const temporaryPassword = generateTemporaryPassword();
+  const account = await provisionParticipantPortalAccountRepository(
+    eventId,
+    participantId,
+    hashPassword(temporaryPassword),
+    resetExisting,
+    actorUserId,
+  );
+  await createAuditLog({
+    actorUserId,
+    action: account.existingAccountLinkedByEmail
+      ? "PARTICIPANT_PORTAL_ACCESS_LINKED"
+      : resetExisting
+        ? "PARTICIPANT_PORTAL_ACCESS_RESET"
+        : "PARTICIPANT_PORTAL_ACCESS_CREATED",
+    resourceType: "EVENT_PARTICIPANT",
+    resourceId: participantId,
+    eventId,
+    afterData: { userId: account.userId, email: account.email, resetExisting },
+    reason: account.existingAccountLinkedByEmail
+      ? "Profil peserta ditautkan ke akun portal yang sudah tersedia."
+      : resetExisting
+        ? "Reset kredensial portal peserta oleh petugas berwenang."
+        : "Pembuatan kredensial portal peserta oleh petugas berwenang.",
+    requestId,
+  });
+  return {
+    participantId,
+    participantName: account.participantName,
+    email: account.email,
+    temporaryPassword: account.passwordUpdated ? temporaryPassword : null,
+    loginUrl: "/login/ustadz",
+    action: account.existingAccountLinkedByEmail
+      ? "LINKED_EXISTING"
+      : resetExisting
+        ? "RESET"
+        : "CREATED",
+    shownOnce: account.passwordUpdated,
+  };
 }
 
 export async function searchExistingUstadzProfilesService(fullName: string, email?: string, phone?: string) {

@@ -102,6 +102,7 @@ import {
   requestInvitationOtpSchema,
   submitResponseSchema,
   verifyInvitationOtpSchema,
+  verifyInstitutionAccessCodeSchema,
 } from "./lib/validations/invitationValidation";
 import {
   getInvitationsService,
@@ -115,6 +116,8 @@ import {
   submitIndividualResponseService,
   requestInstitutionInvitationOtpService,
   verifyInstitutionInvitationOtpService,
+  verifyInstitutionInvitationAccessCodeService,
+  getInstitutionInvitationAccessCodeService,
 } from "./lib/services/invitationService";
 
 import {
@@ -128,6 +131,7 @@ import {
   replacePortalDelegationMemberSchema,
   requestPasswordSetupSchema,
   completePasswordSetupSchema,
+  provisionParticipantPortalAccountSchema,
 } from "./lib/validations/participantValidation";
 import {
   completePasswordSetupService,
@@ -143,6 +147,7 @@ import {
   declineParticipantService,
   cancelParticipantService,
   bulkApproveParticipantsService,
+  provisionParticipantPortalAccountService,
 } from "./lib/services/participantService";
 
 import { enqueueEmailSchema, retryEmailJobSchema } from "./lib/validations/emailValidation";
@@ -286,6 +291,28 @@ export const handler: Handler = async (event, _context) => {
     const pubInvOtpRequestMatch = path.match(
       /^\/invitations\/public\/institution\/([a-z0-9_]+)\/otp\/request$/i,
     );
+
+    const pubInvCodeVerifyMatch = path.match(
+      /^\/invitations\/public\/institution\/([a-z0-9_]+)\/code\/verify$/i,
+    );
+    if (pubInvCodeVerifyMatch && method === "POST") {
+      const rawToken = pubInvCodeVerifyMatch[1];
+      const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+      const limitCheck = checkRateLimit(`pub_inv_code_${rawToken.slice(-12)}_${clientIp}`, 8, 600000);
+      if (!limitCheck.allowed) {
+        return buildErrorResponse(
+          "TOO_MANY_REQUESTS",
+          `Terlalu banyak percobaan kode. Coba lagi dalam ${limitCheck.retryAfterSeconds} detik.`,
+          requestId,
+          429,
+          { retryAfterSeconds: limitCheck.retryAfterSeconds },
+        );
+      }
+      const body = event.body ? JSON.parse(event.body) : {};
+      const validated = validateRequestData(verifyInstitutionAccessCodeSchema, body);
+      const result = await verifyInstitutionInvitationAccessCodeService(rawToken, validated.code, requestId);
+      return buildSuccessResponse(result, requestId);
+    }
     if (pubInvOtpRequestMatch && method === "POST") {
       const rawToken = pubInvOtpRequestMatch[1];
       const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
@@ -876,6 +903,40 @@ export const handler: Handler = async (event, _context) => {
       return buildSuccessResponse(
         await regenerateInvitationLinkService(invitationId, session.userId, requestId),
         requestId
+      );
+    }
+
+    const participantPortalAccountMatch = path.match(
+      /^\/events\/([a-f0-9-]+)\/participants\/([a-f0-9-]+)\/portal-account$/i,
+    );
+    if (participantPortalAccountMatch && method === "POST") {
+      const eventId = participantPortalAccountMatch[1];
+      const participantId = participantPortalAccountMatch[2];
+      const session = requireAuth(userSession);
+      requirePermission(session, "participants.manage_portal_access", eventId);
+      const body = event.body ? JSON.parse(event.body) : {};
+      const validated = validateRequestData(provisionParticipantPortalAccountSchema, body);
+      const result = await provisionParticipantPortalAccountService(
+        eventId,
+        participantId,
+        validated.resetExisting ?? false,
+        session.userId,
+        requestId,
+      );
+      return buildSuccessResponse(result, requestId);
+    }
+
+    const invitationAccessCodeMatch = path.match(
+      /^\/events\/([a-f0-9-]+)\/invitations\/([a-f0-9-]+)\/access-code$/i,
+    );
+    if (invitationAccessCodeMatch && method === "GET") {
+      const eventId = invitationAccessCodeMatch[1];
+      const invitationId = invitationAccessCodeMatch[2];
+      const session = requireAuth(userSession);
+      requirePermission(session, "invitations.create", eventId);
+      return buildSuccessResponse(
+        await getInstitutionInvitationAccessCodeService(eventId, invitationId, session.userId, requestId),
+        requestId,
       );
     }
 

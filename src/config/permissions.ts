@@ -45,6 +45,7 @@ export type PermissionCode =
   | "participants.cancel"
   | "participants.replace"
   | "participants.export"
+  | "participants.manage_portal_access"
   | "schedule.read"
   | "schedule.manage"
   | "announcements.read"
@@ -72,7 +73,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     "institutions.read", "institutions.create", "institutions.update", "institutions.merge",
     "ustadz.read", "ustadz.create", "ustadz.update", "ustadz.merge",
     "invitations.read", "invitations.create", "invitations.send", "invitations.revoke",
-    "participants.read", "participants.create", "participants.update", "participants.approve", "participants.waitlist", "participants.cancel", "participants.replace", "participants.export",
+    "participants.read", "participants.create", "participants.update", "participants.approve", "participants.waitlist", "participants.cancel", "participants.replace", "participants.export", "participants.manage_portal_access",
     "schedule.read", "schedule.manage",
     "announcements.read", "announcements.manage", "announcements.publish",
     "attendance.read", "attendance.record", "attendance.correct", "attendance.export",
@@ -99,19 +100,19 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   EVENT_ADMIN: [
     "events.read", "events.update", "events.publish",
     "invitations.read", "invitations.create", "invitations.send", "invitations.revoke",
-    "participants.read", "participants.create", "participants.update", "participants.approve", "participants.waitlist", "participants.cancel", "participants.replace", "participants.export",
+    "participants.read", "participants.create", "participants.update", "participants.approve", "participants.waitlist", "participants.cancel", "participants.replace", "participants.export", "participants.manage_portal_access",
     "schedule.read", "schedule.manage",
     "announcements.read", "announcements.manage", "announcements.publish",
     "attendance.read", "attendance.record", "attendance.correct", "attendance.export",
     "reports.read", "reports.export", "audit.read"
   ],
   COMMITTEE_LEAD: [
-    "events.read", "participants.read", "schedule.read", "schedule.manage",
+    "events.read", "participants.read", "participants.manage_portal_access", "schedule.read", "schedule.manage",
     "announcements.read", "announcements.manage", "announcements.publish",
     "attendance.read", "attendance.record", "reports.read"
   ],
   REGISTRATION_OFFICER: [
-    "events.read", "participants.read", "participants.create", "participants.update", "attendance.read", "attendance.record"
+    "events.read", "participants.read", "participants.create", "participants.update", "participants.manage_portal_access", "attendance.read", "attendance.record"
   ],
   CHECKIN_OFFICER: [
     "events.read", "participants.read", "attendance.read", "attendance.record"

@@ -50,6 +50,10 @@ export const bulkApproveSchema = z.object({
   participantIds: z.array(z.string().uuid()).min(1, "Minimal 1 peserta untuk diapprove"),
 });
 
+export const provisionParticipantPortalAccountSchema = z.object({
+  resetExisting: z.boolean().optional().default(false),
+});
+
 export const requestPasswordSetupSchema = z.object({
   email: z.string().trim().email("Format email tidak valid"),
   portal: z.enum(["admin", "committee", "ustadz"]),

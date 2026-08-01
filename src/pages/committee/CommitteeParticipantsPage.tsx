@@ -12,6 +12,7 @@ import { ParticipantCommunicationPanel } from "@/components/communications/Parti
 import { eventApi } from "@/lib/eventApi";
 import { getMissingParticipantContactFields } from "@/lib/participantCommunication";
 import { ParticipantProfileDialog } from "@/components/participants/ParticipantProfileDialog";
+import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
 
 type EventSummary = {
   id: string;
@@ -43,6 +44,9 @@ type CommitteeParticipant = {
   eventVenueAddress?: string | null;
   registrationSource: string | null;
   registeredAt: string | null;
+  portalUserId?: string | null;
+  portalAccountStatus?: string | null;
+  portalPasswordConfigured?: boolean | null;
 };
 
 const previewEvent: EventSummary = {
@@ -334,6 +338,17 @@ export const CommitteeParticipantsPage: React.FC = () => {
                         venueName: participant.eventVenueName || selectedEvent?.venueName,
                         venueAddress: participant.eventVenueAddress || selectedEvent?.venueAddress,
                       }}
+                    />
+                    <ParticipantPortalAccessAction
+                      eventId={selectedEventId}
+                      participant={{
+                        id: participant.id,
+                        name: participant.ustadzName,
+                        email: participant.ustadzEmail,
+                        portalPasswordConfigured: participant.portalPasswordConfigured,
+                      }}
+                      previewMode={previewMode}
+                      onCompleted={() => setParticipants((current) => current.map((item) => item.id === participant.id ? { ...item, portalPasswordConfigured: true, portalAccountStatus: "ACTIVE" } : item))}
                     />
                   </div>
                 </div>
