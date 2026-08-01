@@ -12,7 +12,10 @@ export async function withTransaction<T>(
     const message = error instanceof Error ? error.message.toLowerCase() : "";
     const transactionUnsupported =
       message.includes("transaction") &&
-      (message.includes("not supported") || message.includes("does not support"));
+      (message.includes("not supported")
+        || message.includes("does not support")
+        || message.includes("no transaction")
+        || message.includes("support in neon-http"));
     if (!transactionUnsupported) throw error;
     // Neon HTTP deployments that cannot run interactive transactions still execute once.
     return callback(db);

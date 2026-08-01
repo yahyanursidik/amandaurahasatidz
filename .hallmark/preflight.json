@@ -2,8 +2,8 @@
   "scannedAt": "2026-08-01",
   "fontStack": "Inter, system-ui, sans-serif",
   "palette": "Emerald and slate via HSL CSS variables and Tailwind tokens",
-  "motion": "motion-cut",
+  "motion": "CSS motion tokens only; no motion library",
   "spacing": "Tailwind 4px scale",
-  "framework": "React 18, Vite 8, Tailwind CSS",
+  "framework": "React 18, Vite 8.2, Tailwind CSS 3.4",
   "preserve": ["font stack", "palette", "spacing scale"]
 }

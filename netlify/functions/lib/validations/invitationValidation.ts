@@ -5,9 +5,24 @@ export const createInvitationSchema = z.object({
   invitationType: z.enum(["INSTITUTION", "INDIVIDUAL"]),
   institutionId: z.string().uuid().optional().nullable(),
   ustadzId: z.string().uuid().optional().nullable(),
-  invitationNumber: z.string().min(2, "Nomor undangan minimal 2 karakter"),
+  invitationNumber: z.string().trim().min(2, "Nomor undangan minimal 2 karakter").max(120, "Nomor undangan maksimal 120 karakter"),
   quota: z.coerce.number().min(1, "Kuota minimal 1 peserta").default(1),
   responseDeadline: z.string().optional().nullable(),
+}).superRefine((value, context) => {
+  if (value.invitationType === "INSTITUTION" && !value.institutionId) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["institutionId"],
+      message: "Pilih lembaga penerima undangan",
+    });
+  }
+  if (value.invitationType === "INDIVIDUAL" && !value.ustadzId) {
+    context.addIssue({
+      code: z.ZodIssueCode.custom,
+      path: ["ustadzId"],
+      message: "Pilih asatidz penerima undangan individu",
+    });
+  }
 });
 
 export const submitResponseSchema = z.object({

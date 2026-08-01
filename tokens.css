@@ -178,6 +178,51 @@
   --shadow-poster-card: 0 8px 24px rgb(15 23 42 / 0.05);
   --shadow-poster-card-hover: 0 14px 34px rgb(15 23 42 / 0.1);
   --shadow-poster-hero: 0 18px 46px rgb(15 23 42 / 0.16);
+
+  --color-admin-paper: oklch(97.5% 0.008 160);
+  --color-admin-surface: oklch(99.4% 0.004 160);
+  --color-admin-surface-muted: oklch(94.5% 0.012 160);
+  --color-admin-ink: oklch(19% 0.026 160);
+  --color-admin-muted: oklch(42% 0.025 160);
+  --color-admin-rule: oklch(84% 0.018 160);
+  --color-admin-rule-strong: oklch(70% 0.03 160);
+  --color-admin-accent: oklch(43% 0.13 160);
+  --color-admin-accent-hover: oklch(37% 0.12 160);
+  --color-admin-accent-soft: oklch(93% 0.035 160);
+  --color-admin-accent-ink: oklch(99% 0.004 160);
+  --color-admin-focus: oklch(38% 0.15 160);
+  --color-admin-warning: oklch(43% 0.11 75);
+  --color-admin-warning-paper: oklch(96% 0.04 80);
+  --color-admin-danger: oklch(43% 0.16 25);
+  --color-admin-danger-paper: oklch(96% 0.03 25);
+  --color-admin-night: oklch(17% 0.03 160);
+  --color-admin-night-muted: oklch(78% 0.02 160);
+  --color-admin-overlay: oklch(17% 0.03 160 / 0.58);
+  --font-admin-display: var(--font-event-display);
+  --font-admin-body: var(--font-event-body);
+  --font-admin-code: ui-monospace, "Cascadia Code", monospace;
+  --space-admin-2xs: 0.25rem;
+  --space-admin-xs: 0.5rem;
+  --space-admin-sm: 0.75rem;
+  --space-admin-md: 1rem;
+  --space-admin-lg: 1.5rem;
+  --space-admin-xl: 2.5rem;
+  --space-admin-2xl: 4rem;
+  --text-admin-caption: 0.8125rem;
+  --text-admin-small: 0.875rem;
+  --text-admin-body: 1rem;
+  --text-admin-title: 1.25rem;
+  --text-admin-display: clamp(1.75rem, 2.5vw, 2.5rem);
+  --radius-admin-control: 0.625rem;
+  --radius-admin-panel: 0.875rem;
+  --shadow-admin-float: 0 1rem 3rem oklch(19% 0.026 160 / 0.16);
+  --dur-admin-micro: 120ms;
+  --dur-admin-short: 220ms;
+  --ease-admin-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-admin-in: cubic-bezier(0.7, 0, 0.84, 0);
+  --ease-admin-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --z-admin-sticky: 200;
+  --z-admin-modal: 400;
 }
 
 :root {

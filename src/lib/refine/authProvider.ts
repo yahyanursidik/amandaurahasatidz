@@ -22,6 +22,19 @@ const DEV_ACCOUNTS: Record<string, { password: string; portal: string; name: str
 const destinationForPortal = (portal: string) =>
   portal === "committee" ? "/committee" : portal === "ustadz" ? "/portal" : "/admin";
 
+const DEVELOPMENT_PORTAL_ROLES: Record<string, string> = {
+  admin: "SUPER_ADMIN",
+  committee: "CHECKIN_OFFICER",
+  ustadz: "USTADZ",
+};
+
+export interface AuthIdentity {
+  id?: string;
+  name: string;
+  email: string;
+  assignments: Array<{ roleCode: string; eventId?: string | null; institutionId?: string | null }>;
+}
+
 const saveDevelopmentIdentity = (email: string, portal: string) => {
   if (!import.meta.env.DEV) return;
   const normalizedEmail = String(email || "").trim().toLowerCase();
@@ -42,6 +55,18 @@ const tryDevelopmentFallback = (email: string, password: string, portal: string)
   return account;
 };
 
+export async function verifyPersistedSession(
+  request: typeof fetch = fetch,
+  apiBaseUrl = ENV.API_BASE_URL,
+) {
+  const response = await request(`${apiBaseUrl}/auth/session`, {
+    method: "GET",
+    credentials: "include",
+    cache: "no-store",
+  });
+  return response.ok;
+}
+
 export const authProvider: AuthProvider = {
   login: async ({ email, password, portal }) => {
     try {
@@ -53,6 +78,18 @@ export const authProvider: AuthProvider = {
       });
       const res = await response.json().catch(() => ({}));
       if (response.ok) {
+        // Confirm the browser has accepted the HttpOnly cookie before the
+        // protected route is mounted. This prevents the first navigation from
+        // reading a stale anonymous auth state and bouncing back to login.
+        if (!(await verifyPersistedSession())) {
+          return {
+            success: false,
+            error: {
+              name: "SessionError",
+              message: "Login berhasil, tetapi sesi belum tersimpan. Periksa konfigurasi cookie dan SESSION_SECRET.",
+            },
+          };
+        }
         // Keep the local identity only as a display fallback. Authentication still
         // goes through the API first so the HttpOnly session cookie is created.
         saveDevelopmentIdentity(email, portal);
@@ -144,7 +181,12 @@ export const authProvider: AuthProvider = {
       const stored = localStorage.getItem("yts_dev_session");
       if (stored) {
         const devIdentity = JSON.parse(stored);
-        return { id: devIdentity.email, name: devIdentity.name, email: devIdentity.email };
+        return {
+          id: devIdentity.email,
+          name: devIdentity.name,
+          email: devIdentity.email,
+          assignments: [{ roleCode: DEVELOPMENT_PORTAL_ROLES[devIdentity.portal] || "USTADZ" }],
+        } satisfies AuthIdentity;
       }
     }
     try {
@@ -158,12 +200,13 @@ export const authProvider: AuthProvider = {
           id: res.data?.userId,
           name: res.data?.name || "Pengguna Daurah",
           email: res.data?.email || "admin@yts.or.id",
-        };
+          assignments: res.data?.assignments || [],
+        } satisfies AuthIdentity;
       }
     } catch (_err) {
       // Fallback identity
     }
-    return { name: "Pengguna Daurah", email: "admin@yts.or.id" };
+    return { name: "Pengguna Daurah", email: "admin@yts.or.id", assignments: [] } satisfies AuthIdentity;
   },
 
   getPermissions: async () => {

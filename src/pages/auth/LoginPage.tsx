@@ -4,7 +4,7 @@
  * audience: admin, panitia, dan asatidz · use: masuk cepat ke ruang kerja sesuai peran
  */
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { authProvider } from "@/lib/refine/authProvider";
 import {
   ArrowLeft,
@@ -70,7 +70,6 @@ const portalConfig: Record<
 
 export const LoginPage: React.FC = () => {
   const location = useLocation();
-  const navigate = useNavigate();
   const portal = useMemo<PortalCode>(() => {
     if (location.pathname.endsWith("/committee")) return "committee";
     if (location.pathname.endsWith("/ustadz")) return "ustadz";
@@ -188,7 +187,10 @@ export const LoginPage: React.FC = () => {
         const destination =
           result.redirectTo ||
           (portal === "committee" ? "/committee" : portal === "ustadz" ? "/portal" : "/admin");
-        navigate(destination, { replace: true });
+        // A hard replace starts the protected workspace with a fresh Refine
+        // authentication cache. SPA navigation can otherwise reuse the
+        // anonymous result cached while the login page was open.
+        window.location.replace(destination);
         return;
       }
       setError(result.error?.message || "Email atau password tidak sesuai.");
