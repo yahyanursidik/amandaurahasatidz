@@ -37,6 +37,26 @@ describe("Undangan Lembaga, Token Security & Delegation Form Unit Tests", () => 
     expect(parsed.success).toBe(true);
   });
 
+  it("should require the matching recipient relation and trim invitation numbers", () => {
+    const institutionInvitation = createInvitationSchema.safeParse({
+      eventId: "00000000-0000-0000-0000-000000000001",
+      invitationType: "INSTITUTION",
+      institutionId: "00000000-0000-0000-0000-000000000002",
+      invitationNumber: "  INV/2026/BDG/009  ",
+      quota: 2,
+    });
+    expect(institutionInvitation.success).toBe(true);
+    if (institutionInvitation.success) expect(institutionInvitation.data.invitationNumber).toBe("INV/2026/BDG/009");
+
+    const missingInstitution = createInvitationSchema.safeParse({
+      eventId: "00000000-0000-0000-0000-000000000001",
+      invitationType: "INSTITUTION",
+      invitationNumber: "INV/2026/BDG/010",
+      quota: 2,
+    });
+    expect(missingInstitution.success).toBe(false);
+  });
+
   it("should validate public submission response schema with delegates", () => {
     const payload = {
       verificationToken: "signed-verification-token-with-safe-length",

@@ -1,6 +1,7 @@
 import {
   findInvitationsRepository,
   findInvitationByIdRepository,
+  findInvitationByEventAndNumberRepository,
   findInvitationByTokenHashRepository,
   createInvitationRepository,
   updateInvitationStatusRepository,
@@ -9,10 +10,11 @@ import {
   rotateInvitationLinkRepository,
 } from "../repositories/invitationRepository";
 import { generateSecureToken, hashToken } from "../utils/token";
-import { NotFoundError, ValidationError, ForbiddenError } from "../utils/errors";
+import { NotFoundError, ValidationError, ForbiddenError, ConflictError } from "../utils/errors";
 import { verifyCaptcha } from "../utils/captcha";
 import { createAuditLog } from "./auditService";
 import { findEventByIdRepository } from "../repositories/eventRepository";
+import { findInstitutionByIdRepository } from "../repositories/institutionRepository";
 import { enqueueEmailJob } from "./emailQueueService";
 import {
   createInvitationOtpChallenge,
@@ -42,6 +44,18 @@ export async function getInvitationsService(eventId?: string) {
 export async function createInvitationService(data: any, actorUserId: string, requestId: string) {
   const event = await findEventByIdRepository(data.eventId);
   if (!event) throw new NotFoundError("Event untuk undangan tidak ditemukan.");
+  const invitationNumber = String(data.invitationNumber || "").trim();
+  const existingInvitation = await findInvitationByEventAndNumberRepository(data.eventId, invitationNumber);
+  if (existingInvitation) {
+    throw new ConflictError(
+      `Nomor undangan '${invitationNumber}' sudah digunakan pada event ini. Gunakan nomor lain atau buat ulang tautan dari undangan yang sudah ada.`,
+      { invitationId: existingInvitation.id, invitationStatus: existingInvitation.status },
+    );
+  }
+  if (data.invitationType === "INSTITUTION") {
+    const institution = await findInstitutionByIdRepository(data.institutionId);
+    if (!institution) throw new NotFoundError("Lembaga penerima undangan tidak ditemukan atau telah dinonaktifkan.");
+  }
   const responseDeadline = data.responseDeadline
     ? new Date(data.responseDeadline)
     : event.invitationResponseDeadline
@@ -58,14 +72,26 @@ export async function createInvitationService(data: any, actorUserId: string, re
     invitationType: data.invitationType,
     institutionId: data.institutionId || null,
     ustadzId: data.ustadzId || null,
-    invitationNumber: data.invitationNumber,
+    invitationNumber,
     quota: data.quota || 1,
     responseDeadline,
     status: "DRAFT",
     createdBy: actorUserId,
   };
 
-  const result = await createInvitationRepository(invData, tokenInfo.tokenHash);
+  let result: Awaited<ReturnType<typeof createInvitationRepository>>;
+  try {
+    result = await createInvitationRepository(invData, tokenInfo.tokenHash);
+  } catch (error) {
+    const databaseCode = (error as { code?: string; cause?: { code?: string } })?.code
+      || (error as { cause?: { code?: string } })?.cause?.code;
+    if (databaseCode === "23505") {
+      throw new ConflictError(
+        `Nomor undangan '${invitationNumber}' baru saja digunakan. Gunakan nomor lain lalu coba kembali.`,
+      );
+    }
+    throw error;
+  }
 
   await createAuditLog({
     actorUserId,

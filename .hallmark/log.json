@@ -1,6 +1,13 @@
 [
   {
     "date": "2026-08-01",
+    "macrostructure": "Ecosystem Index",
+    "theme": "existing emerald-slate system",
+    "enrichment": "none",
+    "brief": "Admin operational dashboard with contextual submenus, active-event shortcuts, command search, priorities, and responsive navigation"
+  },
+  {
+    "date": "2026-08-01",
     "macrostructure": "Workbench",
     "theme": "existing emerald-slate system",
     "enrichment": "none",

@@ -12,7 +12,7 @@ import {
   userRoleAssignments,
   users,
 } from "../db/schema";
-import { eq, and, desc, sql, or, isNull } from "drizzle-orm";
+import { eq, and, desc, sql, or, isNull, ne } from "drizzle-orm";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { withTransaction } from "../db/transaction";
 
@@ -43,6 +43,16 @@ export async function findInvitationsRepository(eventId?: string) {
     .leftJoin(institutions, eq(invitations.institutionId, institutions.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(invitations.createdAt));
+}
+
+export async function findInvitationByEventAndNumberRepository(eventId: string, invitationNumber: string) {
+  const db = getDbClient();
+  const found = await db
+    .select({ id: invitations.id, status: invitations.status })
+    .from(invitations)
+    .where(and(eq(invitations.eventId, eventId), eq(invitations.invitationNumber, invitationNumber)))
+    .limit(1);
+  return found[0] || null;
 }
 
 export async function saveInstitutionDelegationRepository(
@@ -301,24 +311,24 @@ export async function createInvitationRepository(
   invData: typeof invitations.$inferInsert,
   tokenHash: string
 ) {
-  const db = getDbClient();
+  return withTransaction(async (tx) => {
+    const createdInv = await tx.insert(invitations).values(invData).returning();
+    const createdLink = await tx
+      .insert(invitationLinks)
+      .values({
+        invitationId: createdInv[0].id,
+        tokenHash,
+        expiresAt: invData.responseDeadline
+          ? new Date(invData.responseDeadline)
+          : new Date(Date.now() + 14 * 86400000),
+      })
+      .returning();
 
-  const createdInv = await db.insert(invitations).values(invData).returning();
-  const createdLink = await db
-    .insert(invitationLinks)
-    .values({
-      invitationId: createdInv[0].id,
-      tokenHash,
-      expiresAt: invData.responseDeadline
-        ? new Date(invData.responseDeadline)
-        : new Date(Date.now() + 14 * 86400000),
-    })
-    .returning();
-
-  return {
-    invitation: createdInv[0],
-    link: createdLink[0],
-  };
+    return {
+      invitation: createdInv[0],
+      link: createdLink[0],
+    };
+  });
 }
 
 export async function rotateInvitationLinkRepository(
@@ -327,11 +337,6 @@ export async function rotateInvitationLinkRepository(
   expiresAt: Date,
 ) {
   return await withTransaction(async (tx) => {
-    await tx
-      .update(invitationLinks)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(invitationLinks.invitationId, invitationId), isNull(invitationLinks.revokedAt)));
-
     const created = await tx
       .insert(invitationLinks)
       .values({
@@ -340,6 +345,17 @@ export async function rotateInvitationLinkRepository(
         expiresAt,
       })
       .returning();
+
+    await tx
+      .update(invitationLinks)
+      .set({ revokedAt: new Date() })
+      .where(
+        and(
+          eq(invitationLinks.invitationId, invitationId),
+          ne(invitationLinks.id, created[0].id),
+          isNull(invitationLinks.revokedAt),
+        ),
+      );
 
     return created[0];
   });

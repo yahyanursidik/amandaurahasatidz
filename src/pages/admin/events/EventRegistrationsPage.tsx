@@ -30,6 +30,7 @@ import { ENV } from "@/config/env";
 import { EventWorkspaceNav } from "@/components/admin/events/EventWorkspaceNav";
 import { ParticipantCommunicationPanel } from "@/components/communications/ParticipantCommunicationPanel";
 import { ParticipantProfileDialog } from "@/components/participants/ParticipantProfileDialog";
+import { InvitationShareActions } from "@/components/invitations/InvitationShareActions";
 
 type Invitation = {
   id: string;
@@ -68,8 +69,19 @@ type Participant = {
   registeredAt: string | null;
 };
 
-type Institution = { id: string; name: string; code: string };
+type Institution = {
+  id: string;
+  name: string;
+  code: string;
+  email?: string | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+};
 type EventDeadline = {
+  name?: string;
+  startDate?: string | null;
+  endDate?: string | null;
+  venueName?: string | null;
   invitationResponseDeadline: string | null;
   attendanceConfirmationDeadline: string | null;
   attendanceConfirmationRequired: boolean;
@@ -205,6 +217,7 @@ export const EventRegistrationsPage: React.FC = () => {
   const [selectedParticipants, setSelectedParticipants] = useState<string[]>([]);
   const [copied, setCopied] = useState("");
   const [createdLink, setCreatedLink] = useState("");
+  const [createdInvitation, setCreatedInvitation] = useState<Invitation | null>(null);
   const [invitationLinks, setInvitationLinks] = useState<Record<string, string>>({});
   const [linkBusy, setLinkBusy] = useState("");
   const [eventDeadline, setEventDeadline] = useState<EventDeadline | null>(null);
@@ -222,9 +235,16 @@ export const EventRegistrationsPage: React.FC = () => {
       setInvitations(demoInvitations);
       setParticipants(demoParticipants);
       setInstitutions([
-        { id: "inst-demo-1", code: "MISB-01", name: "Ma'had Ilmu Sunnah Bandung" },
-        { id: "inst-demo-2", code: "PAHG-02", name: "Pesantren Al-Hikmah Garut" },
+        { id: "inst-demo-1", code: "MISB-01", name: "Ma'had Ilmu Sunnah Bandung", email: "kontak@mahadsunnahbdg.or.id", whatsapp: "081200001111" },
+        { id: "inst-demo-2", code: "PAHG-02", name: "Pesantren Al-Hikmah Garut", email: "sekretariat@alhikmah.or.id", whatsapp: "081200002222" },
       ]);
+      setEventDeadline({
+        name: "Contoh Daurah Asatidz",
+        invitationResponseDeadline: "2026-08-05T16:59:59Z",
+        attendanceConfirmationDeadline: null,
+        attendanceConfirmationRequired: true,
+        lateConfirmationPolicy: "BLOCK",
+      });
       setLoading(false);
       return;
     }
@@ -278,6 +298,16 @@ export const EventRegistrationsPage: React.FC = () => {
   const acceptedCount = invitations.filter((item) => item.status === "ACCEPTED").length;
   const awaitingCount = invitations.filter((item) => ["DRAFT", "SENT", "OPENED"].includes(item.status)).length;
   const approvedCount = participants.filter((item) => item.approvalStatus === "APPROVED").length;
+  const toAbsoluteInvitationUrl = (publicUrl: string) => new URL(publicUrl, window.location.origin).toString();
+  const institutionForInvitation = (invitation: Invitation) =>
+    institutions.find((institution) => institution.id === invitation.institutionId);
+  const shareContextFor = (invitation: Invitation, invitationUrl: string) => ({
+    institutionName: invitation.institutionName || institutionForInvitation(invitation)?.name || "Lembaga penerima",
+    eventName: eventDeadline?.name || "Daurah Asatidz",
+    invitationNumber: invitation.invitationNumber,
+    invitationUrl,
+    responseDeadline: invitation.responseDeadline || eventDeadline?.invitationResponseDeadline,
+  });
 
   const createInvitation = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -287,13 +317,30 @@ export const EventRegistrationsPage: React.FC = () => {
       if (demoMode) {
         const rawToken = "inv_inst_demo_tautan_khusus_lembaga";
         setCreatedLink(`${window.location.origin}/invitation/institution/${rawToken}`);
+        setCreatedInvitation({
+          id: "inv-demo-created",
+          institutionId: form.institutionId,
+          institutionName: institutions.find((institution) => institution.id === form.institutionId)?.name || "Lembaga penerima",
+          invitationNumber: form.invitationNumber.trim(),
+          quota: form.quota,
+          status: "DRAFT",
+          sentAt: null,
+          respondedAt: null,
+          responseDeadline: form.responseDeadline ? `${form.responseDeadline}T23:59:59+07:00` : null,
+        });
       } else {
         const created = await api<{ invitation: Invitation; publicUrl: string }>(`/events/${id}/invitations`, {
           method: "POST",
-          body: JSON.stringify({ ...form, invitationType: "INSTITUTION" }),
+          body: JSON.stringify({
+            ...form,
+            invitationNumber: form.invitationNumber.trim(),
+            responseDeadline: form.responseDeadline ? `${form.responseDeadline}T23:59:59+07:00` : null,
+            invitationType: "INSTITUTION",
+          }),
         });
-        const absoluteUrl = `${window.location.origin}${created.publicUrl}`;
+        const absoluteUrl = toAbsoluteInvitationUrl(created.publicUrl);
         setCreatedLink(absoluteUrl);
+        setCreatedInvitation(created.invitation);
         setInvitationLinks((current) => ({ ...current, [created.invitation.id]: absoluteUrl }));
         await loadData();
       }
@@ -333,14 +380,14 @@ export const EventRegistrationsPage: React.FC = () => {
     try {
       const absoluteUrl = demoMode
         ? `${window.location.origin}/invitation/institution/inv_inst_demo_${invitation.id}`
-        : `${window.location.origin}${
+        : toAbsoluteInvitationUrl(
             (
               await api<{ publicUrl: string }>(
                 `/events/${id}/invitations/${invitation.id}/regenerate-link`,
                 { method: "POST" },
               )
-            ).publicUrl
-          }`;
+            ).publicUrl,
+          );
       setInvitationLinks((current) => ({ ...current, [invitation.id]: absoluteUrl }));
     } catch (linkError) {
       setError(linkError instanceof Error ? linkError.message : "Tautan undangan gagal dibuat ulang.");
@@ -622,6 +669,7 @@ export const EventRegistrationsPage: React.FC = () => {
             <div className="space-y-3">
               {filtered.map((invitation) => {
                 const delegates = participants.filter((participant) => participant.invitationId === invitation.id);
+                const recipientInstitution = institutionForInvitation(invitation);
                 return (
                   <article key={invitation.id} className="rounded-xl border border-slate-200 bg-white shadow-sm">
                     <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start sm:justify-between">
@@ -696,6 +744,11 @@ export const EventRegistrationsPage: React.FC = () => {
                         <p className="mt-2 text-sm leading-6 text-emerald-900">
                           Tautan sebelumnya otomatis dinonaktifkan. Bagikan URL ini kepada lembaga terkait.
                         </p>
+                        <InvitationShareActions
+                          context={shareContextFor(invitation, invitationLinks[invitation.id])}
+                          recipientWhatsapp={recipientInstitution?.whatsapp || recipientInstitution?.phone}
+                          recipientEmail={recipientInstitution?.email}
+                        />
                       </div>
                     )}
 
@@ -812,6 +865,13 @@ export const EventRegistrationsPage: React.FC = () => {
                 {copied === "new-link" ? <Check className="h-4 w-4" /> : <Clipboard className="h-4 w-4" />}
                 {copied === "new-link" ? "Tersalin" : "Salin tautan"}
               </button>
+              {createdInvitation ? (
+                <InvitationShareActions
+                  context={shareContextFor(createdInvitation, createdLink)}
+                  recipientWhatsapp={institutionForInvitation(createdInvitation)?.whatsapp || institutionForInvitation(createdInvitation)?.phone}
+                  recipientEmail={institutionForInvitation(createdInvitation)?.email}
+                />
+              ) : null}
             </div>
           )}
         </aside>
