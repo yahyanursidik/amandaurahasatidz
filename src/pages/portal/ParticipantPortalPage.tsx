@@ -1090,7 +1090,7 @@ export const ParticipantPortalPage: React.FC = () => {
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="border border-slate-200 bg-white p-5 text-center sm:p-8 print:border-0">
             <StatusBadge
-              label="Kartu peserta individu"
+              label="Bukti pendaftaran dan QR kehadiran"
               variant="success"
               icon={<ShieldCheck className="h-3.5 w-3.5" />}
             />
@@ -1147,7 +1147,7 @@ export const ParticipantPortalPage: React.FC = () => {
               className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-black text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 print:hidden"
             >
               <FileText className="h-4 w-4" />
-              Cetak kartu
+              Cetak bukti pendaftaran
             </button>
           </aside>
         </section>

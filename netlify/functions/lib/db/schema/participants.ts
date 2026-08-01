@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, boolean, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, boolean, integer, uniqueIndex, index } from "drizzle-orm/pg-core";
 import { users } from "./foundation";
 import { institutions, ustadzProfiles } from "./master_data";
 import { events } from "./events";
@@ -15,6 +15,9 @@ export const eventParticipants = pgTable(
     invitationId: uuid("invitation_id").references(() => invitations.id),
     registrationSource: text("registration_source").notNull().default("INSTITUTION_DELEGATION"),
     participantCode: text("participant_code").notNull(),
+    qrTokenVersion: integer("qr_token_version").notNull().default(1),
+    qrIssuedAt: timestamp("qr_issued_at", { withTimezone: true }),
+    qrRotatedAt: timestamp("qr_rotated_at", { withTimezone: true }),
     isDelegationLead: boolean("is_delegation_lead").notNull().default(false),
     confirmationStatus: text("confirmation_status").notNull().default("INVITED"),
     approvalStatus: text("approval_status").notNull().default("PENDING_REVIEW"),
