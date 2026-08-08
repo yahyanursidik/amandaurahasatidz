@@ -1,10 +1,26 @@
 import { Handler } from "@netlify/functions";
-import { processEmailQueueWorker } from "./lib/services/emailQueueService";
 import { logError } from "./lib/utils/logger";
+
+function isEmailWorkerEnabled() {
+  return process.env.EMAIL_WORKER_ENABLED === "true";
+}
 
 export const handler: Handler = async () => {
   const requestId = `email_worker_${Date.now()}`;
+
+  if (!isEmailWorkerEnabled()) {
+    return {
+      statusCode: 200,
+      body: JSON.stringify({
+        status: "SKIPPED",
+        reason: "EMAIL_WORKER_ENABLED is not true.",
+        processedCount: 0,
+      }),
+    };
+  }
+
   try {
+    const { processEmailQueueWorker } = await import("./lib/services/emailQueueService");
     const result = await processEmailQueueWorker("netlify-email-worker", 20, requestId);
     return { statusCode: 200, body: JSON.stringify(result) };
   } catch (error) {
