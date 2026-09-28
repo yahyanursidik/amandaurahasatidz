@@ -29,7 +29,7 @@ type RegistrationResult = {
   approvalStatus: string;
   portalLoginUrl: string;
   passwordSetupRequired: boolean;
-  participants: Array<{ fullName: string; email: string; participantCode: string }>;
+  participants: Array<{ fullName: string; email: string; participantCode: string; passwordSetupRequired: boolean }>;
   emailQueued: number;
 };
 
@@ -106,14 +106,15 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
       {loading ? <p role="status" className="public-register__notice">Memuat informasi program…</p> : !event ? <p role="alert" className="public-register__error">{error || "Program tidak tersedia."}</p> : result ? (
         <section className="public-register__success" aria-live="polite">
           <CheckCircle2 aria-hidden="true" />
-          <h2>Pendaftaran diterima untuk ditinjau</h2>
-          <p>{result.participants.length} asatidz telah didaftarkan untuk ditinjau. Kode pendaftaran bukan tanda kursi sudah disetujui.</p>
+          <h2>Pendaftaran berhasil dikirim</h2>
+          <p>{result.participants.length} data asatidz telah diterima dan menunggu pemeriksaan panitia. Panitia akan menindaklanjuti melalui email atau WhatsApp yang dicantumkan bila diperlukan. Kode peserta belum berarti keikutsertaan disetujui.</p>
           {result.emailQueued < result.participants.length && <p role="status">Sebagian email informasi belum masuk antrean. Data pendaftaran tetap tersimpan; gunakan kode di bawah dan hubungi panitia bila email tidak tiba.</p>}
-          <ul className="public-register__result-list">{result.participants.map((person) => <li key={person.participantCode}><strong>{person.fullName}</strong><span>{person.email}</span><code>{person.participantCode}</code></li>)}</ul>
+          <h3 className="mt-5 font-bold">Akses Portal Asatidz masing-masing peserta</h3>
+          <ul className="public-register__result-list">{result.participants.map((person) => <li key={person.participantCode}><strong>{person.fullName}</strong><span>Username portal: <strong>{person.email}</strong></span><span>Password: {person.passwordSetupRequired ? "belum dibuat; aktivasi dengan kode yang dikirim ke email ini" : "gunakan password akun yang sudah Anda miliki"}</span><span>Kode peserta: <code>{person.participantCode}</code></span></li>)}</ul>
           <ol>
-            <li>Panitia memeriksa data dan kuota reguler.</li>
-            <li>{result.passwordSetupRequired ? "Buka Portal Asatidz dan pilih “Aktivasi atau atur ulang password” menggunakan email yang sama." : "Masuk ke Portal Asatidz dengan email dan password akun Anda."}</li>
-            <li>Setiap anggota menerima email pendaftaran dan memakai emailnya sendiri untuk aktivasi/masuk portal. Di sana mereka memantau persetujuan, jadwal, dan QR individu.</li>
+            <li>Panitia meninjau data dan kuota; pantau status pendaftaran di portal.</li>
+            <li>Jika password belum dibuat, buka Portal Asatidz dan pilih “Aktivasi atau atur ulang password”. Kode aktivasi dikirim ke email masing-masing, bukan ditampilkan di halaman ini.</li>
+            <li>QR pribadi tersedia setelah data disetujui panitia. Setiap anggota masuk dengan emailnya sendiri.</li>
           </ol>
           <Link to="/login/ustadz" className="public-register__primary">Buka Portal Asatidz <ArrowRight aria-hidden="true" /></Link>
         </section>
