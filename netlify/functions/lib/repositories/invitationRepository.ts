@@ -236,8 +236,9 @@ export async function saveInstitutionDelegationRepository(
             participantCode: code,
             isDelegationLead: Boolean(delegate.isLead),
             confirmationStatus: "CONFIRMED",
-            approvalStatus: "PENDING_REVIEW",
+            approvalStatus: "APPROVED",
             confirmedAt: new Date(),
+            approvedAt: new Date(),
           })
           .onConflictDoUpdate({
             target: [eventParticipants.eventId, eventParticipants.ustadzId],
@@ -246,6 +247,8 @@ export async function saveInstitutionDelegationRepository(
               invitationId,
               isDelegationLead: Boolean(delegate.isLead),
               confirmationStatus: "CONFIRMED",
+              approvalStatus: "APPROVED",
+              approvedAt: new Date(),
               updatedAt: new Date(),
             },
           })

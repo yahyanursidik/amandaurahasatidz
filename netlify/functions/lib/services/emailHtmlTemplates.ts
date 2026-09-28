@@ -79,11 +79,12 @@ function wrapHtmlLayout(title: string, bodyContent: string): string {
 </html>`;
 }
 
-export function renderBrandedTextEmailHtml(text: string, title = "Aman Daurah Asatidz") {
+export function renderBrandedTextEmailHtml(text: string, title = "Aman Daurah Asatidz", cardLink?: string) {
   const safeText = text.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[character] || character);
-  return wrapHtmlLayout(title, `<tr><td style="padding:28px 36px;color:${BRAND_TEXT};font-size:15px;line-height:1.7;"><div style="white-space:pre-wrap;overflow-wrap:break-word;">${safeText}</div></td></tr>`);
+  const url = cardLink && /^https?:\/\//.test(cardLink) ? cardLink.replace(/[&<>"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[character] || character) : null;
+  return wrapHtmlLayout(title, `<tr><td style="padding:28px 36px;color:${BRAND_TEXT};font-size:15px;line-height:1.7;"><div style="white-space:pre-wrap;overflow-wrap:break-word;">${safeText}</div>${url ? `<p><a href="${url}" style="display:inline-block;background:${BRAND_PRIMARY};color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">Buka kartu QR pribadi</a></p>` : ""}</td></tr>`);
 }
 
 // ─── Utility: Info Badge ──────────────────────────────────────────────────────

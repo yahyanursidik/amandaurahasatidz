@@ -8,8 +8,8 @@ import { verifyQrTokenForCheckinService } from "./participantQrService";
 import { NotFoundError, ValidationError } from "../utils/errors";
 import { AttendanceMode } from "./attendanceModel";
 import { getDbClient } from "../db/client";
-import { eventParticipants, institutions, ustadzProfiles } from "../db/schema";
-import { and, eq, ilike, or } from "drizzle-orm";
+import { attendanceRecords, eventParticipants, institutions, ustadzProfiles } from "../db/schema";
+import { and, eq, ilike, ne, or, sql } from "drizzle-orm";
 
 export async function searchEventCheckinParticipantsService(eventId: string, query: string) {
   const db = getDbClient();
@@ -129,6 +129,29 @@ export async function getAttendanceCheckinUnitsService(eventId: string, now = ne
   };
 }
 
+/** Counts reflect the selected day/session, not all check-ins across the event. */
+export async function getGateAttendanceSummaryService(eventId: string, unitId: string) {
+  const schedule = await getAttendanceCheckinUnitsService(eventId);
+  const unit = schedule.units.find((item) => item.id === unitId);
+  if (!unit) throw new ValidationError("Pilih hari atau sesi kehadiran yang valid.");
+  const unitCondition = unit.sessionId
+    ? sql`ar.event_session_id = ${unit.sessionId}`
+    : sql`ar.event_day_id = ${unit.dayId} and ar.event_session_id is null`;
+  const [counts] = await getDbClient().select({
+    total: sql<number>`count(*)::int`,
+    present: sql<number>`count(*) filter (where exists (
+      select 1 from ${attendanceRecords} ar where ar.event_id = ${eventId}
+        and ar.participant_id = ${eventParticipants.id} and ar.attendance_status in ('PRESENT', 'LATE')
+        and ${unitCondition}
+    ))::int`,
+  }).from(eventParticipants).where(and(eq(eventParticipants.eventId, eventId),
+    eq(eventParticipants.approvalStatus, "APPROVED"), ne(eventParticipants.confirmationStatus, "CANCELLED"),
+    ne(eventParticipants.confirmationStatus, "REPLACED")));
+  const total = counts?.total || 0;
+  const present = counts?.present || 0;
+  return { unitId, total, present, absent: Math.max(0, total - present) };
+}
+
 export async function getActiveSessionService(eventId: string) {
   const schedule = await getAttendanceCheckinUnitsService(eventId);
   const active =
@@ -217,7 +240,8 @@ export async function processOnSiteCheckinService(
       participant: {
         id: participant.id,
         participantCode: participant.participantCode,
-        ustadzName: participant.ustadzName,
+         ustadzName: participant.ustadzName,
+         institutionName: participant.institutionName,
         confirmationStatus: participant.confirmationStatus,
       },
       attendanceUnit: unit,

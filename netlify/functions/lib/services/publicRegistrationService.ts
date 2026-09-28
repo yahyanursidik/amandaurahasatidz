@@ -1,14 +1,16 @@
 import { randomBytes, randomUUID } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { withTransaction } from "../db/transaction";
 import { eventParticipants, roles, userRoleAssignments, users, ustadzProfiles, ustadzInstitutionAffiliations } from "../db/schema";
 import { findEventBySlugRepository } from "../repositories/eventRepository";
 import { countApprovedParticipantsBySourceRepository, countApprovedParticipantsForEventRepository } from "../repositories/participantRepository";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../utils/errors";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
-import { enqueueEmailJob } from "./emailQueueService";
 import { createAuditLog } from "./auditService";
 import { resolveRegistrationInstitution } from "./registrationInstitutionService";
+import { signCardForParticipant, cardPath } from "./participantCardService";
+import { queueParticipantCardEmails } from "./participantCardEmailService";
+import { logError } from "../utils/logger";
 
 type PublicRegistrationInput = {
   fullName: string;
@@ -65,13 +67,6 @@ async function getOpenEvent(slug: string) {
   const event = await findEventBySlugRepository(slug);
   if (!event) throw new NotFoundError("Program daurah tidak ditemukan.");
   assertPublicRegistrationOpen(event);
-  const approved = await countApprovedParticipantsBySourceRepository(event.id, true);
-  if (event.regularQuota != null && approved >= event.regularQuota) {
-    throw new ConflictError("Kuota reguler sudah penuh. Silakan hubungi panitia untuk informasi daftar tunggu.");
-  }
-  if (event.capacity != null && await countApprovedParticipantsForEventRepository(event.id) >= event.capacity) {
-    throw new ConflictError("Kapasitas program sudah penuh. Silakan hubungi panitia.");
-  }
   return event;
 }
 
@@ -80,20 +75,33 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
   const people = normalizePublicRegistrationGroup(input);
   const maxGroupSize = Math.min(20, event.defaultInstitutionQuota || 20, event.regularQuota || 20);
   if (people.length > maxGroupSize) throw new ValidationError(`Maksimal ${maxGroupSize} peserta termasuk kepala rombongan untuk satu pendaftaran.`);
+  const [regularApproved, totalApproved] = await Promise.all([
+    countApprovedParticipantsBySourceRepository(event.id, true), countApprovedParticipantsForEventRepository(event.id),
+  ]);
+  if (event.regularQuota != null && regularApproved + people.length > event.regularQuota ||
+    event.capacity != null && totalApproved + people.length > event.capacity) {
+    throw new ConflictError("Sisa kuota tidak cukup untuk seluruh anggota rombongan. Kurangi jumlah peserta atau hubungi panitia.");
+  }
 
   const result = await withTransaction(async (tx) => {
     const role = (await tx.select().from(roles).where(eq(roles.code, "USTADZ")).limit(1))[0];
     if (!role) throw new ConflictError("Konfigurasi peran asatidz belum siap. Hubungi admin.");
+    // Fetch candidate identities in two queries instead of two queries per member.
+    const emails = people.map((person) => person.email);
+    const [profileRows, userRows] = await Promise.all([
+      tx.select().from(ustadzProfiles).where(inArray(ustadzProfiles.email, emails)),
+      tx.select().from(users).where(inArray(users.email, emails)),
+    ]);
     // Validate the complete group before writing: Neon HTTP may not support interactive transactions.
     const existing = [];
     for (const person of people) {
-      const profiles = await tx.select().from(ustadzProfiles).where(eq(ustadzProfiles.email, person.email)).limit(2);
+      const profiles = profileRows.filter((item) => item.email === person.email);
       if (profiles.length > 1) throw new ConflictError(`Email ${person.email} terhubung ke beberapa profil. Hubungi panitia.`);
       const profile = profiles[0];
       if (profile && normalizeName(profile.fullName) !== normalizeName(person.fullName)) {
         throw new ConflictError(`Nama untuk ${person.email} tidak cocok dengan profil yang sudah ada. Hubungi panitia.`);
       }
-      const user = (await tx.select().from(users).where(eq(users.email, person.email)).limit(1))[0];
+      const user = userRows.find((item) => item.email === person.email);
       if (user && user.status !== "ACTIVE") throw new ConflictError(`Akun ${person.email} tidak aktif. Hubungi panitia.`);
       if (user) {
         const linkedProfiles = await tx.select({ id: ustadzProfiles.id }).from(ustadzProfiles)
@@ -148,20 +156,22 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
         eventId: event.id, ustadzId: profile.id, registrationSource: "DIRECT_PUBLIC",
         institutionId,
         publicGroupId, isDelegationLead: Boolean(publicGroupId && index === 0), participantCode,
-        confirmationStatus: "CONFIRMED", approvalStatus: "PENDING_REVIEW", confirmedAt: new Date(),
+        confirmationStatus: "CONFIRMED", approvalStatus: "APPROVED", confirmedAt: new Date(), approvedAt: new Date(),
       }).returning())[0];
-      registered.push({ participantId: participant.id, fullName: person.fullName, email: person.email, participantCode, passwordSetupRequired: !user.passwordHash });
+      const qrToken = signCardForParticipant(participant);
+      registered.push({ participantId: participant.id, fullName: person.fullName, email: person.email, whatsapp: person.whatsapp,
+        participantCode, qrToken, cardUrl: cardPath(qrToken), passwordSetupRequired: !user.passwordHash });
     }
     return {
       participantCode: registered[0].participantCode,
-      approvalStatus: "PENDING_REVIEW",
+      approvalStatus: "APPROVED",
       portalLoginUrl: "/login/ustadz",
       passwordSetupRequired: registered[0].passwordSetupRequired,
       publicGroupId,
       participants: registered,
     };
   });
-  await createAuditLog({
+  const [auditResult, emailResult] = await Promise.allSettled([createAuditLog({
     actorUserId: null,
     action: "PUBLIC_REGISTRATION_SUBMITTED",
     resourceType: "EVENT",
@@ -169,21 +179,20 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
     eventId: event.id,
     afterData: { participantCode: result.participantCode, approvalStatus: result.approvalStatus, publicGroupId: result.publicGroupId, participantCount: result.participants.length, consentConfirmed: input.consentConfirmed },
     requestId,
-  });
-  const emailQueueResults = await Promise.allSettled(result.participants.map((participant) => enqueueEmailJob({
-      templateCode: "REGISTRATION_RECEIVED",
-      recipientEmail: participant.email,
-      recipientName: participant.fullName,
-      variables: { ustadzName: participant.fullName, eventName: event.name, participantCode: participant.participantCode, portalLink: `${process.env.APP_URL || ""}/login/ustadz` },
-      idempotencyKey: `public_registration_received_${participant.participantId}`,
-    })));
+  }), queueParticipantCardEmails({ id: event.id, name: event.name }, result.participants.map((person) => ({
+    participantId: person.participantId, ustadzName: person.fullName, email: person.email,
+    participantCode: person.participantCode, qrToken: person.qrToken,
+  })))]);
+  if (auditResult.status === "rejected") logError(requestId, "Audit pendaftaran reguler gagal disimpan", auditResult.reason);
+  if (emailResult.status === "rejected") logError(requestId, "Antrean kartu QR reguler gagal disimpan", emailResult.reason);
+  const emailQueued = emailResult.status === "fulfilled" ? emailResult.value : 0;
   return {
     participantCode: result.participantCode,
     approvalStatus: result.approvalStatus,
     portalLoginUrl: result.portalLoginUrl,
     passwordSetupRequired: result.passwordSetupRequired,
     publicGroupId: result.publicGroupId,
-    participants: result.participants.map(({ fullName, email, participantCode, passwordSetupRequired }) => ({ fullName, email, participantCode, passwordSetupRequired })),
-    emailQueued: emailQueueResults.filter((item) => item.status === "fulfilled").length,
+    participants: result.participants.map(({ fullName, email, whatsapp, participantCode, qrToken, cardUrl, passwordSetupRequired }) => ({ fullName, email, whatsapp, participantCode, qrToken, cardUrl, passwordSetupRequired })),
+    emailQueued,
   };
 }

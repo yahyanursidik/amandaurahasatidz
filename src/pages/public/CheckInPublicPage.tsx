@@ -9,6 +9,9 @@ type Unit = { id: string; type: "DAY" | "SESSION"; dayId: string; sessionId: str
 type Candidate = { id: string; participantCode: string; ustadzName: string; institutionName: string | null;
   approvalStatus: string; confirmationStatus: string };
 type GateEvent = { slug: string; code: string; name: string; status: string };
+type CheckinResult = { participant: { ustadzName: string; participantCode: string; institutionName: string | null }; attendanceUnit: Unit; checkinAt: string };
+type AttendanceSummary = { unitId: string; total: number; present: number; absent: number };
+const isQrToken = (value: string) => /^pqr_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(value.trim());
 
 export const CheckInPublicPage: React.FC = () => {
   const { eventSlug } = useParams<{ eventSlug: string }>();
@@ -21,8 +24,14 @@ export const CheckInPublicPage: React.FC = () => {
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [selected, setSelected] = useState<Candidate | null>(null);
   const [message, setMessage] = useState("");
+  const [lastCheckin, setLastCheckin] = useState<CheckinResult | null>(null);
+  const [summary, setSummary] = useState<AttendanceSummary | null>(null);
+  const [summaryError, setSummaryError] = useState(false);
+  const [summaryVersion, setSummaryVersion] = useState(0);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const processingRef = useRef(false);
+  const scanHandlerRef = useRef<(code: string) => void>(() => {});
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const codeInputRef = useRef<HTMLInputElement | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
@@ -46,9 +55,24 @@ export const CheckInPublicPage: React.FC = () => {
       setError("");
       setUnits(result.units);
       setUnitId((previous) => result.units.find((item) => item.id === previous)?.id || result.units.find((item) => item.isOpen)?.id || result.units[0]?.id || "");
+      setSummaryVersion((current) => current + 1);
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Jadwal check-in gagal dimuat."); }
   };
   useEffect(() => { void refresh(); }, [selectedSlug]);
+
+  useEffect(() => {
+    if (!selectedSlug || !unitId) { setSummary(null); setSummaryError(false); return; }
+    let active = true;
+    setSummary(null); setSummaryError(false);
+    const update = () => {
+      void eventApi<AttendanceSummary>(`/gate/events/${selectedSlug}/summary?unitId=${encodeURIComponent(unitId)}`)
+        .then((counts) => { if (active) { setSummary(counts); setSummaryError(false); } })
+        .catch(() => { if (active) { setSummary(null); setSummaryError(true); } });
+    };
+    update();
+    const interval = window.setInterval(update, 20_000);
+    return () => { active = false; window.clearInterval(interval); };
+  }, [selectedSlug, unitId, summaryVersion]);
 
   useEffect(() => {
     if (query.trim().length < 2 || !selectedSlug) { setCandidates([]); return; }
@@ -80,7 +104,7 @@ export const CheckInPublicPage: React.FC = () => {
           if (scanning || stopped) return;
           scanning = true;
           try { const code = (await detector.detect(video))[0]?.rawValue?.trim();
-            if (code) { setInput(code); setSelected(null); setCameraActive(false); setMessage("QR terbaca. Periksa unit kehadiran lalu tekan Catat kehadiran."); }
+            if (code) { stopped = true; if (interval !== null) window.clearInterval(interval); setCameraActive(false); scanHandlerRef.current(code); }
           } catch { /* Frame tanpa QR adalah kondisi normal. */ }
           finally { scanning = false; }
         }, 350);
@@ -89,41 +113,60 @@ export const CheckInPublicPage: React.FC = () => {
       stream?.getTracks().forEach((track) => track.stop()); video.srcObject = null; };
   }, [cameraActive]);
 
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault(); setError(""); setMessage("");
-    if (!selectedUnit?.isOpen) { setError("Pilih unit kehadiran yang masih dibuka."); return; }
-    if (!input.trim()) return;
-    setBusy(true);
+  const checkin = async (value: string, method: "QR_SCAN" | "MANUAL_CODE" | "SEARCH_SELECT") => {
+    if (processingRef.current) return;
+    if (!selectedSlug || !selectedUnit?.isOpen) { setError("Pilih hari atau sesi yang masih membuka check-in sebelum memindai."); return; }
+    processingRef.current = true;
+    setBusy(true); setError(""); setMessage(""); setLastCheckin(null);
     try {
-      const latest = await eventApi<{ units: Unit[] }>(`/gate/events/${selectedSlug}/units`);
-      if (!latest.units.find((unit) => unit.id === unitId)?.isOpen) { setUnits(latest.units); throw new Error("Jendela check-in telah berubah. Pilih unit yang masih dibuka."); }
-      const result = await eventApi<{ participant: { ustadzName: string; participantCode: string }; attendanceUnit: Unit }>(`/gate/events/${selectedSlug}/checkin`, {
-        method: "POST", body: JSON.stringify({ qrTokenOrCode: input.trim(), method: selected ? "SEARCH_SELECT" : input.trim().startsWith("pqr_") ? "QR_SCAN" : "MANUAL_CODE",
+      const result = await eventApi<CheckinResult>(`/gate/events/${selectedSlug}/checkin`, {
+        method: "POST", body: JSON.stringify({ qrTokenOrCode: value.trim(), method,
           sessionId: selectedUnit.sessionId, dayId: selectedUnit.type === "DAY" ? selectedUnit.dayId : null }),
       });
-      setMessage(`${result.participant.ustadzName} (${result.participant.participantCode}) tercatat di ${result.attendanceUnit.title}.`);
+      setLastCheckin(result);
+      setMessage(`Kehadiran berhasil dicatat pada ${result.attendanceUnit.title}.`);
       setInput(""); setQuery(""); setCandidates([]); setSelected(null);
-      codeInputRef.current?.focus();
+      setSummaryVersion((current) => current + 1);
+      if (method !== "QR_SCAN") codeInputRef.current?.focus();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Check-in gagal."); }
-    finally { setBusy(false); }
+    finally { processingRef.current = false; setBusy(false); }
+  };
+  scanHandlerRef.current = (code) => {
+    if (!isQrToken(code)) { setError("QR tidak dikenal. Pindai QR peserta yang aktif."); return; }
+    setInput(""); setSelected(null);
+    void checkin(code, "QR_SCAN");
+  };
+
+  useEffect(() => {
+    if (!isQrToken(input) || selected || cameraActive || busy) return;
+    const timer = window.setTimeout(() => scanHandlerRef.current(input), 300);
+    return () => window.clearTimeout(timer);
+  }, [input, selected, cameraActive, busy]);
+
+  const submit = (event: React.FormEvent) => {
+    event.preventDefault();
+    if (isQrToken(input)) { scanHandlerRef.current(input); return; }
+    if (input.trim()) void checkin(input, selected ? "SEARCH_SELECT" : "MANUAL_CODE");
   };
 
   return <PublicLayout wide><div className="mx-auto max-w-4xl space-y-5 pb-8">
-    <header className="rounded-xl bg-slate-950 p-5 text-white sm:p-7"><p className="text-xs font-black uppercase tracking-widest text-emerald-300">Gate publik · tanpa login</p><h1 className="mt-2 text-2xl font-black">Check-in cepat peserta</h1><p className="mt-2 text-sm text-slate-300">Pindai QR pribadi, ketik kode peserta, atau cari nama. Pilih identitas dan unit kehadiran yang benar sebelum mencatat.</p></header>
+    <header className="rounded-xl bg-slate-950 p-5 text-white sm:p-7"><p className="text-xs font-black uppercase tracking-widest text-emerald-300">Gate publik · tanpa login</p><h1 className="mt-2 text-2xl font-black">Check-in cepat peserta</h1><p className="mt-2 text-sm text-slate-300">Pilih hari/sesi lalu pindai QR untuk langsung mencatat kehadiran. Kode atau pencarian nama tetap dikonfirmasi dengan tombol.</p></header>
     <div className="flex flex-wrap items-center justify-between gap-2 text-sm"><Link to="/programs" className="font-bold text-emerald-800 underline">Daftar program</Link><button type="button" onClick={() => void refresh()} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3"><RefreshCw className="h-4 w-4" /> Perbarui jadwal</button></div>
     {error && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-900">{error}</div>}
-    {message && <div role="status" className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-950"><CheckCircle2 className="h-5 w-5 shrink-0" />{message}</div>}
+    {lastCheckin && <section role="status" aria-live="polite" className="rounded-2xl border-2 border-emerald-500 bg-emerald-50 p-5 text-emerald-950 sm:p-7"><div className="flex items-center gap-2 text-emerald-700"><CheckCircle2 className="h-8 w-8" /><strong className="text-xl">Ahlan wa sahlan!</strong></div><h2 className="mt-3 text-2xl font-black sm:text-3xl">{lastCheckin.participant.ustadzName}</h2><p className="mt-2 text-lg">Lembaga: <strong>{lastCheckin.participant.institutionName || "Individu / belum tercatat"}</strong></p><p className="mt-1 text-lg">Kode: <strong>{lastCheckin.participant.participantCode}</strong></p><p className="mt-3 text-lg font-black text-emerald-800">{message}</p><p className="text-sm">Waktu: {new Date(lastCheckin.checkinAt).toLocaleString("id-ID")}</p></section>}
+    {selectedUnit && <section aria-label="Ringkasan kehadiran" className="grid grid-cols-2 gap-3 sm:grid-cols-3"><div className="rounded-xl border bg-white p-4"><p className="text-sm text-slate-600">Total peserta</p><strong className="text-2xl">{summary?.total ?? "—"}</strong></div><div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4"><p className="text-sm text-emerald-800">Sudah hadir</p><strong className="text-2xl text-emerald-900">{summary?.present ?? "—"}</strong></div><div className="col-span-2 rounded-xl border border-amber-200 bg-amber-50 p-4 sm:col-span-1"><p className="text-sm text-amber-800">Belum hadir</p><strong className="text-2xl text-amber-900">{summary?.absent ?? "—"}</strong></div></section>}
+    {summaryError && <p role="status" className="text-sm text-amber-900">Ringkasan kehadiran belum dapat dimuat. Coba perbarui jadwal.</p>}
     <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <form onSubmit={(event) => void submit(event)} className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
-        <label className="block text-sm font-bold">Program daurah<select value={selectedSlug} onChange={(change) => { setCameraActive(false); setSelectedSlug(change.target.value); setUnits([]); setUnitId(""); setInput(""); setQuery(""); setCandidates([]); setSelected(null); }} className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3">{gateEvents.length ? gateEvents.map((item) => <option key={item.slug} value={item.slug}>{item.code} · {item.name} ({item.status.replaceAll("_", " ")})</option>) : <option value="">Belum ada program</option>}</select></label>
-        <label className="block text-sm font-bold">Hari / sesi kehadiran<select value={unitId} onChange={(change) => setUnitId(change.target.value)} className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3">{units.length ? units.map((unit) => <option key={unit.id} value={unit.id}>{unit.type === "DAY" ? "Harian" : "Sesi"} · {unit.title} · {unit.isOpen ? "DIBUKA" : "DITUTUP"}</option>) : <option value="">Belum ada unit check-in</option>}</select></label>
+        <label className="block text-sm font-bold">Program daurah<select value={selectedSlug} disabled={busy} onChange={(change) => { setCameraActive(false); setSelectedSlug(change.target.value); setUnits([]); setUnitId(""); setInput(""); setQuery(""); setCandidates([]); setSelected(null); setLastCheckin(null); setMessage(""); }} className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3">{gateEvents.length ? gateEvents.map((item) => <option key={item.slug} value={item.slug}>{item.code} · {item.name} ({item.status.replaceAll("_", " ")})</option>) : <option value="">Belum ada program</option>}</select></label>
+        <label className="block text-sm font-bold">Hari / sesi kehadiran<select value={unitId} disabled={busy} onChange={(change) => { setCameraActive(false); setUnitId(change.target.value); setLastCheckin(null); setMessage(""); }} className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3">{units.length ? units.map((unit) => <option key={unit.id} value={unit.id}>{unit.type === "DAY" ? "Harian" : "Sesi"} · {unit.title} · {unit.isOpen ? "DIBUKA" : "DITUTUP"}</option>) : <option value="">Belum ada unit check-in</option>}</select></label>
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{selectedUnit ? `${selectedUnit.date} · ${selectedUnit.title} · ${selectedUnit.isOpen ? "Bisa check-in" : "Belum dibuka / sudah ditutup"}` : "Pilih unit kehadiran terlebih dahulu."}</div>
-        <label className="block text-sm font-bold">Token QR / kode peserta<input ref={codeInputRef} autoFocus value={input} onChange={(change) => { setInput(change.target.value); setSelected(null); }} autoComplete="off" placeholder="Pindai QR atau ketik kode P-…" className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3 font-mono text-base" /></label>
+        <label className="block text-sm font-bold">Pemindai QR / kode peserta<input ref={codeInputRef} autoFocus value={input} onChange={(change) => { setInput(change.target.value); setSelected(null); }} autoComplete="off" placeholder="Pindai QR atau ketik kode P-…" className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3 font-mono text-base" /></label>
         {selected && <p className="text-sm text-emerald-900">Dipilih: <strong>{selected.ustadzName} · {selected.participantCode}</strong></p>}
-        <button type="submit" disabled={busy || !selectedUnit?.isOpen || !input.trim()} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 font-black text-white disabled:opacity-50"><ScanLine className="h-5 w-5" />{busy ? "Mencatat…" : "Catat kehadiran"}</button>
+        <button type="submit" disabled={busy || !selectedUnit?.isOpen || !input.trim() || isQrToken(input)} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 font-black text-white disabled:opacity-50"><ScanLine className="h-5 w-5" />{busy ? "Mencatat…" : "Catat kehadiran manual"}</button>
         <p className="text-xs text-slate-600">Pencatatan ganda pada hari/sesi yang sama ditolak otomatis. Status persetujuan dan jendela check-in diverifikasi server.</p>
       </form>
-      <aside className="space-y-4"><div className="rounded-xl border border-slate-200 bg-white p-4"><h2 className="font-black">Pindai kamera</h2><p className="mt-1 text-xs text-slate-600">Kamera hanya membaca QR peserta dan tidak menyimpan gambar.</p><button type="button" onClick={() => setCameraActive((value) => !value)} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-bold">{cameraActive ? <CameraOff className="h-4 w-4" /> : <Camera className="h-4 w-4" />}{cameraActive ? "Matikan kamera" : "Aktifkan kamera"}</button><video ref={videoRef} muted playsInline aria-label="Pratinjau kamera gate" className={`${cameraActive ? "mt-3 block" : "hidden"} max-h-48 w-full rounded-lg bg-slate-950 object-cover`} /></div>
+       <aside className="space-y-4"><div className="rounded-xl border border-slate-200 bg-white p-4"><h2 className="font-black">Pindai kamera</h2><p className="mt-1 text-xs text-slate-600">QR yang terbaca langsung dicatat pada hari/sesi pilihan. Kamera berhenti sesudah satu pemindaian.</p><button type="button" disabled={busy || !selectedUnit?.isOpen} onClick={() => setCameraActive((value) => !value)} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-bold disabled:opacity-50">{cameraActive ? <CameraOff className="h-4 w-4" /> : <Camera className="h-4 w-4" />}{cameraActive ? "Matikan kamera" : "Aktifkan kamera"}</button><video ref={videoRef} muted playsInline aria-label="Pratinjau kamera gate" className={`${cameraActive ? "mt-3 block" : "hidden"} max-h-48 w-full rounded-lg bg-slate-950 object-cover`} /></div>
       <div className="rounded-xl border border-slate-200 bg-white p-4"><label className="text-sm font-bold">Cari nama peserta<div className="relative mt-2"><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-500" /><input value={query} onChange={(change) => setQuery(change.target.value)} placeholder="Ketik min. 2 huruf" className="min-h-11 w-full rounded-lg border border-slate-300 pl-10 pr-2 text-sm" /></div></label><p className="mt-2 text-xs text-slate-600">Pilih satu hasil yang tepat sebelum check-in.</p><ul className="mt-3 max-h-64 divide-y divide-slate-100 overflow-y-auto">{candidates.map((person) => <li key={person.id}><button type="button" onClick={() => { setSelected(person); setInput(person.participantCode); }} className="w-full py-2 text-left text-sm hover:text-emerald-800"><strong>{person.ustadzName}</strong><span className="block text-xs text-slate-500">{person.participantCode} · {person.institutionName || "Individu"} · {person.approvalStatus}</span></button></li>)}</ul></div></aside>
     </section>
   </div></PublicLayout>;
