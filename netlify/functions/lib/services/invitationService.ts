@@ -30,7 +30,10 @@ import {
   verifyInstitutionAccessVerification,
 } from "./institutionAccessCodeService";
 import { buildInstitutionInvitationPath } from "../../../../src/lib/invitationUrl";
-import { provisionParticipantPortalAccountService } from "./participantService";
+import { signCardForParticipant, cardPath } from "./participantCardService";
+import { queueParticipantCardEmails } from "./participantCardEmailService";
+import { countApprovedParticipantsBySourceRepository, countApprovedParticipantsForEventRepository } from "../repositories/participantRepository";
+import { logError } from "../utils/logger";
 
 function assertInvitationResponseOpen(result: { invitation: any; event: any; link?: any }) {
   if (result.invitation.status === "REVOKED" || result.link?.revokedAt) {
@@ -418,51 +421,29 @@ export async function submitInstitutionResponseService(
       `Jumlah delegasi (${payload.delegates.length}) melebihi kuota undangan yang diberikan (${invitation.quota}).`
     );
   }
-
-  const saved = await saveInstitutionDelegationRepository(invitation.id, payload);
-  const savedResponse = saved.response;
-  const portalAccounts: Array<{
-    participantId: string;
-    participantName: string;
-    email: string;
-    temporaryPassword: string | null;
-    loginUrl: string;
-    action: string;
-    shownOnce: boolean;
-    setupError?: string;
-  }> = [];
-
   if (payload.isFinal && payload.responseStatus === "ACCEPTED") {
-    for (const participant of saved.participants) {
-      try {
-        portalAccounts.push(
-          await provisionParticipantPortalAccountService(
-            event.id,
-            participant.id,
-            false,
-            null,
-            requestId,
-          ),
-        );
-      } catch (error) {
-        portalAccounts.push({
-          participantId: participant.id,
-          participantName: "Peserta terdaftar",
-          email: "",
-          temporaryPassword: null,
-          loginUrl: "/login/ustadz",
-          action: "SETUP_REQUIRED",
-          shownOnce: false,
-          setupError: error instanceof Error
-            ? error.message
-            : "Akses portal perlu dibantu oleh panitia.",
-        });
-      }
+    const [total, invited] = await Promise.all([
+      countApprovedParticipantsForEventRepository(event.id), countApprovedParticipantsBySourceRepository(event.id, false),
+    ]);
+    if (event.capacity != null && total + payload.delegates.length > event.capacity ||
+      event.invitationQuota != null && invited + payload.delegates.length > event.invitationQuota) {
+      throw new ConflictError("Sisa kuota undangan tidak cukup untuk semua anggota. Hubungi panitia.");
     }
   }
 
-  if (payload.isFinal) {
-    await createAuditLog({
+  const saved = await saveInstitutionDelegationRepository(invitation.id, payload);
+  const savedResponse = saved.response;
+  const cards = saved.participants.map((person, index) => ({ participantId: person.id,
+    ustadzName: payload.delegates[index].fullName, email: payload.delegates[index].email,
+    whatsapp: payload.delegates[index].whatsapp || payload.delegates[index].phone || null,
+    participantCode: person.participantCode, qrToken: signCardForParticipant(person),
+  }));
+  const portalAccounts = cards.map((person) => ({ participantId: person.participantId, participantName: person.ustadzName,
+    email: person.email, temporaryPassword: null, loginUrl: "/login/ustadz", action: "SETUP_REQUIRED", shownOnce: false }));
+
+  const [emailResult, auditResult] = await Promise.allSettled([
+    queueParticipantCardEmails({ id: event.id, name: event.name }, cards),
+    payload.isFinal ? createAuditLog({
       actorUserId: null,
       action: "INVITATION_FINAL_RESPONSE_SUBMITTED",
       resourceType: "INVITATION_RESPONSE",
@@ -470,13 +451,17 @@ export async function submitInstitutionResponseService(
       eventId: event.id,
       reason: `Konfirmasi final undangan ${invitation.invitationNumber} disubmit dengan status ${payload.responseStatus}.`,
       requestId,
-    });
-  }
+    }) : Promise.resolve(),
+  ]);
+  if (emailResult.status === "rejected") logError(requestId, "Antrean kartu QR undangan lembaga gagal disimpan", emailResult.reason);
+  if (auditResult.status === "rejected") logError(requestId, "Audit undangan lembaga gagal disimpan", auditResult.reason);
+  const emailQueued = emailResult.status === "fulfilled" ? emailResult.value : 0;
 
   return {
     response: savedResponse,
-    participants: saved.participants,
+    participants: saved.participants.map((person, index) => ({ ...person, whatsapp: cards[index].whatsapp, qrToken: cards[index].qrToken, cardUrl: cardPath(cards[index].qrToken) })),
     portalAccounts,
+    emailQueued,
     message: payload.isFinal
       ? "Konfirmasi final undangan berhasil disimpan. Terima kasih atas partisipasi lembaga Anda."
       : "Draft respon undangan berhasil disimpan sementara.",
@@ -540,18 +525,26 @@ export async function submitIndividualResponseService(rawToken: string, payload:
   const { invitation, event } = result;
   assertInvitationResponseOpen(result);
   if (invitation.invitationType !== "INDIVIDUAL") throw new ValidationError("Jalur undangan tidak sesuai.");
+  if (payload.responseStatus === "ACCEPTED") {
+    const [total, invited] = await Promise.all([
+      countApprovedParticipantsForEventRepository(event.id), countApprovedParticipantsBySourceRepository(event.id, false),
+    ]);
+    if (event.capacity != null && total >= event.capacity || event.invitationQuota != null && invited >= event.invitationQuota) {
+      throw new ConflictError("Kuota undangan telah penuh. Hubungi panitia.");
+    }
+  }
   const saved = await saveInstitutionDelegationRepository(invitation.id, {
     ...payload, isFinal: true, delegates: payload.responseStatus === "ACCEPTED" ? payload.delegates?.map((delegate) => ({ ...delegate, isLead: true })) : [],
   });
-  const portalAccounts = [];
-  for (const participant of saved.participants) {
-    try { portalAccounts.push(await provisionParticipantPortalAccountService(event.id, participant.id, false, null, requestId)); }
-    catch { portalAccounts.push({ participantId: participant.id, participantName: payload.delegates?.[0]?.fullName || "Peserta",
-      email: payload.delegates?.[0]?.email || "", temporaryPassword: null, loginUrl: "/login/ustadz", action: "SETUP_REQUIRED",
-      shownOnce: false, setupError: "Aktivasi akses portal perlu dibantu panitia." }); }
-  }
+  const cards = saved.participants.map((person, index) => ({ participantId: person.id,
+    ustadzName: payload.delegates?.[index]?.fullName || "Peserta", email: payload.delegates?.[index]?.email || "",
+    whatsapp: payload.delegates?.[index]?.whatsapp || payload.delegates?.[index]?.phone || null,
+    participantCode: person.participantCode, qrToken: signCardForParticipant(person),
+  }));
+  const portalAccounts = cards.map((person) => ({ participantId: person.participantId, participantName: person.ustadzName,
+    email: person.email, temporaryPassword: null, loginUrl: "/login/ustadz", action: "SETUP_REQUIRED", shownOnce: false }));
 
-  await createAuditLog({
+  const [emailResult, auditResult] = await Promise.allSettled([queueParticipantCardEmails({ id: event.id, name: event.name }, cards), createAuditLog({
     actorUserId: null,
     action: "INDIVIDUAL_INVITATION_RSVP_SUBMITTED",
     resourceType: "INVITATION_RESPONSE",
@@ -559,12 +552,16 @@ export async function submitIndividualResponseService(rawToken: string, payload:
     eventId: event.id,
     reason: `RSVP undangan individu ${invitation.invitationNumber}: ${payload.responseStatus}`,
     requestId,
-  });
+  })]);
+  if (emailResult.status === "rejected") logError(requestId, "Antrean kartu QR undangan individu gagal disimpan", emailResult.reason);
+  if (auditResult.status === "rejected") logError(requestId, "Audit undangan individu gagal disimpan", auditResult.reason);
+  const emailQueued = emailResult.status === "fulfilled" ? emailResult.value : 0;
 
   return {
     response: saved.response,
-    participants: saved.participants,
+    participants: saved.participants.map((person, index) => ({ ...person, whatsapp: cards[index].whatsapp, qrToken: cards[index].qrToken, cardUrl: cardPath(cards[index].qrToken) })),
     portalAccounts,
+    emailQueued,
     message: `Konfirmasi undangan (${payload.responseStatus}) berhasil disimpan.`,
   };
 }

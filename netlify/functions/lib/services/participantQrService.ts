@@ -1,5 +1,5 @@
 import { getDbClient } from "../db/client";
-import { eventParticipants, ustadzProfiles, events } from "../db/schema";
+import { eventParticipants, ustadzProfiles, institutions, events } from "../db/schema";
 import { eq, and, ilike } from "drizzle-orm";
 import { signParticipantQrToken, verifyParticipantQrToken } from "../utils/token";
 import { NotFoundError, ValidationError, ForbiddenError } from "../utils/errors";
@@ -97,9 +97,11 @@ export async function verifyQrTokenForCheckinService(
       confirmationStatus: eventParticipants.confirmationStatus,
       approvalStatus: eventParticipants.approvalStatus,
       ustadzName: ustadzProfiles.fullName,
+      institutionName: institutions.name,
     })
     .from(eventParticipants)
     .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
+    .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
     .where(
       and(
         eq(eventParticipants.eventId, currentEventId),
@@ -123,9 +125,11 @@ export async function verifyQrTokenForCheckinService(
         confirmationStatus: eventParticipants.confirmationStatus,
         approvalStatus: eventParticipants.approvalStatus,
         ustadzName: ustadzProfiles.fullName,
+        institutionName: institutions.name,
       })
       .from(eventParticipants)
       .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
+      .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
       .where(
         and(
           eq(eventParticipants.id, payload.participantId),
@@ -164,6 +168,7 @@ export async function verifyQrTokenForCheckinService(
       eventId: p.eventId,
       participantCode: p.participantCode,
       ustadzName: p.ustadzName,
+      institutionName: p.institutionName,
       confirmationStatus: p.confirmationStatus,
       approvalStatus: p.approvalStatus,
     },

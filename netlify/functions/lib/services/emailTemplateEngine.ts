@@ -9,6 +9,12 @@ export interface TemplateDefinition {
 }
 
 export const TEMPLATE_WHITELISTS: Record<string, TemplateDefinition> = {
+  REGISTRATION_AUTO_APPROVED: {
+    code: "REGISTRATION_AUTO_APPROVED",
+    subjectTemplate: "Kartu peserta dan QR — {{eventName}}",
+    bodyTemplate: "Assalamu'alaikum {{ustadzName}},\n\nPendaftaran Anda untuk {{eventName}} telah tercatat. Kode pribadi: {{participantCode}}.\nBuka dan simpan kartu QR pribadi Anda: {{cardLink}}\n\nUsername Portal Asatidz: {{email}}\nMasuk atau aktivasi password di {{portalLink}}. Jangan membagikan kartu QR kepada pihak lain.\n\nPanitia Daurah Asatidz",
+    allowedVariables: ["ustadzName", "eventName", "participantCode", "cardLink", "email", "portalLink"],
+  },
   REGISTRATION_RECEIVED: {
     code: "REGISTRATION_RECEIVED",
     subjectTemplate: "Pendaftaran diterima untuk ditinjau — {{eventName}}",
@@ -142,8 +148,8 @@ export function renderHtmlEmailTemplate(
 
   const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] || character);
   const safeVariables = Object.fromEntries(Object.entries(variables).map(([key, value]) => [key, escapeHtml(String(value ?? ""))]));
-  const htmlBody = ["ANNOUNCEMENT", "REGISTRATION_RECEIVED", "EVENT_CONTINUATION_REMINDER"].includes(templateCode)
-    ? renderBrandedTextEmailHtml(textBody)
+  const htmlBody = ["ANNOUNCEMENT", "REGISTRATION_RECEIVED", "EVENT_CONTINUATION_REMINDER", "REGISTRATION_AUTO_APPROVED"].includes(templateCode)
+    ? renderBrandedTextEmailHtml(textBody, "Aman Daurah Asatidz", templateCode === "REGISTRATION_AUTO_APPROVED" ? String(variables.cardLink || "") : undefined)
     : renderHtmlByTemplateCode(templateCode, safeVariables);
 
   return { subject, htmlBody, textBody };

@@ -24,6 +24,7 @@ import { serializeCookie, clearCookie, parseCookies } from "./lib/utils/cookie";
 import { validateRequestData } from "./lib/utils/validator";
 import { submitPublicRegistrationSchema } from "./lib/validations/publicRegistrationValidation";
 import { submitPublicRegistrationService } from "./lib/services/publicRegistrationService";
+import { getPublicParticipantCardService } from "./lib/services/participantCardService";
 
 import {
   createInstitutionSchema,
@@ -84,6 +85,7 @@ import {
   getPublicEventsService,
   getEventByIdService,
   getEventBySlugPublicService,
+  getPublicGateEventService,
   createEventService,
   updateEventService,
   transitionEventStatusService,
@@ -205,6 +207,7 @@ import { processCheckinSchema, queryCheckinLogsSchema, searchCheckinParticipantS
 import {
   getActiveSessionService,
   getAttendanceCheckinUnitsService,
+  getGateAttendanceSummaryService,
   processOnSiteCheckinService,
   getRecentCheckinLogsService,
   searchEventCheckinParticipantsService,
@@ -804,6 +807,17 @@ export const handler: Handler = async (event, _context) => {
       if (!rateLimit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak percobaan pendaftaran. Coba lagi beberapa menit lagi.", requestId, 429);
       const input = validateRequestData(submitPublicRegistrationSchema, event.body ? JSON.parse(event.body) : {});
       return buildSuccessResponse(await submitPublicRegistrationService(publicRegistrationMatch[1], input, requestId), requestId);
+    }
+
+    if (path === "/cards/public" && method === "GET") {
+      const token = event.queryStringParameters?.token || "";
+      if (!token.startsWith("pqr_") || token.length > 1024) throw new ValidationError("Tautan kartu QR tidak valid.");
+      const response = buildSuccessResponse(await getPublicParticipantCardService(token), requestId);
+      const headers: Record<string, string> = {
+        "Content-Type": "application/json", "X-Request-ID": requestId,
+        "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
+      };
+      return { statusCode: response.statusCode, body: response.body, headers };
     }
 
     const partImportPreviewMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/import\/preview$/i);
@@ -1503,12 +1517,20 @@ export const handler: Handler = async (event, _context) => {
         .sort((a, b) => Number(b.status === "ONGOING") - Number(a.status === "ONGOING") ||
           Number(b.status === "REGISTRATION_OPEN") - Number(a.status === "REGISTRATION_OPEN")), requestId);
     }
-    const publicGateMatch = path.match(/^\/gate\/events\/([a-z0-9-]+)\/(units|search|checkin)$/i);
+    const publicGateMatch = path.match(/^\/gate\/events\/([a-z0-9-]+)\/(units|search|checkin|summary)$/i);
     if (publicGateMatch) {
-      const gateEvent = await getEventBySlugPublicService(publicGateMatch[1]);
+      const gateEvent = await getPublicGateEventService(publicGateMatch[1]);
       const gateAction = publicGateMatch[2];
       if (gateAction === "units" && method === "GET") {
         return buildSuccessResponse(await getAttendanceCheckinUnitsService(gateEvent.id), requestId);
+      }
+      if (gateAction === "summary" && method === "GET") {
+        const unitId = event.queryStringParameters?.unitId || "";
+        if (!/^(DAY|SESSION):[0-9a-f-]{36}$/i.test(unitId)) throw new ValidationError("Unit kehadiran tidak valid.");
+        const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+        const limit = checkRateLimit(`public_gate_summary_${gateEvent.id}_${clientIp}`, 120, 60_000);
+        if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak permintaan ringkasan gate.", requestId, 429);
+        return buildSuccessResponse(await getGateAttendanceSummaryService(gateEvent.id, unitId), requestId);
       }
       if (gateAction === "search" && method === "GET") {
         const input = validateRequestData(searchCheckinParticipantSchema, event.queryStringParameters || {});

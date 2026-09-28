@@ -6,6 +6,8 @@ import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { ENV } from "@/config/env";
 import { RegionFields, type RegionValue } from "@/components/public/RegionFields";
 import { getRegularRegistrationState } from "@/lib/regularRegistration";
+import { ParticipantQrCard, type ParticipantCardDetails } from "@/components/public/ParticipantQrCard";
+import { readRegistrationProof, saveRegistrationProof } from "@/lib/registrationProof";
 
 type EventSummary = {
   name: string;
@@ -29,7 +31,7 @@ type RegistrationResult = {
   approvalStatus: string;
   portalLoginUrl: string;
   passwordSetupRequired: boolean;
-  participants: Array<{ fullName: string; email: string; participantCode: string; passwordSetupRequired: boolean }>;
+  participants: Array<ParticipantCardDetails & { passwordSetupRequired: boolean }>;
   emailQueued: number;
 };
 
@@ -45,8 +47,9 @@ async function readResponse<T>(response: Response): Promise<T> {
 
 export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummary }> = ({ embeddedEvent }) => {
   const { slug = "" } = useParams<{ slug: string }>();
-  const [event, setEvent] = useState<EventSummary | null>(embeddedEvent || null);
-  const [loading, setLoading] = useState(!embeddedEvent);
+  const proofKey = `registration:regular:${embeddedEvent?.slug || slug}`;
+  const [event, setEvent] = useState<EventSummary | null>(() => embeddedEvent || readRegistrationProof<EventSummary, RegistrationResult>(proofKey)?.event || null);
+  const [loading, setLoading] = useState(!event);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState("");
@@ -56,10 +59,13 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
   const [institutionName, setInstitutionName] = useState("");
   const [region, setRegion] = useState<RegionValue>(emptyRegion);
   const [delegates, setDelegates] = useState<Delegate[]>([]);
-  const [result, setResult] = useState<RegistrationResult | null>(null);
+  const [result, setResult] = useState<RegistrationResult | null>(() => readRegistrationProof<EventSummary, RegistrationResult>(proofKey)?.result || null);
 
   useEffect(() => {
+    const proof = readRegistrationProof<EventSummary, RegistrationResult>(proofKey);
+    setResult(proof?.result || null);
     if (embeddedEvent) { setEvent(embeddedEvent); setLoading(false); return; }
+    if (proof) { setEvent(proof.event); setLoading(false); return; }
     const controller = new AbortController();
     setLoading(true);
     fetch(`${ENV.API_BASE_URL}/events/public/${encodeURIComponent(slug)}`, { signal: controller.signal })
@@ -68,7 +74,7 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
       .catch((loadError) => { if (!controller.signal.aborted) setError(loadError instanceof Error ? loadError.message : "Program tidak dapat dimuat."); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [slug, embeddedEvent]);
+  }, [slug, embeddedEvent, proofKey]);
 
   const registration = event ? getRegularRegistrationState(event) : null;
   const maxGroupSize = event ? Math.min(20, event.defaultInstitutionQuota || 20, event.regularQuota || 20) : 20;
@@ -88,6 +94,7 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
           consentConfirmed: true }) },
       ));
       setResult(data);
+      if (event) saveRegistrationProof(proofKey, { event, result: data });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Pendaftaran belum tersimpan.");
     } finally { setBusy(false); }
@@ -100,21 +107,22 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
         <div>
           <p>Pendaftaran reguler</p>
            {embeddedEvent ? <h2>Formulir pendaftaran reguler</h2> : <h1>{event?.name || "Daftar program daurah"}</h1>}
-           <span>Daftar langsung di halaman ini, sendiri atau sebagai kepala rombongan. Setiap asatidz memperoleh kode peserta dan QR masing-masing setelah disetujui panitia.</span>
+            <span>Daftar langsung di halaman ini, sendiri atau sebagai kepala rombongan. Setiap asatidz langsung memperoleh kode peserta dan kartu QR pribadi.</span>
         </div>
       </header>
       {loading ? <p role="status" className="public-register__notice">Memuat informasi program…</p> : !event ? <p role="alert" className="public-register__error">{error || "Program tidak tersedia."}</p> : result ? (
         <section className="public-register__success" aria-live="polite">
           <CheckCircle2 aria-hidden="true" />
-          <h2>Pendaftaran berhasil dikirim</h2>
-          <p>{result.participants.length} data asatidz telah diterima dan menunggu pemeriksaan panitia. Panitia akan menindaklanjuti melalui email atau WhatsApp yang dicantumkan bila diperlukan. Kode peserta belum berarti keikutsertaan disetujui.</p>
+           <h2>Pendaftaran berhasil — QR siap digunakan</h2>
+           <p>{result.participants.length} peserta telah terdaftar dan disetujui. Simpan kartu masing-masing atau bagikan secara pribadi kepada peserta yang bersangkutan.</p>
           {result.emailQueued < result.participants.length && <p role="status">Sebagian email informasi belum masuk antrean. Data pendaftaran tetap tersimpan; gunakan kode di bawah dan hubungi panitia bila email tidak tiba.</p>}
           <h3 className="mt-5 font-bold">Akses Portal Asatidz masing-masing peserta</h3>
-          <ul className="public-register__result-list">{result.participants.map((person) => <li key={person.participantCode}><strong>{person.fullName}</strong><span>Username portal: <strong>{person.email}</strong></span><span>Password: {person.passwordSetupRequired ? "belum dibuat; aktivasi dengan kode yang dikirim ke email ini" : "gunakan password akun yang sudah Anda miliki"}</span><span>Kode peserta: <code>{person.participantCode}</code></span></li>)}</ul>
+           <div className="mt-4 grid gap-4 sm:grid-cols-2">{result.participants.map((person) => <ParticipantQrCard key={person.participantCode} eventName={event.name} person={person} />)}</div>
+           <ul className="public-register__result-list">{result.participants.map((person) => <li key={person.participantCode}><strong>{person.fullName}</strong><span>Username portal: <strong>{person.email}</strong></span><span>Password: {person.passwordSetupRequired ? "belum dibuat; aktivasi dengan kode yang dikirim ke email ini" : "gunakan password akun yang sudah Anda miliki"}</span></li>)}</ul>
           <ol>
-            <li>Panitia meninjau data dan kuota; pantau status pendaftaran di portal.</li>
+             <li>Kartu QR tersedia sekarang; setiap peserta mendapat tautan pribadi melalui email bila email berhasil diproses.</li>
             <li>Jika password belum dibuat, buka Portal Asatidz dan pilih “Aktivasi atau atur ulang password”. Kode aktivasi dikirim ke email masing-masing, bukan ditampilkan di halaman ini.</li>
-            <li>QR pribadi tersedia setelah data disetujui panitia. Setiap anggota masuk dengan emailnya sendiri.</li>
+             <li>Setiap anggota masuk dengan emailnya sendiri bila ingin melihat kartu di portal.</li>
           </ol>
           <Link to="/login/ustadz" className="public-register__primary">Buka Portal Asatidz <ArrowRight aria-hidden="true" /></Link>
         </section>
@@ -122,7 +130,7 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
         <div className="public-register__layout">
           <section className="public-register__form-panel">
              <h2>Data pendaftar</h2>
-             <p>Isi nama, email pribadi, dan WhatsApp aktif. Data dikirim ke panitia untuk ditinjau. Anggota rombongan dapat ditambahkan bila mendaftar bersama.</p>
+              <p>Isi nama, email pribadi, dan WhatsApp aktif. Setelah berhasil, QR pribadi langsung tersedia bagi setiap anggota rombongan.</p>
              {error && <p role="alert" className="public-register__error">{error}</p>}
              <form onSubmit={submit} className="public-register__form">
                <label htmlFor="register-name">Nama lengkap asatidz</label>

@@ -91,6 +91,15 @@ export async function getEventBySlugPublicService(slug: string) {
   };
 }
 
+/** Gate requests only need the event ID; avoid recalculating registration quotas on every scan. */
+export async function getPublicGateEventService(slug: string) {
+  const event = await findEventBySlugRepository(slug);
+  if (!event || event.archivedAt || !["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING", "COMPLETED"].includes(event.status)) {
+    throw new NotFoundError("Program gate tidak tersedia.");
+  }
+  return { id: event.id };
+}
+
 export async function getPublicEventsService() {
   return findPublicEventsRepository();
 }

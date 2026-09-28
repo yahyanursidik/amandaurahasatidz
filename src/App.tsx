@@ -44,6 +44,7 @@ import { PublicProgramsPage } from "./pages/public/PublicProgramsPage";
 import { PublicEventRegistrationPage } from "./pages/public/PublicEventRegistrationPage";
 import { InvitationRegistrationPage } from "./pages/public/InvitationRegistrationPage";
 import { CheckInPublicPage } from "./pages/public/CheckInPublicPage";
+import { ParticipantCardPage } from "./pages/public/ParticipantCardPage";
 import { ProtectedRoute } from "./components/common/ProtectedRoute";
 import { CommitteeLayout } from "./components/layouts/CommitteeLayout";
 import { NotFoundPage } from "./pages/NotFoundPage";
@@ -99,6 +100,7 @@ export const App: React.FC = () => {
           <Route path="/invitation/individual/:token" element={<InvitationRegistrationPage />} />
           <Route path="/check-in/:eventSlug" element={<CheckInPublicPage />} />
           <Route path="/check-in" element={<CheckInPublicPage />} />
+          <Route path="/card" element={<ParticipantCardPage />} />
           <Route path="/gate" element={<CheckInPublicPage />} />
           <Route path="/gate/:eventSlug" element={<CheckInPublicPage />} />
 

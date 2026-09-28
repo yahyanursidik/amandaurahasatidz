@@ -4,6 +4,8 @@ import { ArrowLeft, CheckCircle2, Plus, Trash2 } from "lucide-react";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { RegionFields, type RegionValue } from "@/components/public/RegionFields";
 import { ENV } from "@/config/env";
+import { ParticipantQrCard } from "@/components/public/ParticipantQrCard";
+import { readRegistrationProof, saveRegistrationProof } from "@/lib/registrationProof";
 
 type Delegate = { fullName: string; email: string; whatsapp: string; phone: string; address: string; region: RegionValue; isLead: boolean };
 type InvitationData = {
@@ -13,7 +15,8 @@ type InvitationData = {
 };
 type Submission = {
   message: string;
-  participants?: Array<{ id: string; participantCode: string }>;
+  participants?: Array<{ id: string; participantCode: string; qrToken: string; cardUrl: string; whatsapp?: string | null }>;
+  emailQueued?: number;
   portalAccounts?: Array<{ participantId: string; participantName: string; email: string; temporaryPassword?: string | null; loginUrl: string; setupError?: string }>;
 };
 const emptyRegion = (): RegionValue => ({ city: "", province: "", cityCode: "", provinceCode: "" });
@@ -22,21 +25,24 @@ const newDelegate = (): Delegate => ({ fullName: "", email: "", whatsapp: "", ph
 export const InvitationRegistrationPage: React.FC = () => {
   const { token = "" } = useParams<{ token: string }>();
   const invitationType = useLocation().pathname.includes("/individual/") ? "individual" : "institution";
-  const [data, setData] = useState<InvitationData | null>(null);
+  const proofKey = `registration:invitation:${invitationType}:${token}`;
+  const [data, setData] = useState<InvitationData | null>(() => readRegistrationProof<InvitationData, Submission>(proofKey)?.event || null);
   const [delegates, setDelegates] = useState<Delegate[]>([newDelegate()]);
   const [institutionName, setInstitutionName] = useState("");
   const [responseStatus, setResponseStatus] = useState<"ACCEPTED" | "DECLINED">("ACCEPTED");
   const [notes, setNotes] = useState("");
-  const [submission, setSubmission] = useState<Submission | null>(null);
+  const [submission, setSubmission] = useState<Submission | null>(() => readRegistrationProof<InvitationData, Submission>(proofKey)?.result || null);
   const [error, setError] = useState("");
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!data);
   const [saving, setSaving] = useState(false);
   const quota = invitationType === "individual" ? 1 : Math.max(1, data?.invitation.quota || 1);
   const expired = Boolean(data?.invitation.responseDeadline && new Date(data.invitation.responseDeadline) < new Date());
 
   useEffect(() => {
+    const proof = readRegistrationProof<InvitationData, Submission>(proofKey);
+    if (proof) { setData(proof.event); setSubmission(proof.result); setLoading(false); setError(""); return; }
     const controller = new AbortController();
-    setLoading(true); setError(""); setSubmission(null); setDelegates([newDelegate()]);
+    setLoading(true); setError(""); setData(null); setSubmission(null); setDelegates([newDelegate()]);
     void fetch(`${ENV.API_BASE_URL}/invitations/public/${invitationType}/${encodeURIComponent(token)}`, { signal: controller.signal })
       .then(async (response) => {
         const result = await response.json();
@@ -46,7 +52,7 @@ export const InvitationRegistrationPage: React.FC = () => {
       .catch((reason) => { if (!controller.signal.aborted) { setData(null); setError(reason instanceof Error ? reason.message : "Undangan tidak dapat dibuka."); } })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [token, invitationType]);
+  }, [token, invitationType, proofKey]);
 
   const update = (index: number, changes: Partial<Delegate>) => setDelegates((items) =>
     items.map((item, current) => current === index ? { ...item, ...changes } : item));
@@ -72,6 +78,7 @@ export const InvitationRegistrationPage: React.FC = () => {
       const result = await response.json();
       if (!response.ok) throw new Error(result.error?.message || "Konfirmasi undangan gagal disimpan.");
       setSubmission(result.data);
+      if (data) saveRegistrationProof(proofKey, { event: data, result: result.data });
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Konfirmasi gagal diproses."); }
     finally { setSaving(false); }
   };
@@ -87,8 +94,8 @@ export const InvitationRegistrationPage: React.FC = () => {
             <p className="mt-3 text-sm text-emerald-100">{data.event.venueName || "Lokasi menyusul"} · {data.event.startDate === data.event.endDate ? data.event.startDate : `${data.event.startDate} – ${data.event.endDate}`}</p>
             {data.institution && <p className="mt-2 text-sm text-emerald-100">Diperuntukkan bagi {data.institution.name}</p>}
           </header>
-          {submission ? <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-6" aria-live="polite"><CheckCircle2 className="h-8 w-8 text-emerald-700" /><h2 className="mt-3 text-xl font-black">Jawaban undangan tersimpan</h2><p className="mt-2 text-sm">{submission.message}</p><p className="mt-2 text-sm">Panitia akan meninjau pendaftaran dan menghubungi kontak email atau WhatsApp yang dicantumkan jika ada tindak lanjut. Konfirmasi undangan belum berarti setiap peserta telah disetujui untuk check-in.</p>
-            {submission.participants?.map((item) => <p key={item.id} className="mt-2 rounded-lg bg-white p-3 text-sm">Kode peserta: <strong>{item.participantCode}</strong></p>)}
+           {submission ? <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-6" aria-live="polite"><CheckCircle2 className="h-8 w-8 text-emerald-700" /><h2 className="mt-3 text-xl font-black">Jawaban undangan tersimpan</h2><p className="mt-2 text-sm">{submission.message}</p>
+             {!!submission.participants?.length && <><p className="mt-2 text-sm">Semua peserta langsung disetujui dan mendapat QR pribadi. Simpan atau kirim kartu masing-masing hanya kepada peserta yang bersangkutan.</p>{(submission.emailQueued || 0) < submission.participants.length && <p role="status" className="mt-2 text-sm">Sebagian email belum masuk antrean. Simpan kartu berikut dan hubungi panitia bila memerlukan bantuan.</p>}<div className="mt-4 grid gap-4 sm:grid-cols-2">{submission.participants.map((item, index) => <ParticipantQrCard key={item.id} eventName={data.event.name} person={{ fullName: submission.portalAccounts?.[index]?.participantName || delegates[index]?.fullName || "Peserta", email: submission.portalAccounts?.[index]?.email || delegates[index]?.email, whatsapp: item.whatsapp, participantCode: item.participantCode, qrToken: item.qrToken, cardUrl: item.cardUrl }} />)}</div></>}
             {!!submission.portalAccounts?.length && <h3 className="mt-5 font-bold">Akses Portal Asatidz masing-masing peserta</h3>}
             {submission.portalAccounts?.map((account) => <div key={account.participantId} className="mt-2 rounded-lg bg-white p-3 text-sm"><strong>{account.participantName}</strong><p className="mt-1 break-all">Username portal: <strong>{account.email || "hubungi panitia untuk melengkapi email"}</strong></p><p>Password: {account.setupError ? `${account.setupError} Gunakan aktivasi akun atau hubungi panitia.` : account.temporaryPassword ? <><strong className="font-mono">{account.temporaryPassword}</strong> (password sementara, simpan secara pribadi dan segera ganti setelah masuk)</> : "gunakan password akun yang sudah ada; bila belum punya, aktivasi melalui kode yang dikirim ke email pribadi"}</p></div>)}
             {responseStatus === "DECLINED" && <p className="mt-3 text-sm">Karena memilih berhalangan hadir, halaman ini tidak membuat akses portal baru.</p>}
