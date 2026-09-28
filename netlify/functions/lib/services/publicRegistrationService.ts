@@ -183,7 +183,7 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
     portalLoginUrl: result.portalLoginUrl,
     passwordSetupRequired: result.passwordSetupRequired,
     publicGroupId: result.publicGroupId,
-    participants: result.participants.map(({ fullName, email, participantCode }) => ({ fullName, email, participantCode })),
+    participants: result.participants.map(({ fullName, email, participantCode, passwordSetupRequired }) => ({ fullName, email, participantCode, passwordSetupRequired })),
     emailQueued: emailQueueResults.filter((item) => item.status === "fulfilled").length,
   };
 }
