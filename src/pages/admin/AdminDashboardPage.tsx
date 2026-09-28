@@ -161,7 +161,7 @@ export const AdminDashboardPage: React.FC = () => {
         ? {
             label: `${metrics.failedEmailsCount} email gagal dikirim`,
             description: "Tinjau antrean dan penyebab kegagalan pengiriman.",
-            href: "/admin/audit-logs",
+            href: "/admin/email-jobs",
             tone: "danger" as StatusVariant,
           }
         : null,
@@ -221,7 +221,7 @@ export const AdminDashboardPage: React.FC = () => {
       description: "Telusuri aktivitas dan gangguan operasional.",
       items: [
         { title: "Audit aktivitas", description: "Lihat pelaku, perubahan, waktu, dan request ID.", href: "/admin/audit-logs", icon: ShieldCheck },
-        { title: "Antrean email", description: "Temukan pengiriman gagal dan jalankan penanganan.", href: "/admin/audit-logs", icon: Mail },
+        { title: "Antrean email", description: "Temukan pengiriman gagal dan jalankan penanganan.", href: "/admin/email-jobs", icon: Mail },
       ],
     },
   ];

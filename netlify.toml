@@ -6,6 +6,9 @@
 [functions."emailWorker"]
   schedule = "* * * * *"
 
+[functions."scheduledReminder"]
+  schedule = "0 1 * * *"
+
 [[redirects]]
   from = "/api/*"
   to = "/.netlify/functions/api/:splat"

@@ -13,6 +13,10 @@ export const createAnnouncementSchema = z.object({
   ]).default("ALL_PARTICIPANTS"),
   targetInstitutionId: z.string().uuid().optional().nullable(),
   sendEmailNotification: z.boolean().default(false),
+}).superRefine((value, context) => {
+  if (value.audienceType === "SPECIFIC_INSTITUTION" && !value.targetInstitutionId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["targetInstitutionId"], message: "Pilih lembaga tujuan pengumuman." });
+  }
 });
 
 export const publishAnnouncementSchema = z.object({

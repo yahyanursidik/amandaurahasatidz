@@ -3,12 +3,13 @@ import {
   eventAnnouncements,
   announcementRecipients,
   eventParticipants,
+  events,
   ustadzProfiles,
   attendanceRecords,
 } from "../db/schema";
 import { eq, and, desc, inArray } from "drizzle-orm";
 import { sanitizeRichText } from "../utils/sanitizer";
-import { NotFoundError } from "../utils/errors";
+import { ConflictError, NotFoundError } from "../utils/errors";
 import { enqueueEmailJob } from "./emailQueueService";
 import { createAuditLog } from "./auditService";
 
@@ -36,6 +37,7 @@ export async function createAnnouncementService(
       title: input.title,
       body: sanitizedBody,
       audienceType: input.audienceType || "ALL_PARTICIPANTS",
+      targetInstitutionId: input.targetInstitutionId || null,
       status: "DRAFT",
       createdBy: actorUserId || null,
     })
@@ -83,6 +85,9 @@ export async function publishAnnouncementService(
   }
 
   const ann = existing[0];
+  if (ann.status === "PUBLISHED") throw new ConflictError("Pengumuman ini sudah dipublikasikan.");
+  const eventRow = (await db.select({ name: events.name }).from(events).where(eq(events.id, ann.eventId)).limit(1))[0];
+  if (!eventRow) throw new NotFoundError("Program pengumuman tidak ditemukan.");
 
   // Update status to PUBLISHED
   const updated = await db
@@ -96,7 +101,10 @@ export async function publishAnnouncementService(
     .returning();
 
   // 2. Populate announcement_recipients for 6 target audiences
-  const recipients = await resolveTargetRecipients(ann.eventId, ann.audienceType);
+  const recipients = await resolveTargetRecipients(ann.eventId, ann.audienceType, ann.targetInstitutionId);
+  const mailedAddresses = new Set<string>();
+  let emailEnqueuedCount = 0;
+  let emailFailedCount = 0;
 
   for (const r of recipients) {
     await db.insert(announcementRecipients).values({
@@ -107,20 +115,28 @@ export async function publishAnnouncementService(
     });
 
     // 3. Email Notification Option (Compliance Point 6)
-    if (sendEmailNotification && r.email) {
-      const idempotencyKey = `ann_mail_${ann.id}_${r.participantId || r.userId || 'rec'}_${Date.now()}`;
-      await enqueueEmailJob({
-        templateCode: "REGISTRATION_CONFIRMED",
-        recipientEmail: r.email,
+    const normalizedEmail = r.email?.trim().toLowerCase();
+    if (sendEmailNotification && normalizedEmail && !mailedAddresses.has(normalizedEmail)) {
+      mailedAddresses.add(normalizedEmail);
+      const idempotencyKey = `ann_mail_${ann.id}_${normalizedEmail}`;
+      try {
+        const queued = await enqueueEmailJob({
+        templateCode: "ANNOUNCEMENT",
+        recipientEmail: normalizedEmail,
         recipientName: r.name || "Peserta Daurah",
         variables: {
           ustadzName: r.name || "Peserta Daurah",
-          eventName: "Daurah Asatidz YTS",
-          participantCode: "PENGUMUMAN",
-          qrCodeUrl: "http://localhost:3000/portal",
+          eventName: eventRow.name,
+          title: ann.title,
+          body: ann.body,
+          portalLink: `${process.env.APP_URL || ""}/portal/announcements`,
         },
         idempotencyKey,
-      });
+        });
+        if (!queued.isDuplicate) emailEnqueuedCount++;
+      } catch {
+        emailFailedCount++;
+      }
     }
   }
 
@@ -136,7 +152,7 @@ export async function publishAnnouncementService(
     });
   }
 
-  return { announcement: updated[0], recipientCount: recipients.length };
+  return { announcement: updated[0], recipientCount: recipients.length, emailEnqueuedCount, emailFailedCount };
 }
 
 export async function unpublishAnnouncementService(
@@ -181,7 +197,8 @@ export async function unpublishAnnouncementService(
 // 6 Target Audience Resolvers
 async function resolveTargetRecipients(
   eventId: string,
-  audienceType: string
+  audienceType: string,
+  targetInstitutionId: string | null,
 ): Promise<{ participantId: string | null; institutionId: string | null; userId: string | null; email: string | null; name: string }[]> {
   const db = getDbClient();
 
@@ -239,16 +256,14 @@ async function resolveTargetRecipients(
       .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
       .innerJoin(attendanceRecords, eq(eventParticipants.id, attendanceRecords.participantId))
       .where(and(eq(eventParticipants.eventId, eventId), eq(attendanceRecords.attendanceStatus, "PRESENT")));
-    return list.map((item) => ({ ...item, userId: null }));
+    return Array.from(new Map(list.map((item) => [item.participantId, { ...item, userId: null }])).values());
   }
 
   if (audienceType === "COMMITTEE_ONLY") {
     return [];
   }
 
-  // Fallback for SPECIFIC_INSTITUTION. Institution targeting is resolved
-  // from participants on the selected event until a dedicated target column
-  // is introduced on event_announcements.
+  if (audienceType !== "SPECIFIC_INSTITUTION" || !targetInstitutionId) return [];
   const list = await db
     .select({
       participantId: eventParticipants.id,
@@ -258,7 +273,7 @@ async function resolveTargetRecipients(
     })
     .from(eventParticipants)
     .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
-    .where(eq(eventParticipants.eventId, eventId));
+    .where(and(eq(eventParticipants.eventId, eventId), eq(eventParticipants.institutionId, targetInstitutionId)));
 
   return list.map((item) => ({ ...item, userId: null }));
 }

@@ -31,6 +31,8 @@ export type EventFormValues = {
   mapsUrl: string;
   defaultInstitutionQuota: string;
   capacity: string;
+  regularQuota: string;
+  invitationQuota: string;
 };
 
 const emptyValues: EventFormValues = {
@@ -42,7 +44,7 @@ const emptyValues: EventFormValues = {
   posterUrl: DEFAULT_EVENT_POSTER,
   posterAlt: "Interior perpustakaan sebagai poster event daurah",
   posterFocalPoint: "CENTER",
-  audienceMode: "INSTITUTION_INVITATION",
+  audienceMode: "MIXED",
   attendanceMode: "DAILY_AND_SESSION",
   timezone: "Asia/Jakarta",
   startDate: "",
@@ -58,6 +60,8 @@ const emptyValues: EventFormValues = {
   mapsUrl: "",
   defaultInstitutionQuota: "2",
   capacity: "",
+  regularQuota: "",
+  invitationQuota: "",
 };
 
 type Props = {
@@ -73,8 +77,10 @@ const fieldClass = "min-h-[48px] w-full rounded-lg border border-slate-300 bg-wh
 
 export const EventForm: React.FC<Props> = ({ initialValues, submitting, submitLabel, onCancel, onSubmit, lockIdentity }) => {
   const [values, setValues] = useState<EventFormValues>({ ...emptyValues, ...initialValues });
+  const [quotaError, setQuotaError] = useState("");
 
   const update = <K extends keyof EventFormValues>(key: K, value: EventFormValues[K]) => {
+    if (["capacity", "regularQuota", "invitationQuota"].includes(key)) setQuotaError("");
     setValues((current) => {
       const next = { ...current, [key]: value };
       if (key === "name" && typeof value === "string" && !lockIdentity && (!current.slug || current.slug === current.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""))) {
@@ -86,6 +92,12 @@ export const EventForm: React.FC<Props> = ({ initialValues, submitting, submitLa
 
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
+    const allocated = Number(values.regularQuota || 0) + Number(values.invitationQuota || 0);
+    if (values.capacity && allocated > Number(values.capacity)) {
+      setQuotaError("Jumlah kuota reguler dan undangan melebihi kapasitas total. Kurangi salah satu kuota atau naikkan kapasitas.");
+      document.getElementById("event-capacity")?.focus();
+      return;
+    }
     await onSubmit(values);
   };
 
@@ -160,10 +172,13 @@ export const EventForm: React.FC<Props> = ({ initialValues, submitting, submitLa
           <label><span className="mb-1.5 block text-xs font-bold text-slate-700">Tanggal mulai *</span><input type="date" value={values.startDate} onChange={(event) => update("startDate", event.target.value)} required className={fieldClass} /></label>
           <label><span className="mb-1.5 block text-xs font-bold text-slate-700">Tanggal selesai *</span><input type="date" value={values.endDate} min={values.startDate} onChange={(event) => update("endDate", event.target.value)} required className={fieldClass} /></label>
           <label><span className="mb-1.5 block text-xs font-bold text-slate-700">Zona waktu *</span><select value={values.timezone} onChange={(event) => update("timezone", event.target.value)} className={fieldClass}><option value="Asia/Jakarta">WIB · Asia/Jakarta</option><option value="Asia/Makassar">WITA · Asia/Makassar</option><option value="Asia/Jayapura">WIT · Asia/Jayapura</option></select></label>
-          <label><span className="mb-1.5 block text-xs font-bold text-slate-700">Jalur peserta</span><select value={values.audienceMode} onChange={(event) => update("audienceMode", event.target.value)} className={fieldClass}><option value="INSTITUTION_INVITATION">Undangan lembaga</option><option value="INDIVIDUAL_INVITATION">Undangan individu</option><option value="PUBLIC_OPEN">Pendaftaran terbuka</option></select></label>
+          <label><span className="mb-1.5 block text-sm font-bold text-slate-700">Jalur peserta</span><select value={values.audienceMode} onChange={(event) => update("audienceMode", event.target.value)} className={fieldClass}><option value="INSTITUTION_INVITATION">Undangan lembaga</option><option value="INDIVIDUAL_INVITATION">Undangan individu</option><option value="PUBLIC_OPEN">Pendaftaran reguler terbuka</option><option value="MIXED">Reguler dan undangan</option></select></label>
           <label><span className="mb-1.5 block text-xs font-bold text-slate-700">Mode presensi</span><select value={values.attendanceMode} onChange={(event) => update("attendanceMode", event.target.value)} className={fieldClass}><option value="DAILY_AND_SESSION">Harian dan per sesi</option><option value="DAILY_ONLY">Harian saja</option><option value="SESSION_ONLY">Per sesi saja</option></select></label>
-          <label><span className="mb-1.5 block text-xs font-bold text-slate-700">Kapasitas</span><input type="number" min="1" value={values.capacity} onChange={(event) => update("capacity", event.target.value)} placeholder="Tidak dibatasi" className={fieldClass} /></label>
-          <label><span className="mb-1.5 block text-xs font-bold text-slate-700">Quota default lembaga</span><input type="number" min="1" value={values.defaultInstitutionQuota} onChange={(event) => update("defaultInstitutionQuota", event.target.value)} className={fieldClass} /></label>
+          <label><span className="mb-1.5 block text-sm font-bold text-slate-700">Kapasitas total</span><input id="event-capacity" type="number" min="1" value={values.capacity} onChange={(event) => update("capacity", event.target.value)} placeholder="Tidak dibatasi" className={fieldClass} /></label>
+          <label><span className="mb-1.5 block text-sm font-bold text-slate-700">Kuota reguler</span><input type="number" min="0" value={values.regularQuota} onChange={(event) => update("regularQuota", event.target.value)} placeholder="Ikuti kapasitas total" className={fieldClass} /><span className="mt-1 block text-sm text-slate-600">Untuk pendaftaran mandiri dari halaman publik. Isi 0 untuk menutup jalur ini.</span></label>
+          <label><span className="mb-1.5 block text-sm font-bold text-slate-700">Kuota undangan</span><input type="number" min="0" value={values.invitationQuota} onChange={(event) => update("invitationQuota", event.target.value)} placeholder="Ikuti kapasitas total" className={fieldClass} /><span className="mt-1 block text-sm text-slate-600">Alokasi peserta dari undangan lembaga dan individu.</span></label>
+          <label><span className="mb-1.5 block text-sm font-bold text-slate-700">Kuota default per lembaga</span><input type="number" min="1" value={values.defaultInstitutionQuota} onChange={(event) => update("defaultInstitutionQuota", event.target.value)} className={fieldClass} /></label>
+          {quotaError && <p role="alert" className="sm:col-span-2 lg:col-span-3 text-sm font-semibold text-rose-700">{quotaError}</p>}
         </div>
       </section>
 

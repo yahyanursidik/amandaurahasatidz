@@ -37,7 +37,7 @@ export const UstadzEditPage: React.FC = () => {
   useEffect(() => {
     let active = true;
     if (!id) return;
-    if (id.startsWith("preview-")) {
+    if (import.meta.env.DEV && id.startsWith("preview-")) {
       setProfile(getUstadzPreviewProfile(id));
       setPreview(true);
       return;

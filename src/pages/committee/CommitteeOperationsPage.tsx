@@ -232,20 +232,21 @@ export const CommitteeOperationsPage: React.FC<{
         "/committee/context",
       );
       if (context.assignments.length === 0) {
-        setPreview(true);
-        setAssignments(previewAssignments);
-        setEventId("preview-event");
+        setPreview(import.meta.env.DEV);
+        setAssignments(import.meta.env.DEV ? previewAssignments : []);
+        setEventId(import.meta.env.DEV ? "preview-event" : "");
         setError(
-          "Akun ini belum memiliki penugasan event aktif. Data contoh ditampilkan untuk evaluasi antarmuka.",
+          "Akun ini belum memiliki penugasan event aktif. Hubungi admin untuk mengatur akses.",
         );
       } else {
+        setPreview(false);
         setAssignments(context.assignments);
         setEventId((current) => current || context.assignments[0]?.eventId || "");
       }
     } catch (loadError) {
-      setPreview(true);
-      setAssignments(previewAssignments);
-      setEventId("preview-event");
+      setPreview(import.meta.env.DEV);
+      setAssignments(import.meta.env.DEV ? previewAssignments : []);
+      setEventId(import.meta.env.DEV ? "preview-event" : "");
       setError(
         loadError instanceof Error
           ? loadError.message
@@ -351,14 +352,18 @@ export const CommitteeOperationsPage: React.FC<{
     setActionLoading(announcement.id);
     setFeedback("");
     try {
+      let queued = 0;
+      let failed = 0;
       if (!preview) {
-        await committeeApi(
+        const result = await committeeApi<{ emailEnqueuedCount: number; emailFailedCount: number }>(
           `/events/${eventId}/announcements/${announcement.id}/publish`,
           {
             method: "POST",
             body: JSON.stringify({ sendEmailNotification: sendEmail }),
           },
         );
+        queued = result.emailEnqueuedCount;
+        failed = result.emailFailedCount;
       }
       setAnnouncements((current) =>
         current.map((item) =>
@@ -369,7 +374,7 @@ export const CommitteeOperationsPage: React.FC<{
       );
       setFeedback(
         sendEmail
-          ? "Pengumuman diterbitkan dan notifikasi email dijadwalkan."
+          ? `Pengumuman diterbitkan. ${queued} email diantrekan${failed ? `; ${failed} gagal dan perlu diperiksa admin` : ""}.`
           : "Pengumuman diterbitkan ke portal peserta.",
       );
     } catch (publishError) {
@@ -443,6 +448,13 @@ export const CommitteeOperationsPage: React.FC<{
               {error} Seluruh interaksi tetap dapat dicoba tanpa mengubah data produksi.
             </p>
           </div>
+        </div>
+      )}
+
+      {!preview && error && !activeAssignment && (
+        <div role="alert" className="mb-5 flex flex-wrap items-center justify-between gap-3 border border-rose-200 bg-rose-50 p-4 text-sm text-rose-950">
+          <p>{error}</p>
+          <button type="button" onClick={() => void loadContext()} className="min-h-[44px] rounded-lg border border-rose-300 bg-white px-4 font-bold">Coba lagi</button>
         </div>
       )}
 

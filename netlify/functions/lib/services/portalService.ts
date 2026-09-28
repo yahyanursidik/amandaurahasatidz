@@ -66,6 +66,7 @@ export async function getPortalOverviewService(userId: string, email: string) {
         participantCode: eventParticipants.participantCode,
         registrationSource: eventParticipants.registrationSource,
         invitationId: eventParticipants.invitationId,
+        publicGroupId: eventParticipants.publicGroupId,
         isDelegationLead: eventParticipants.isDelegationLead,
         confirmationStatus: eventParticipants.confirmationStatus,
         approvalStatus: eventParticipants.approvalStatus,
@@ -243,6 +244,43 @@ export async function getPortalDelegationService(
       hasCheckedIn: checkedInIds.has(member.participantId),
       canReplace: !member.isDelegationLead && !checkedInIds.has(member.participantId),
     })),
+  };
+}
+
+export async function getPortalPublicGroupService(userId: string, email: string, actorParticipantId: string) {
+  const db = getDbClient();
+  const ustadzId = await resolvePortalUstadzIdService(userId, email);
+  const actor = (await db.select({
+    eventId: eventParticipants.eventId,
+    publicGroupId: eventParticipants.publicGroupId,
+    isDelegationLead: eventParticipants.isDelegationLead,
+    eventName: events.name,
+  }).from(eventParticipants)
+    .innerJoin(events, eq(eventParticipants.eventId, events.id))
+    .where(and(eq(eventParticipants.id, actorParticipantId), eq(eventParticipants.ustadzId, ustadzId))).limit(1))[0];
+  if (!actor?.publicGroupId || !actor.isDelegationLead) throw new ForbiddenError("Hanya kepala rombongan yang dapat melihat anggota rombongan ini.");
+  const members = await db.select({
+    participantId: eventParticipants.id,
+    participantCode: eventParticipants.participantCode,
+    fullName: ustadzProfiles.fullName,
+    email: ustadzProfiles.email,
+    whatsapp: ustadzProfiles.whatsapp,
+    isDelegationLead: eventParticipants.isDelegationLead,
+    confirmationStatus: eventParticipants.confirmationStatus,
+    approvalStatus: eventParticipants.approvalStatus,
+    registeredAt: eventParticipants.createdAt,
+  }).from(eventParticipants)
+    .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
+    .where(and(eq(eventParticipants.eventId, actor.eventId), eq(eventParticipants.publicGroupId, actor.publicGroupId)))
+    .orderBy(desc(eventParticipants.isDelegationLead), asc(ustadzProfiles.fullName));
+  const attendance = members.length ? await db.select({ participantId: attendanceRecords.participantId }).from(attendanceRecords)
+    .where(inArray(attendanceRecords.participantId, members.map((member) => member.participantId))) : [];
+  const checkedInIds = new Set(attendance.map((row) => row.participantId));
+  return {
+    actorParticipantId, eventId: actor.eventId, eventName: actor.eventName,
+    institutionId: null, institutionName: null, kind: "PUBLIC_GROUP" as const,
+    quota: members.length,
+    members: members.map((member) => ({ ...member, hasCheckedIn: checkedInIds.has(member.participantId), canReplace: false })),
   };
 }
 

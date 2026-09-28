@@ -54,6 +54,28 @@ export const provisionParticipantPortalAccountSchema = z.object({
   resetExisting: z.boolean().optional().default(false),
 });
 
+export const importParticipantRowSchema = z.object({
+  fullName: z.string().optional().default(""),
+  email: z.string().optional().nullable(),
+  phone: z.string().optional().nullable(),
+  whatsapp: z.string().optional().nullable(),
+  address: z.string().optional().nullable(),
+  institutionCode: z.string().optional().nullable(),
+  institutionName: z.string().optional().nullable(),
+  participantCode: z.string().optional().nullable(),
+  isDelegationLead: z.boolean().optional().default(false),
+  approvalStatus: z.string().optional().default("PENDING_REVIEW"),
+  notes: z.string().optional().nullable(),
+});
+
+export const previewParticipantImportSchema = z.object({
+  rows: z.array(importParticipantRowSchema).min(1, "Minimal 1 baris peserta untuk dipreview").max(500, "Maksimal 500 peserta per impor"),
+});
+
+export const commitParticipantImportSchema = previewParticipantImportSchema.extend({
+  approved: z.boolean(),
+});
+
 export const requestPasswordSetupSchema = z.object({
   email: z.string().trim().email("Format email tidak valid"),
   portal: z.enum(["admin", "committee", "ustadz"]),

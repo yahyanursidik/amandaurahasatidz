@@ -13,6 +13,7 @@ export const eventAnnouncements = pgTable(
     title: text("title").notNull(),
     body: text("body").notNull(),
     audienceType: text("audience_type").notNull().default("ALL"),
+    targetInstitutionId: uuid("target_institution_id").references(() => institutions.id),
     status: text("status").notNull().default("DRAFT"),
     publishedAt: timestamp("published_at", { withTimezone: true }),
     createdBy: uuid("created_by").references(() => users.id),

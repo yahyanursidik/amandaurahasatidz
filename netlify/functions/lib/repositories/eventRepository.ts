@@ -24,6 +24,26 @@ export async function findEventsRepository(search?: string, status?: string) {
   return result;
 }
 
+export async function findPublicEventsRepository() {
+  const db = getDbClient();
+  return db.select({
+    slug: events.slug,
+    code: events.code,
+    name: events.name,
+    subtitle: events.subtitle,
+    posterUrl: events.posterUrl,
+    posterAlt: events.posterAlt,
+    startDate: events.startDate,
+    endDate: events.endDate,
+    venueName: events.venueName,
+    audienceMode: events.audienceMode,
+    status: events.status,
+  }).from(events).where(and(
+    isNull(events.archivedAt),
+    inArray(events.status, ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING"]),
+  )).orderBy(asc(events.startDate));
+}
+
 export async function findEventByIdRepository(id: string) {
   const db = getDbClient();
   const found = await db.select().from(events).where(eq(events.id, id)).limit(1);

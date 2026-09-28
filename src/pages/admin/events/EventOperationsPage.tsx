@@ -74,7 +74,7 @@ const reportTypes = [
 
 export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
   const { id = "" } = useParams<{ id: string }>();
-  const previewMode = !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+  const previewMode = import.meta.env.DEV && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -84,6 +84,8 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
   const [reportType, setReportType] = useState("invitations");
   const [report, setReport] = useState<ReportResult | null>(null);
   const [showAnnouncementForm, setShowAnnouncementForm] = useState(false);
+  const [emailBroadcast, setEmailBroadcast] = useState(false);
+  const [reminderSegment, setReminderSegment] = useState<"APPROVED_PARTICIPANTS" | "ATTENDED_PREVIOUS_DAY">("APPROVED_PARTICIPANTS");
 
   const load = async () => {
     setLoading(true);
@@ -179,17 +181,30 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
     setBusy(true);
     setError("");
     try {
-      await eventApi(`/events/${id}/announcements/${announcementId}/publish`, {
+      const published = await eventApi<{ emailEnqueuedCount: number; emailFailedCount: number }>(`/events/${id}/announcements/${announcementId}/publish`, {
         method: "POST",
-        body: JSON.stringify({ sendEmailNotification: false }),
+        body: JSON.stringify({ sendEmailNotification: emailBroadcast }),
       });
-      setNotice("Pengumuman dipublikasikan.");
+      setNotice(emailBroadcast ? `Pengumuman dipublikasikan. ${published.emailEnqueuedCount} email diantrekan${published.emailFailedCount ? `; ${published.emailFailedCount} gagal diantrekan dan perlu diperiksa admin` : ""}.` : "Pengumuman dipublikasikan tanpa email.");
       await load();
     } catch (publishError) {
       setError(publishError instanceof Error ? publishError.message : "Pengumuman gagal dipublikasikan.");
     } finally {
       setBusy(false);
     }
+  };
+
+  const triggerReminder = async () => {
+    if (!window.confirm("Antrekan email pengingat untuk segmen yang dipilih? Penerima dengan email valid akan mendapat pesan dan tindakan ini tidak dapat dibatalkan setelah diproses.")) return;
+    if (previewMode) { setNotice("Pengingat email hanya tersedia untuk program tersimpan dengan API aktif."); return; }
+    setBusy(true);
+    setError("");
+    try {
+      const result = await eventApi<{ targetsCount: number; enqueuedCount: number }>(`/reminders/trigger?eventId=${encodeURIComponent(id)}&segment=${reminderSegment}`, { method: "POST" });
+      setNotice(`${result.enqueuedCount} email pengingat diantrekan dari ${result.targetsCount} peserta yang memenuhi syarat. Pengiriman ganda pada hari yang sama dicegah.`);
+    } catch (reminderError) {
+      setError(reminderError instanceof Error ? reminderError.message : "Pengingat gagal diantrekan.");
+    } finally { setBusy(false); }
   };
 
   const exportReport = async () => {
@@ -321,11 +336,13 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
               <input name="title" required placeholder="Judul pengumuman" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
               <textarea name="body" required rows={5} placeholder="Isi pengumuman" className="min-h-28 rounded-lg border border-slate-300 p-3 text-xs" />
               <div className="flex flex-wrap justify-between gap-3">
-                <select name="audienceType" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs"><option value="ALL_PARTICIPANTS">Semua peserta</option><option value="APPROVED_PARTICIPANTS">Peserta disetujui</option><option value="ATTENDED_PARTICIPANTS">Peserta hadir</option></select>
+                <select name="audienceType" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-sm"><option value="ALL_PARTICIPANTS">Semua peserta</option><option value="APPROVED_ONLY">Peserta disetujui</option><option value="ATTENDED_SPECIFIC_DAY">Peserta yang pernah hadir</option></select>
                 <button disabled={busy} className="min-h-[44px] whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white disabled:opacity-50">Simpan draft</button>
               </div>
             </form>
           )}
+          <label className="flex items-start gap-3 border border-slate-200 bg-white p-4 text-sm text-slate-700"><input type="checkbox" className="mt-1 h-4 w-4" checked={emailBroadcast} onChange={(event) => setEmailBroadcast(event.target.checked)} /><span><strong className="block text-slate-900">Kirim juga via email</strong>Hanya saat pengumuman dipublikasikan. Email masuk antrean Mailketing untuk setiap peserta yang memiliki alamat email.</span></label>
+          <section className="grid gap-3 border border-slate-200 bg-white p-4 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end" aria-labelledby="reminder-title"><div><h3 id="reminder-title" className="text-base font-black text-slate-900">Pengingat email</h3><p className="mt-1 text-sm text-slate-600">Pakai data program dan peserta sebenarnya; maksimal satu pengingat per peserta, segmen, dan hari.</p><label htmlFor="reminder-segment" className="mt-3 block text-sm font-bold text-slate-800">Penerima</label><select id="reminder-segment" value={reminderSegment} onChange={(event) => setReminderSegment(event.target.value as typeof reminderSegment)} className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm"><option value="APPROVED_PARTICIPANTS">Semua peserta disetujui</option><option value="ATTENDED_PREVIOUS_DAY">Peserta hadir pada hari acara sebelumnya</option></select></div><button type="button" onClick={() => void triggerReminder()} disabled={busy} className="min-h-[44px] rounded-lg bg-emerald-800 px-4 text-sm font-bold text-white hover:bg-emerald-900 disabled:opacity-50">Antrekan pengingat</button></section>
           {loading ? <div className="h-64 animate-pulse bg-slate-100" /> : announcements.length ? (
             <div className="divide-y divide-slate-100 border border-slate-200 bg-white">
               {announcements.map((announcement) => (

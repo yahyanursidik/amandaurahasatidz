@@ -35,6 +35,7 @@ const portalConfig: Record<
     headline: string;
     description: string;
     helper: string;
+    guide: string;
     defaultEmail: string;
     icon: React.ComponentType<{ className?: string }>;
   }
@@ -45,6 +46,7 @@ const portalConfig: Record<
     headline: "Kendali penuh untuk daurah yang tertata.",
     description: "Kelola event, lembaga, undangan, data asatidz, dan laporan dari satu ruang kerja.",
     helper: "Akses khusus administrator dan pengelola event.",
+    guide: "Siapkan email dan password akun admin. Setelah masuk, Anda dapat meninjau program, pendaftaran, dan laporan.",
     defaultEmail: "admin@yts.or.id",
     icon: ShieldCheck,
   },
@@ -54,6 +56,7 @@ const portalConfig: Record<
     headline: "Pelayanan peserta, cepat dan terukur.",
     description: "Tangani check-in, kehadiran, dan informasi acara tanpa membuka data administrasi yang tidak diperlukan.",
     helper: "Akses khusus panitia yang ditugaskan pada event.",
+    guide: "Gunakan akun panitia yang sudah ditugaskan. Tugas check-in dan presensi akan tampil sesuai kewenangan Anda.",
     defaultEmail: "panitia@yts.or.id",
     icon: ClipboardCheck,
   },
@@ -63,6 +66,7 @@ const portalConfig: Record<
     headline: "Informasi daurah dalam satu ruang pribadi.",
     description: "Akses jadwal, kartu peserta, QR kehadiran, pengumuman, dan riwayat presensi Anda.",
     helper: "Gunakan akun pribadi yang terdaftar sebagai peserta.",
+    guide: "Sudah didaftarkan lembaga atau mendaftar reguler? Gunakan email peserta yang sama. Jika belum punya password, pilih aktivasi akun di bawah.",
     defaultEmail: "ustadz.demo@yts.or.id",
     icon: BookOpen,
   },
@@ -78,7 +82,7 @@ export const LoginPage: React.FC = () => {
   const config = portalConfig[portal];
   const PortalIcon = config.icon;
 
-  const [email, setEmail] = useState(config.defaultEmail);
+  const [email, setEmail] = useState(import.meta.env.DEV ? config.defaultEmail : "");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [capsLockOn, setCapsLockOn] = useState(false);
@@ -96,7 +100,7 @@ export const LoginPage: React.FC = () => {
 
   useEffect(() => {
     window.scrollTo(0, 0);
-    setEmail(config.defaultEmail);
+    setEmail(import.meta.env.DEV ? config.defaultEmail : "");
     setPassword("");
     setShowPassword(false);
     setCapsLockOn(false);
@@ -237,7 +241,7 @@ export const LoginPage: React.FC = () => {
             alt="Interior perpustakaan ilmiah yang tenang dan tertata"
             width={1536}
             height={1024}
-            fetchPriority="high"
+            loading="eager"
           />
           <div className="login-visual__shade" aria-hidden="true" />
           <figcaption className="login-visual__caption">
@@ -262,6 +266,7 @@ export const LoginPage: React.FC = () => {
               </h1>
               <span>{config.helper}</span>
             </div>
+            <p className="login-portal-guide"><Info aria-hidden="true" />{config.guide}</p>
 
             <form onSubmit={handleSubmit} className="login-form__fields" aria-busy={isPending}>
               <div className="login-field">
@@ -486,7 +491,7 @@ export const LoginPage: React.FC = () => {
                 className="login-back"
               >
                 <ArrowLeft aria-hidden="true" />
-                Kembali ke beranda
+                Lihat program daurah
               </Link>
             </div>
           </div>

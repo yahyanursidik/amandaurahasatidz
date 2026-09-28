@@ -21,7 +21,7 @@ export const createEventSchema = z.object({
   posterUrl: posterSourceSchema.optional().nullable(),
   posterAlt: z.string().max(180, "Teks alternatif maksimal 180 karakter").optional().nullable(),
   posterFocalPoint: z.enum(["CENTER", "TOP", "BOTTOM"]).default("CENTER"),
-  audienceMode: z.enum(["INSTITUTION_INVITATION", "PUBLIC_OPEN", "INDIVIDUAL_INVITATION"]).default("INSTITUTION_INVITATION"),
+  audienceMode: z.enum(["INSTITUTION_INVITATION", "PUBLIC_OPEN", "INDIVIDUAL_INVITATION", "MIXED"]).default("INSTITUTION_INVITATION"),
   attendanceMode: z.enum(["DAILY_AND_SESSION", "DAILY_ONLY", "SESSION_ONLY"]).default("DAILY_AND_SESSION"),
   timezone: z.string().default("Asia/Jakarta"),
   startDate: z.string({ required_error: "Tanggal mulai wajib diisi" }),
@@ -37,9 +37,15 @@ export const createEventSchema = z.object({
   lateConfirmationPolicy: z.enum(["BLOCK", "REVIEW", "ALLOW"]).default("BLOCK"),
   defaultInstitutionQuota: z.coerce.number().min(1).optional().nullable(),
   capacity: z.coerce.number().min(1).optional().nullable(),
+  regularQuota: z.coerce.number().int().min(0).optional().nullable(),
+  invitationQuota: z.coerce.number().int().min(0).optional().nullable(),
+}).superRefine((value, context) => {
+  if (value.capacity != null && value.regularQuota != null && value.invitationQuota != null && value.regularQuota + value.invitationQuota > value.capacity) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["capacity"], message: "Jumlah kuota reguler dan undangan tidak boleh melebihi kapasitas total." });
+  }
 });
 
-export const updateEventSchema = createEventSchema.partial();
+export const updateEventSchema = createEventSchema.innerType().partial();
 
 export const transitionEventSchema = z.object({
   action: z.enum([

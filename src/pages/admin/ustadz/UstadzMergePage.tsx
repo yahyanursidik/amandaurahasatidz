@@ -65,9 +65,10 @@ export const UstadzMergePage: React.FC = () => {
         setProfiles(response.data);
         setPreview(false);
       })
-      .catch(() => {
-        setProfiles(ustadzPreviewProfiles.filter((profile) => profile.profileStatus === "ACTIVE"));
-        setPreview(true);
+      .catch((loadError) => {
+        setProfiles(import.meta.env.DEV ? ustadzPreviewProfiles.filter((profile) => profile.profileStatus === "ACTIVE") : []);
+        setPreview(import.meta.env.DEV);
+        setError(loadError instanceof Error ? loadError.message : "Profil asatidz gagal dimuat.");
       })
       .finally(() => setLoading(false));
   }, []);

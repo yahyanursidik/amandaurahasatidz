@@ -55,6 +55,8 @@ type CommitteeParticipant = {
   ustadzWhatsapp: string | null;
   ustadzAddress: string | null;
   participantCode: string;
+  publicGroupId?: string | null;
+  isDelegationLead?: boolean;
   institutionName: string | null;
   approvalStatus: string;
   confirmationStatus: string;
@@ -459,7 +461,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
                 <div>{canSelect ? <input type="checkbox" checked={selectedIds.includes(participant.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, participant.id] : current.filter((id) => id !== participant.id))} aria-label={`Pilih ${participant.ustadzName}`} className="mt-1 h-5 w-5 accent-teal-800" /> : <UserRoundCheck className="mt-1 h-5 w-5 text-slate-400" aria-hidden="true" />}</div>
                 <div className="min-w-0">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0"><p className="font-mono text-sm font-bold text-teal-800">{participant.participantCode}</p><h3 className="mt-1 overflow-wrap-anywhere text-lg font-black text-slate-950">{participant.ustadzName}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{participant.institutionName || "Peserta individu"}</p></div>
+                    <div className="min-w-0"><p className="font-mono text-sm font-bold text-teal-800">{participant.participantCode}</p><h3 className="mt-1 overflow-wrap-anywhere text-lg font-black text-slate-950">{participant.ustadzName}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{participant.institutionName || (participant.publicGroupId ? `Rombongan reguler ${participant.publicGroupId.slice(0, 8)}` : "Peserta individu")}</p>{participant.publicGroupId && <p className="text-xs font-bold text-teal-800">{participant.isDelegationLead ? "Kepala rombongan" : "Anggota rombongan"}</p>}</div>
                     <div className="flex flex-wrap gap-2"><StatusBadge label={approvalLabels[participant.approvalStatus] || participant.approvalStatus.replaceAll("_", " ")} variant={approvalVariant(participant.approvalStatus)} /><StatusBadge label={missing.length === 0 ? "Kontak lengkap" : `${missing.length} data belum lengkap`} variant={missing.length === 0 ? "success" : "warning"} /><StatusBadge label={participant.portalPasswordConfigured ? "Portal siap" : "Portal belum siap"} variant={participant.portalPasswordConfigured ? "info" : "neutral"} /></div>
                   </div>
 

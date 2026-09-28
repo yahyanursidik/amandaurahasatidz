@@ -21,6 +21,8 @@ import { checkRateLimit } from "./lib/utils/rateLimiter";
 import { generateEmailOtp, verifyEmailOtp } from "./lib/services/otpService";
 import { serializeCookie, clearCookie, parseCookies } from "./lib/utils/cookie";
 import { validateRequestData } from "./lib/utils/validator";
+import { requestPublicRegistrationCodeSchema, submitPublicRegistrationSchema } from "./lib/validations/publicRegistrationValidation";
+import { requestPublicRegistrationCodeService, submitPublicRegistrationService } from "./lib/services/publicRegistrationService";
 
 import {
   createInstitutionSchema,
@@ -73,6 +75,7 @@ import {
 } from "./lib/validations/eventValidation";
 import {
   getEventsService,
+  getPublicEventsService,
   getEventByIdService,
   getEventBySlugPublicService,
   createEventService,
@@ -132,6 +135,8 @@ import {
   requestPasswordSetupSchema,
   completePasswordSetupSchema,
   provisionParticipantPortalAccountSchema,
+  previewParticipantImportSchema,
+  commitParticipantImportSchema,
 } from "./lib/validations/participantValidation";
 import {
   completePasswordSetupService,
@@ -181,6 +186,7 @@ import {
   getPortalParticipantIdsService,
   getPortalParticipantQrService,
   getPortalDelegationService,
+  getPortalPublicGroupService,
   replacePortalDelegationMemberService,
   resolvePortalUstadzIdService,
 } from "./lib/services/portalService";
@@ -219,6 +225,8 @@ import { generateReportExportService } from "./lib/services/exportService";
 import {
   processSpreadsheetImportDryRunService,
   commitSpreadsheetImportService,
+  processEventParticipantImportDryRunService,
+  commitEventParticipantImportService,
 } from "./lib/services/importService";
 
 import { sql } from "drizzle-orm";
@@ -251,6 +259,9 @@ export const handler: Handler = async (event, _context) => {
     }
 
     // 3. Public Event Landing Page Endpoint
+    if (path === "/events/public" && method === "GET") {
+      return buildSuccessResponse(await getPublicEventsService(), requestId);
+    }
     const pubEventMatch = path.match(/^\/events\/public\/([a-z0-9-]+)$/i);
     if (pubEventMatch && method === "GET") {
       const slug = pubEventMatch[1];
@@ -752,6 +763,57 @@ export const handler: Handler = async (event, _context) => {
       return buildSuccessResponse(data, requestId);
     }
 
+    const portalPublicGroupMatch = path.match(/^\/portal\/groups\/([a-f0-9-]+)$/i);
+    if (portalPublicGroupMatch && method === "GET") {
+      const session = requireAuth(userSession);
+      return buildSuccessResponse(await getPortalPublicGroupService(session.userId, session.email, portalPublicGroupMatch[1]), requestId);
+    }
+
+    const publicRegistrationCodeMatch = path.match(/^\/events\/public\/([a-z0-9-]+)\/registration\/code$/i);
+    if (publicRegistrationCodeMatch && method === "POST") {
+      const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+      const rateLimit = checkRateLimit(`public_registration_code_${publicRegistrationCodeMatch[1]}_${clientIp}`, 3, 600000);
+      if (!rateLimit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak permintaan kode. Coba lagi beberapa menit lagi.", requestId, 429);
+      const input = validateRequestData(requestPublicRegistrationCodeSchema, event.body ? JSON.parse(event.body) : {});
+      return buildSuccessResponse(await requestPublicRegistrationCodeService(publicRegistrationCodeMatch[1], input.email), requestId);
+    }
+
+    const publicRegistrationMatch = path.match(/^\/events\/public\/([a-z0-9-]+)\/registration$/i);
+    if (publicRegistrationMatch && method === "POST") {
+      const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+      const rateLimit = checkRateLimit(`public_registration_submit_${publicRegistrationMatch[1]}_${clientIp}`, 6, 600000);
+      if (!rateLimit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak percobaan pendaftaran. Coba lagi beberapa menit lagi.", requestId, 429);
+      const input = validateRequestData(submitPublicRegistrationSchema, event.body ? JSON.parse(event.body) : {});
+      return buildSuccessResponse(await submitPublicRegistrationService(publicRegistrationMatch[1], input, requestId), requestId);
+    }
+
+    const partImportPreviewMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/import\/preview$/i);
+    if (partImportPreviewMatch && method === "POST") {
+      const eventId = partImportPreviewMatch[1];
+      const session = requireAuth(userSession);
+      requirePermission(session, "participants.create", eventId);
+      const body = event.body ? JSON.parse(event.body) : {};
+      const validated = validateRequestData(previewParticipantImportSchema, body);
+      const result = await processEventParticipantImportDryRunService(eventId, validated.rows);
+      return buildSuccessResponse(result, requestId);
+    }
+
+    const partImportCommitMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/import\/commit$/i);
+    if (partImportCommitMatch && method === "POST") {
+      const eventId = partImportCommitMatch[1];
+      const session = requireAuth(userSession);
+      requirePermission(session, "participants.create", eventId);
+      const body = event.body ? JSON.parse(event.body) : {};
+      const validated = validateRequestData(commitParticipantImportSchema, body);
+      const result = await commitEventParticipantImportService(
+        eventId,
+        { rows: validated.rows, approved: validated.approved },
+        session.userId,
+        requestId,
+      );
+      return buildSuccessResponse(result, requestId, null, 201);
+    }
+
     const partStatusMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/([a-f0-9-]+)\/status$/i);
     if (partStatusMatch && method === "PATCH") {
       const eventId = partStatusMatch[1];
@@ -1193,6 +1255,8 @@ export const handler: Handler = async (event, _context) => {
     }
 
     if (path === "/email/jobs/process" && method === "POST") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "email.send");
       const workerResult = await processEmailQueueWorker("worker-api", 10, requestId);
       return buildSuccessResponse(workerResult, requestId);
     }
@@ -1221,10 +1285,13 @@ export const handler: Handler = async (event, _context) => {
     if (path === "/reminders/trigger" && method === "POST") {
       const session = requireAuth(userSession);
       requirePermission(session, "email.send");
-      const eventId = event.queryStringParameters?.eventId || "00000000-0000-0000-0000-000000000001";
-      const segment = (event.queryStringParameters?.segment as any) || "UNOPENED_LINK";
+      const eventId = event.queryStringParameters?.eventId || "";
+      const segment = event.queryStringParameters?.segment || "";
+      if (!/^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(eventId) || !["APPROVED_PARTICIPANTS", "ATTENDED_PREVIOUS_DAY"].includes(segment)) {
+        throw new ValidationError("Pilih eventId UUID dan segmen pengingat yang valid.");
+      }
 
-      const result = await processScheduledReminderService(segment, eventId, requestId);
+      const result = await processScheduledReminderService(segment as "APPROVED_PARTICIPANTS" | "ATTENDED_PREVIOUS_DAY", eventId, requestId);
       return buildSuccessResponse(result, requestId);
     }
 

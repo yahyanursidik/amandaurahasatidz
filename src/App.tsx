@@ -8,6 +8,7 @@ import { accessControlProvider } from "./lib/refine/accessControlProvider";
 import { LoginPage } from "./pages/auth/LoginPage";
 import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
 import { AdminAuditPage } from "./pages/admin/AdminAuditPage";
+import { AdminEmailJobsPage } from "./pages/admin/AdminEmailJobsPage";
 
 import { InstitutionDirectoryPage } from "./pages/admin/institutions/InstitutionDirectoryPage";
 import { InstitutionCreateRealPage } from "./pages/admin/institutions/InstitutionCreateRealPage";
@@ -39,6 +40,8 @@ import { CommitteeParticipantsPage } from "./pages/committee/CommitteeParticipan
 import { CommitteeAssignmentsPage } from "./pages/committee/CommitteeAssignmentsPage";
 import { ParticipantPortalPage } from "./pages/portal/ParticipantPortalPage";
 import { EventPublicPage } from "./pages/public/EventPublicPage";
+import { PublicProgramsPage } from "./pages/public/PublicProgramsPage";
+import { PublicEventRegistrationPage } from "./pages/public/PublicEventRegistrationPage";
 import { InvitationRegistrationPage } from "./pages/public/InvitationRegistrationPage";
 import { CheckInPublicPage } from "./pages/public/CheckInPublicPage";
 import { ProtectedRoute } from "./components/common/ProtectedRoute";
@@ -80,7 +83,8 @@ export const App: React.FC = () => {
       >
         <Routes>
           {/* Root Redirect */}
-          <Route path="/" element={<Navigate to="/admin" replace />} />
+          <Route path="/" element={<PublicProgramsPage />} />
+          <Route path="/programs" element={<PublicProgramsPage />} />
 
           {/* Public Unprotected Routes */}
           <Route path="/login" element={<Navigate to="/login/admin" replace />} />
@@ -88,6 +92,7 @@ export const App: React.FC = () => {
           <Route path="/login/committee" element={<LoginPage />} />
           <Route path="/login/ustadz" element={<LoginPage />} />
           <Route path="/events/:slug" element={<EventPublicPage />} />
+          <Route path="/events/:slug/register" element={<PublicEventRegistrationPage />} />
           <Route path="/invitation/:token" element={<InvitationRegistrationPage />} />
           <Route path="/invitation/institution/:institutionSlug/:token" element={<InvitationRegistrationPage />} />
           <Route path="/invitation/institution/:token" element={<InvitationRegistrationPage />} />
@@ -278,6 +283,7 @@ export const App: React.FC = () => {
               </ProtectedRoute>
             }
           />
+          <Route path="/admin/email-jobs" element={<ProtectedRoute><AdminEmailJobsPage /></ProtectedRoute>} />
 
           <Route path="/admin/committee" element={<ProtectedRoute><CommitteeDirectoryPage /></ProtectedRoute>} />
           <Route path="/admin/committee/create" element={<ProtectedRoute><CommitteeCreatePage /></ProtectedRoute>} />

@@ -9,11 +9,29 @@ export interface TemplateDefinition {
 }
 
 export const TEMPLATE_WHITELISTS: Record<string, TemplateDefinition> = {
+  REGISTRATION_RECEIVED: {
+    code: "REGISTRATION_RECEIVED",
+    subjectTemplate: "Pendaftaran diterima untuk ditinjau — {{eventName}}",
+    bodyTemplate: "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nYth. {{ustadzName}},\n\nPendaftaran Anda untuk {{eventName}} telah diterima dan sedang ditinjau panitia. Kode peserta pribadi: {{participantCode}}. Kode ini belum berarti kursi disetujui.\n\nAktivasi atau masuk akun pribadi di {{portalLink}} untuk memantau status. Jangan bagikan kode masuk email atau password kepada orang lain.\n\nJazakumullah khairan,\nPanitia Aman Daurah Asatidz",
+    allowedVariables: ["ustadzName", "eventName", "participantCode", "portalLink"],
+  },
+  ANNOUNCEMENT: {
+    code: "ANNOUNCEMENT",
+    subjectTemplate: "Pengumuman {{eventName}}: {{title}}",
+    bodyTemplate: "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nYth. {{ustadzName}},\n\n{{title}}\n\n{{body}}\n\nLihat juga pada Portal Asatidz: {{portalLink}}\n\nPanitia Aman Daurah Asatidz",
+    allowedVariables: ["ustadzName", "eventName", "title", "body", "portalLink"],
+  },
+  EVENT_CONTINUATION_REMINDER: {
+    code: "EVENT_CONTINUATION_REMINDER",
+    subjectTemplate: "Pengingat agenda berikutnya — {{eventName}}",
+    bodyTemplate: "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nYth. {{ustadzName}},\n\nTerima kasih telah hadir pada hari acara sebelumnya. Agenda berikutnya untuk {{eventName}} berlangsung pada {{nextDate}}. Lokasi: {{eventVenue}}. Kode peserta pribadi: {{participantCode}}.\n\nLihat jadwal dan QR pribadi di {{portalLink}}. Kehadiran dicatat per individu pada setiap hari acara.\n\nPanitia Aman Daurah Asatidz",
+    allowedVariables: ["ustadzName", "eventName", "nextDate", "eventVenue", "participantCode", "portalLink"],
+  },
   INVITATION_INSTITUTION: {
     code: "INVITATION_INSTITUTION",
-    subjectTemplate: "Undangan Resmi Daurah Asatidz - {{institutionName}} (No: {{invitationNumber}})",
+    subjectTemplate: "Undangan Resmi Aman Daurah Asatidz - {{institutionName}} (No: {{invitationNumber}})",
     bodyTemplate:
-      "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nKepada Perwakilan {{institutionName}},\n\nKami mengundang {{institutionName}} untuk mengirimkan {{quota}} delegasi Asatidz pada kegiatan {{eventName}} yang akan diselenggarakan pada {{eventDates}}.\n\nSilakan konfirmasikan kehadiran dan isi data delegasi melalui tautan berikut:\n{{invitationLink}}\n\nJazakumullah Khairan,\nPanitia Daurah YTS",
+      "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nKepada Perwakilan {{institutionName}},\n\nKami mengundang {{institutionName}} untuk mengirimkan {{quota}} delegasi Asatidz pada kegiatan {{eventName}} yang akan diselenggarakan pada {{eventDates}}.\n\nSilakan konfirmasikan kehadiran dan isi data delegasi melalui tautan berikut:\n{{invitationLink}}\n\nJazakumullah Khairan,\nPanitia Aman Daurah Asatidz",
     allowedVariables: [
       "institutionName",
       "invitationNumber",
@@ -27,19 +45,19 @@ export const TEMPLATE_WHITELISTS: Record<string, TemplateDefinition> = {
     code: "INVITATION_INDIVIDUAL",
     subjectTemplate: "Undangan Keikutsertaan Daurah Asatidz - {{ustadzName}}",
     bodyTemplate:
-      "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nKepada Yth. {{ustadzName}},\n\nKami mengundang Ustadz untuk hadir pada kegiatan {{eventName}} yang akan dilaksanakan pada {{eventDates}}.\n\nSilakan konfirmasikan kehadiran Ustadz melalui tautan berikut:\n{{invitationLink}}\n\nJazakumullah Khairan,\nPanitia Daurah YTS",
+      "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nKepada Yth. {{ustadzName}},\n\nKami mengundang Ustadz untuk hadir pada kegiatan {{eventName}} yang akan dilaksanakan pada {{eventDates}}.\n\nSilakan konfirmasikan kehadiran Ustadz melalui tautan berikut:\n{{invitationLink}}\n\nJazakumullah Khairan,\nPanitia Aman Daurah Asatidz",
     allowedVariables: ["ustadzName", "eventName", "eventDates", "invitationLink", "participantCode", "qrCodeUrl", "eventVenue"],
   },
   REGISTRATION_CONFIRMED: {
     code: "REGISTRATION_CONFIRMED",
     subjectTemplate: "✅ Bukti Pendaftaran Daurah - Kode Peserta: {{participantCode}}",
     bodyTemplate:
-      "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nKepada Yth. {{ustadzName}},\n\nKonfirmasi keikutsertaan Ustadz pada {{eventName}} telah berhasil disimpan.\nKode Peserta Ustadz adalah: {{participantCode}}\n\nQR Code Registrasi:\n{{qrCodeUrl}}\n\nJazakumullah Khairan,\nPanitia Daurah YTS",
+      "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nKepada Yth. {{ustadzName}},\n\nKonfirmasi keikutsertaan Ustadz pada {{eventName}} telah berhasil disimpan.\nKode Peserta Ustadz adalah: {{participantCode}}\n\nQR Code Registrasi:\n{{qrCodeUrl}}\n\nJazakumullah Khairan,\nPanitia Aman Daurah Asatidz",
     allowedVariables: ["ustadzName", "eventName", "eventDates", "eventVenue", "participantCode", "qrCodeUrl"],
   },
   OTP_CODE: {
     code: "OTP_CODE",
-    subjectTemplate: "🔐 Kode Otentikasi Masuk Sistem Daurah YTS: {{otpCode}}",
+    subjectTemplate: "Kode verifikasi Aman Daurah Asatidz: {{otpCode}}",
     bodyTemplate:
       "Kode OTP untuk verifikasi Aman Daurah Asatidz Anda adalah:\n\n{{otpCode}}\n\nKode ini berlaku selama {{expiresMinutes}} menit. Jangan bagikan kode ini kepada siapa pun.",
     allowedVariables: ["otpCode", "expiresMinutes"],
@@ -48,21 +66,21 @@ export const TEMPLATE_WHITELISTS: Record<string, TemplateDefinition> = {
     code: "THANK_YOU_CONFIRMED",
     subjectTemplate: "🤝 Terima Kasih atas Konfirmasi Kehadiran - {{eventName}}",
     bodyTemplate:
-      "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nKepada Yth. {{recipientName}},\n\nTerima kasih telah melakukan konfirmasi kehadiran resmi untuk kegiatan {{eventName}}.\nKode Peserta Ustadz adalah: {{participantCode}}\n\nJazakumullah Khairan,\nPanitia Daurah YTS",
+      "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nKepada Yth. {{recipientName}},\n\nTerima kasih telah melakukan konfirmasi kehadiran resmi untuk kegiatan {{eventName}}.\nKode Peserta Ustadz adalah: {{participantCode}}\n\nJazakumullah Khairan,\nPanitia Aman Daurah Asatidz",
     allowedVariables: ["recipientName", "eventName", "eventDates", "participantCode"],
   },
   THANK_YOU_ATTENDED: {
     code: "THANK_YOU_ATTENDED",
     subjectTemplate: "🌿 Jazakumullah Khairan atas Kehadiran Ustadz pada Daurah - {{eventName}}",
     bodyTemplate:
-      "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nKepada Yth. {{recipientName}},\n\nJazakumullah Khairan atas kehadiran dan partisipasi aktif Ustadz pada kegiatan {{eventName}}.\nSemoga ilmu dan silaturahmi yang terjalin memberikan keberkahan bagi dakwah kita bersama.\n\nPanitia Daurah YTS",
+      "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nKepada Yth. {{recipientName}},\n\nJazakumullah Khairan atas kehadiran dan partisipasi aktif Ustadz pada kegiatan {{eventName}}.\nSemoga ilmu dan silaturahmi yang terjalin memberikan keberkahan bagi dakwah kita bersama.\n\nPanitia Aman Daurah Asatidz",
     allowedVariables: ["recipientName", "eventName"],
   },
   EVENT_REMINDER: {
     code: "EVENT_REMINDER",
     subjectTemplate: "📅 Pengingat: {{eventName}} — {{daysRemaining}} Hari Lagi",
     bodyTemplate:
-      "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nKepada Yth. {{ustadzName}},\n\nIni adalah pengingat bahwa kegiatan {{eventName}} akan dilaksanakan pada {{eventDates}}.\nKode Peserta Anda: {{participantCode}}\n\nSemoga Allah memudahkan perjalanan Ustadz.\n\nPanitia Daurah YTS",
+      "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nKepada Yth. {{ustadzName}},\n\nIni adalah pengingat bahwa kegiatan {{eventName}} akan dilaksanakan pada {{eventDates}}.\nKode Peserta Anda: {{participantCode}}\n\nSemoga Allah memudahkan perjalanan Ustadz.\n\nPanitia Aman Daurah Asatidz",
     allowedVariables: [
       "ustadzName",
       "eventName",
@@ -122,8 +140,11 @@ export function renderHtmlEmailTemplate(
   // Validasi template dan hasilkan subject + plain text
   const { subject, body: textBody } = renderEmailTemplate(templateCode, variables);
 
-  // Render HTML premium
-  const htmlBody = renderHtmlByTemplateCode(templateCode, variables);
+  const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] || character);
+  const safeVariables = Object.fromEntries(Object.entries(variables).map(([key, value]) => [key, escapeHtml(String(value ?? ""))]));
+  const htmlBody = ["ANNOUNCEMENT", "REGISTRATION_RECEIVED", "EVENT_CONTINUATION_REMINDER"].includes(templateCode)
+    ? `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#16372e;line-height:1.7"><h1 style="font-size:22px">Aman Daurah Asatidz</h1><p style="white-space:pre-line">${escapeHtml(textBody)}</p></div>`
+    : renderHtmlByTemplateCode(templateCode, safeVariables);
 
   return { subject, htmlBody, textBody };
 }

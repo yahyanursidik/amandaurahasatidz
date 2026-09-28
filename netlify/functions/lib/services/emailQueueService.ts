@@ -1,10 +1,11 @@
 import { getDbClient } from "../db/client";
 import { emailJobs, emailDeliveries, emailTemplates } from "../db/schema";
-import { eq, and, desc, sql, lt, or } from "drizzle-orm";
+import { eq, and, desc, sql, lt, lte, or } from "drizzle-orm";
 import { renderEmailTemplate, renderHtmlEmailTemplate } from "./emailTemplateEngine";
-import { sendEmailViaSMTP } from "./smtpTransport";
+import { sendTransactionalEmail } from "./emailTransport";
 import { logInfo, logError } from "../utils/logger";
 import { createAuditLog } from "./auditService";
+import { ConflictError, NotFoundError } from "../utils/errors";
 
 export interface EnqueueOptions {
   templateCode: string;
@@ -89,6 +90,7 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
     .where(
       and(
         or(eq(emailJobs.status, "QUEUED"), eq(emailJobs.status, "PENDING")),
+        lte(emailJobs.scheduledAt, new Date()),
         or(
           sql`${emailJobs.lockedAt} IS NULL`,
           lt(emailJobs.lockedAt, fiveMinutesAgo)
@@ -100,8 +102,8 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
   const processedResults = [];
 
   for (const job of jobsToProcess) {
-    // Lock job
-    await db
+    // Claim atomically: a second worker must not send the same job.
+    const claimed = await db
       .update(emailJobs)
       .set({
         status: "PROCESSING",
@@ -110,7 +112,14 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
         attemptCount: sql`${emailJobs.attemptCount} + 1`,
         updatedAt: new Date(),
       })
-      .where(eq(emailJobs.id, job.id));
+      .where(and(
+        eq(emailJobs.id, job.id),
+        or(eq(emailJobs.status, "QUEUED"), eq(emailJobs.status, "PENDING")),
+        lte(emailJobs.scheduledAt, new Date()),
+        or(sql`${emailJobs.lockedAt} IS NULL`, lt(emailJobs.lockedAt, fiveMinutesAgo)),
+      ))
+      .returning({ attemptCount: emailJobs.attemptCount });
+    if (claimed.length === 0) continue;
 
     try {
       const payloadObj = (job.payload as any) || {};
@@ -136,8 +145,7 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
 
       logInfo(requestId, `Mengirim email ke ${job.recipientEmail}: ${subjectStr}`);
 
-      // Kirim email nyata via SMTP
-      const smtpResult = await sendEmailViaSMTP({
+      const sendResult = await sendTransactionalEmail({
         to: job.recipientEmail,
         toName: job.recipientName || undefined,
         subject: subjectStr,
@@ -146,8 +154,8 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
         requestId,
       });
 
-      if (!smtpResult.success) {
-        throw new Error(smtpResult.error || "SMTP send failed");
+      if (!sendResult.success) {
+        throw Object.assign(new Error(sendResult.error || "Pengiriman email gagal"), { retryable: sendResult.retryable === true });
       }
 
       // Mark delivery success
@@ -155,11 +163,10 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
         .insert(emailDeliveries)
         .values({
           emailJobId: job.id,
-          provider: "SMTP_CUSTOM",
-          providerMessageId: smtpResult.messageId || `smtp_${Date.now()}_${Math.random().toString(36).substring(7)}`,
-          status: "DELIVERED",
+          provider: sendResult.provider,
+          providerMessageId: sendResult.messageId || `${sendResult.provider.toLowerCase()}_${job.id}`,
+          status: "ACCEPTED",
           sentAt: new Date(),
-          deliveredAt: new Date(),
         })
         .returning();
 
@@ -177,15 +184,16 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
     } catch (err: any) {
       logError(requestId, `Failed sending email job ${job.id}`, err);
 
-      const nextAttempts = (job.attemptCount || 0) + 1;
+      const nextAttempts = claimed[0].attemptCount;
       const isDeadLetter = nextAttempts >= (job.maxAttempts || 3);
-      const nextStatus = isDeadLetter ? "DEAD_LETTER" : "FAILED";
+      const nextStatus = isDeadLetter ? "DEAD_LETTER" : err.retryable === true ? "QUEUED" : "FAILED";
 
       await db
         .update(emailJobs)
         .set({
           status: nextStatus,
           lastError: err.message || "Failed email dispatch",
+          scheduledAt: nextStatus === "QUEUED" ? new Date(Date.now() + Math.min(30, 2 ** nextAttempts) * 60_000) : job.scheduledAt,
           lockedAt: null,
           lockedBy: null,
           updatedAt: new Date(),
@@ -218,7 +226,10 @@ export async function retryEmailJobService(jobId: string, actorUserId: string, r
   const job = await db.select().from(emailJobs).where(eq(emailJobs.id, jobId)).limit(1);
 
   if (job.length === 0) {
-    throw new Error(`Email job ID ${jobId} tidak ditemukan.`);
+    throw new NotFoundError("Email job tidak ditemukan.");
+  }
+  if (job[0].status !== "FAILED" && job[0].status !== "DEAD_LETTER") {
+    throw new ConflictError("Hanya email berstatus gagal yang dapat diantrekan ulang.");
   }
 
   const updated = await db
@@ -231,8 +242,9 @@ export async function retryEmailJobService(jobId: string, actorUserId: string, r
       lockedBy: null,
       updatedAt: new Date(),
     })
-    .where(eq(emailJobs.id, jobId))
+    .where(and(eq(emailJobs.id, jobId), or(eq(emailJobs.status, "FAILED"), eq(emailJobs.status, "DEAD_LETTER"))))
     .returning();
+  if (!updated[0]) throw new ConflictError("Status email berubah. Segarkan antrean lalu coba lagi.");
 
   await createAuditLog({
     actorUserId,
@@ -248,5 +260,20 @@ export async function retryEmailJobService(jobId: string, actorUserId: string, r
 
 export async function getEmailJobsDashboardService() {
   const db = getDbClient();
-  return await db.select().from(emailJobs).orderBy(desc(emailJobs.createdAt)).limit(50);
+  return await db
+    .select({
+      id: emailJobs.id,
+      recipientEmail: emailJobs.recipientEmail,
+      recipientName: emailJobs.recipientName,
+      status: emailJobs.status,
+      scheduledAt: emailJobs.scheduledAt,
+      createdAt: emailJobs.createdAt,
+      updatedAt: emailJobs.updatedAt,
+      attemptCount: emailJobs.attemptCount,
+      maxAttempts: emailJobs.maxAttempts,
+      lastError: emailJobs.lastError,
+    })
+    .from(emailJobs)
+    .orderBy(desc(emailJobs.createdAt))
+    .limit(50);
 }

@@ -63,7 +63,8 @@ export function createSessionToken(
     email: normalizedEmail,
     nonce: randomUUID(),
     expiresAt: expiresAtMs,
-    userContext,
+    // Production permissions are resolved from the current database state on every request.
+    userContext: isProductionRuntime() ? undefined : userContext,
   };
 
   const sessionId = signToken(payload);
@@ -181,7 +182,9 @@ export async function getUserSession(
   if (cookieSessionId) {
     const payload = verifyToken(cookieSessionId);
     if (payload && Date.now() <= payload.expiresAt) {
-      return payload.userContext || resolveUserContextFromEmail(payload.email);
+      return isProductionRuntime()
+        ? resolveUserContextFromEmail(payload.email)
+        : payload.userContext || resolveUserContextFromEmail(payload.email);
     }
   }
 
@@ -192,7 +195,9 @@ export async function getUserSession(
       if (token.includes(".")) {
         const payload = verifyToken(token);
         if (payload && Date.now() <= payload.expiresAt) {
-          return payload.userContext || resolveUserContextFromEmail(payload.email);
+          return isProductionRuntime()
+            ? resolveUserContextFromEmail(payload.email)
+            : payload.userContext || resolveUserContextFromEmail(payload.email);
         }
       } else {
         // Direct email fallback for local development and mock compatibility.
@@ -216,6 +221,9 @@ async function resolveUserContextFromEmail(targetEmail: string): Promise<UserCon
   }
 
   const userRecord = foundUsers[0];
+  if (userRecord.status !== "ACTIVE") {
+    throw new UnauthorizedError("Akun tidak aktif. Hubungi administrator.");
+  }
   const assignmentsList = await db
     .select({
       roleCode: roles.code,

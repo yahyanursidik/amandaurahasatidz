@@ -31,6 +31,8 @@ export const events = pgTable(
     lateConfirmationPolicy: text("late_confirmation_policy").notNull().default("BLOCK"),
     defaultInstitutionQuota: integer("default_institution_quota"),
     capacity: integer("capacity"),
+    regularQuota: integer("regular_quota"),
+    invitationQuota: integer("invitation_quota"),
     status: text("status").notNull().default("DRAFT"),
     createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

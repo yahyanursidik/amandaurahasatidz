@@ -1,5 +1,6 @@
 import {
   findEventsRepository,
+  findPublicEventsRepository,
   findEventByIdRepository,
   findEventBySlugRepository,
   createEventRepository,
@@ -13,6 +14,8 @@ import { getNextEventStatus, TransitionAction, EventStatus } from "./eventStateS
 import { NotFoundError, ValidationError, ConflictError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
 import { validateEventDeadlines } from "./deadlineService";
+import { assertValidQuotaAllocation } from "./eventQuota";
+import { countApprovedParticipantsBySourceRepository } from "../repositories/participantRepository";
 
 export async function getEventsService(search?: string, status?: string) {
   return await findEventsRepository(search, status);
@@ -28,10 +31,45 @@ export async function getEventByIdService(id: string) {
 
 export async function getEventBySlugPublicService(slug: string) {
   const event = await findEventBySlugRepository(slug);
-  if (!event) {
+  if (!event || event.archivedAt || !["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING", "COMPLETED"].includes(event.status)) {
     throw new NotFoundError(`Event Daurah dengan slug '${slug}' tidak ditemukan.`);
   }
-  return event;
+  const [regularApproved, invitationApproved] = await Promise.all([
+    countApprovedParticipantsBySourceRepository(event.id, true),
+    countApprovedParticipantsBySourceRepository(event.id, false),
+  ]);
+  return {
+    id: event.id,
+    code: event.code,
+    slug: event.slug,
+    name: event.name,
+    subtitle: event.subtitle,
+    description: event.description,
+    posterUrl: event.posterUrl,
+    posterAlt: event.posterAlt,
+    posterFocalPoint: event.posterFocalPoint,
+    audienceMode: event.audienceMode,
+    timezone: event.timezone,
+    startDate: event.startDate,
+    endDate: event.endDate,
+    venueName: event.venueName,
+    venueAddress: event.venueAddress,
+    mapsUrl: event.mapsUrl,
+    registrationOpenAt: event.registrationOpenAt,
+    registrationCloseAt: event.registrationCloseAt,
+    capacity: event.capacity,
+    regularQuota: event.regularQuota,
+    invitationQuota: event.invitationQuota,
+    regularApproved,
+    invitationApproved,
+    status: event.status,
+    days: event.days,
+    sessions: event.sessions,
+  };
+}
+
+export async function getPublicEventsService() {
+  return findPublicEventsRepository();
 }
 
 export async function createEventService(data: any, actorUserId: string, requestId: string) {
@@ -39,6 +77,7 @@ export async function createEventService(data: any, actorUserId: string, request
     throw new ValidationError("Tanggal mulai tidak boleh lebih lambat dari tanggal selesai.");
   }
   validateEventDeadlines(data);
+  assertValidQuotaAllocation(data);
 
   const created = await createEventRepository({
     ...data,
@@ -77,6 +116,7 @@ export async function updateEventService(id: string, data: any, actorUserId: str
     }
   }
   validateEventDeadlines({ ...existing, ...data });
+  assertValidQuotaAllocation({ ...existing, ...data });
 
   const updated = await updateEventRepository(id, {
     ...data,

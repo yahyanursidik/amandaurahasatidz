@@ -78,6 +78,8 @@ type EventDetail = {
   audienceMode: string;
   attendanceMode: string;
   capacity: number | null;
+  regularQuota: number | null;
+  invitationQuota: number | null;
   defaultInstitutionQuota: number | null;
   invitationResponseDeadline: string | null;
   attendanceConfirmationDeadline: string | null;
@@ -108,6 +110,8 @@ const previewEvent: EventDetail = {
   audienceMode: "INSTITUTION_INVITATION",
   attendanceMode: "DAILY_AND_SESSION",
   capacity: null,
+  regularQuota: null,
+  invitationQuota: null,
   defaultInstitutionQuota: 2,
   invitationResponseDeadline: "2026-08-05T10:00:00Z",
   attendanceConfirmationDeadline: "2026-08-10T10:00:00Z",
@@ -176,7 +180,7 @@ export const EventShowPage: React.FC = () => {
     setLoading(true);
     setError("");
     setNotice("");
-    if (!isUuid(id)) {
+    if (import.meta.env.DEV && !isUuid(id)) {
       setData(previewEvent);
       setPreviewMode(true);
       setLoading(false);
@@ -387,6 +391,9 @@ export const EventShowPage: React.FC = () => {
                 { label: "Tanggal", value: `${formatDate(data.startDate)}–${formatDate(data.endDate)}`, icon: CalendarDays },
                 { label: "Lokasi", value: data.venueName || "Belum ditentukan", icon: MapPin },
                 { label: "Jalur peserta", value: data.audienceMode.replaceAll("_", " "), icon: Users },
+                { label: "Kapasitas total", value: data.capacity == null ? "Tidak dibatasi" : `${data.capacity} peserta`, icon: Users },
+                { label: "Kuota reguler", value: data.regularQuota == null ? "Mengikuti kapasitas total" : `${data.regularQuota} peserta`, icon: Users },
+                { label: "Kuota undangan", value: data.invitationQuota == null ? "Mengikuti kapasitas total" : `${data.invitationQuota} peserta`, icon: Users },
                 { label: "Mode presensi", value: data.attendanceMode.replaceAll("_", " "), icon: ShieldCheck },
                 { label: "Batas respons undangan", value: data.invitationResponseDeadline ? new Date(data.invitationResponseDeadline).toLocaleString("id-ID") : "Tidak dibatasi", icon: Clock3 },
                 { label: "Batas konfirmasi hadir", value: data.attendanceConfirmationDeadline ? new Date(data.attendanceConfirmationDeadline).toLocaleString("id-ID") : "Tidak dibatasi", icon: CheckCircle2 },

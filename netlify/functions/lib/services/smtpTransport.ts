@@ -16,7 +16,7 @@ function getSmtpConfig() {
   const secure = process.env.EMAIL_SECURE !== "false"; // default true (SSL)
   const user = process.env.EMAIL_USER || "no-reply@radiotarbiyahsunnah.com";
   const pass = process.env.EMAIL_PASS || "";
-  const fromName = process.env.EMAIL_FROM_NAME || "Panitia Daurah YTS";
+  const fromName = process.env.EMAIL_FROM_NAME || "Aman Daurah Asatidz";
 
   return { host, port, secure, user, pass, fromName };
 }
@@ -71,6 +71,7 @@ export interface SendEmailResult {
   success: boolean;
   messageId?: string;
   error?: string;
+  retryable?: boolean;
 }
 
 export async function sendEmailViaSMTP(options: SendEmailOptions): Promise<SendEmailResult> {

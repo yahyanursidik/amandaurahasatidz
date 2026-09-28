@@ -72,6 +72,7 @@ export const OnSiteCheckinPage: React.FC = () => {
   const [lastResult, setLastResult] = useState<CheckinResult | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const scanTimerRef = useRef<number | null>(null);
@@ -188,16 +189,24 @@ export const OnSiteCheckinPage: React.FC = () => {
         setEventId(available[0].eventId);
         await loadSchedule(available[0].eventId, false);
       } catch (error) {
-        setPreview(true);
-        setAssignments(previewAssignments);
-        setEventId("preview-event");
-        await loadSchedule("preview-event", true);
-        setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Mode pratinjau aktif." });
+        if (import.meta.env.DEV) {
+          setPreview(true);
+          setAssignments(previewAssignments);
+          setEventId("preview-event");
+          await loadSchedule("preview-event", true);
+        } else {
+          setPreview(false);
+          setAssignments([]);
+          setEventId("");
+          setUnits([]);
+          setLogs([]);
+        }
+        setFeedback({ kind: "error", message: error instanceof Error ? error.message : "Penugasan check-in belum dapat dimuat." });
       } finally {
         setLoading(false);
       }
     })();
-  }, [loadSchedule]);
+  }, [loadSchedule, reloadKey]);
 
   const changeEvent = async (nextEventId: string) => {
     setEventId(nextEventId);
@@ -255,6 +264,13 @@ export const OnSiteCheckinPage: React.FC = () => {
 
       {feedback && <div role={feedback.kind === "error" ? "alert" : "status"} className={`flex items-center gap-3 border-y p-3 text-sm font-bold ${feedback.kind === "error" ? "border-rose-200 bg-rose-50 text-rose-900" : "border-emerald-200 bg-emerald-50 text-emerald-900"}`}>{feedback.kind === "error" ? <AlertTriangle className="h-4 w-4" /> : <CheckCircle2 className="h-4 w-4" />}{feedback.message}</div>}
 
+      {!loading && !preview && assignments.length === 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-3 border border-rose-200 bg-rose-50 p-4 text-sm text-rose-950">
+          <p>Check-in belum dapat digunakan sampai penugasan event berhasil dimuat.</p>
+          <button type="button" onClick={() => setReloadKey((current) => current + 1)} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-rose-300 bg-white px-4 font-bold"><RefreshCw className="h-4 w-4" /> Coba lagi</button>
+        </div>
+      )}
+
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_22rem]">
         <section className="border border-slate-200 bg-white">
           <div className="border-b border-slate-200 p-4 sm:p-5">
@@ -277,7 +293,7 @@ export const OnSiteCheckinPage: React.FC = () => {
                 <h2 className="text-sm font-black text-slate-900">Pindai dengan kamera perangkat</h2>
                 <p className="mt-1 text-xs leading-5 text-slate-500">Arahkan kamera ke QR peserta. Token akan masuk ke formulir tanpa menyimpan gambar.</p>
               </div>
-              <button type="button" onClick={() => cameraActive ? stopCamera() : void startCamera()} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-black text-slate-800 hover:bg-slate-50">
+              <button type="button" onClick={() => cameraActive ? stopCamera() : void startCamera()} disabled={!selectedUnit || !selectedAssignment} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 px-4 text-sm font-black text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50">
                 {cameraActive ? <CameraOff className="h-4 w-4" /> : <Camera className="h-4 w-4" />}
                 {cameraActive ? "Matikan kamera" : "Aktifkan kamera"}
               </button>
