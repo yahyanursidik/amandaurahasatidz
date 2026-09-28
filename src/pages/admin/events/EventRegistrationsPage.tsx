@@ -121,6 +121,7 @@ type ParticipantImportPreview = {
     finalParticipantCode: string;
     matchedUstadzId?: string | null;
     previousApprovedEvents?: number;
+    action?: "CREATE" | "UPDATE";
   }>;
 };
 type EventDeadline = {
@@ -632,10 +633,8 @@ export const EventRegistrationsPage: React.FC = () => {
 
   const commitParticipantImport = async () => {
     if (!participantImportPreview || participantImportRows.length === 0) return;
-    if (participantImportPreview.invalidCount > 0 || participantImportPreview.duplicateCount > 0) {
-      setError("Perbaiki baris invalid atau duplikat sebelum impor final.");
-      return;
-    }
+    const skippedInvalid = participantImportRows.length - participantImportPreview.validCount - participantImportPreview.alreadyImportedCount;
+    if (skippedInvalid > 0 && !window.confirm(`${participantImportPreview.validCount} baris valid akan diimpor. ${skippedInvalid} baris invalid/duplikat akan dilewati dan tetap tercantum di laporan. Lanjutkan?`)) return;
     if (demoMode) {
       const imported = participantImportPreview.previewData.map((row, index): Participant => ({
         id: `part-upload-demo-${index}`,
@@ -672,19 +671,21 @@ export const EventRegistrationsPage: React.FC = () => {
       sourceLine: row.line,
     }));
     const total = participantImportRows.length;
-    let processed = participantImportPreview.alreadyImportedCount;
+    let processed = total - rowsToSave.length;
     let importedCount = 0;
     let reusedCount = 0;
+    let updatedCount = 0;
     const failures: typeof participantImportFailures = [];
     setParticipantImportProgress({ processed, total });
     try {
       for (let offset = 0; offset < rowsToSave.length; offset += 20) {
         const batch = rowsToSave.slice(offset, offset + 20);
-        const result = await api<{ status: "SUCCESS" | "PARTIAL"; importedCount: number; skippedCount: number; reusedProfileCount: number; failureReport: { line: number; participantCode: string; error: string }[] }>(`/events/${id}/participants/import/commit`, {
+        const result = await api<{ status: "SUCCESS" | "PARTIAL"; importedCount: number; skippedCount: number; reusedProfileCount: number; updatedCount: number; failureReport: { line: number; participantCode: string; error: string }[] }>(`/events/${id}/participants/import/commit`, {
           method: "POST", body: JSON.stringify({ rows: batch.map(({ sourceLine: _line, ...row }) => row), approved: true }),
         });
         importedCount += result.importedCount;
         reusedCount += result.reusedProfileCount || 0;
+        updatedCount += result.updatedCount || 0;
         failures.push(...(result.failureReport || []).map((failure) => ({ ...failure,
           line: batch[failure.line - 2]?.sourceLine || failure.line })));
         processed += batch.length;
@@ -692,8 +693,8 @@ export const EventRegistrationsPage: React.FC = () => {
         setParticipantImportMessage(`${processed}/${total} baris diproses (${Math.round(processed / total * 100)}%). ${importedCount} peserta tersimpan.`);
       }
       setParticipantImportFailures(failures);
-      setParticipantImportMessage(`${importedCount} peserta berhasil diimpor; ${reusedCount} profil asatidz lama tertaut ke event ini${participantImportPreview.alreadyImportedCount ? `, ${participantImportPreview.alreadyImportedCount} sudah ada` : ""}${failures.length ? `, ${failures.length} gagal` : ""}.`);
-      if (!failures.length) {
+      setParticipantImportMessage(`${importedCount - updatedCount} peserta baru, ${updatedCount} peserta lama diperbarui tanpa memutus presensi; ${reusedCount} profil asatidz lama tertaut${participantImportPreview.alreadyImportedCount ? `, ${participantImportPreview.alreadyImportedCount} sudah sesuai` : ""}${skippedInvalid ? `, ${skippedInvalid} invalid/duplikat dilewati` : ""}${failures.length ? `, ${failures.length} gagal` : ""}.`);
+      if (!failures.length && skippedInvalid === 0) {
         setParticipantImportPreview(null);
         setParticipantImportRows([]);
       }
@@ -805,7 +806,7 @@ export const EventRegistrationsPage: React.FC = () => {
                       <div className="min-w-0">
                         <p className="truncate font-bold text-slate-950">{row.fullName}</p>
                          <p className="truncate text-xs text-slate-500">{row.email || row.whatsapp || row.phone || "Kontak belum diisi"}</p>
-                         {row.matchedUstadzId && <p className="text-xs font-bold text-emerald-800">Profil sudah ada · {row.previousApprovedEvents || 0} event sebelumnya disetujui{row.approvalStatus === "APPROVED" ? " · jika impor berhasil akan bertambah 1" : ""}</p>}
+                         {row.matchedUstadzId && <p className="text-xs font-bold text-emerald-800">Profil sudah ada · {row.previousApprovedEvents || 0} event sebelumnya disetujui{row.action === "UPDATE" ? " · status event ini akan diperbarui tanpa mengubah presensi" : row.approvalStatus === "APPROVED" ? " · jika impor berhasil akan bertambah 1" : ""}</p>}
                       </div>
                       <span className="truncate text-slate-600">{row.resolvedInstitutionName || row.institutionName || "Individu"}</span>
                       <span className="truncate font-mono text-xs font-bold text-emerald-800">{row.finalParticipantCode}</span>
@@ -845,11 +846,11 @@ export const EventRegistrationsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={() => void commitParticipantImport()}
-                  disabled={participantImportBusy === "commit" || participantImportPreview.validCount === 0 || participantImportPreview.invalidCount > 0 || participantImportPreview.duplicateCount > 0}
+                  disabled={participantImportBusy === "commit" || participantImportPreview.validCount === 0}
                   className="mt-3 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-3 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   {participantImportBusy === "commit" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
-                  Impor peserta
+                  Impor {participantImportPreview.validCount} peserta valid
                 </button>
               </aside>
             </div>
@@ -865,37 +866,38 @@ export const EventRegistrationsPage: React.FC = () => {
             <button type="button" onClick={() => void approveParticipants(selectedParticipants)} disabled={Boolean(participantBusy)} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white disabled:opacity-50"><Check className="h-4 w-4" /> Setujui terpilih</button>
           </div>
         )}
-        <div className="mt-4 overflow-x-auto border border-slate-200 bg-white">
-          <div className="hidden min-w-[82rem] grid-cols-[2rem_9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_10rem_9rem_9rem_18rem] gap-3 bg-slate-50 px-4 py-3 text-xs font-black uppercase tracking-wide text-slate-600 lg:grid">
-            <span className="sr-only">Pilih</span><span>Kode</span><span>Asatidz</span><span>Lembaga</span><span>Waktu daftar</span><span>Konfirmasi</span><span>Persetujuan</span><span>Aksi</span>
-          </div>
+        <div className="mt-4 max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white">
           {loading ? <div className="h-64 animate-pulse bg-slate-100" /> : filteredParticipants.length ? (
-            <ul className="divide-y divide-slate-100">
+            <table className="min-w-[72rem] w-full text-left text-sm" aria-label="Daftar peserta event">
+              <thead className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-600"><tr><th className="px-3 py-3"><span className="sr-only">Pilih</span></th><th className="px-3 py-3">Kode</th><th className="px-3 py-3">Asatidz</th><th className="px-3 py-3">Lembaga</th><th className="px-3 py-3">Waktu daftar</th><th className="px-3 py-3">Konfirmasi</th><th className="px-3 py-3">Persetujuan</th><th className="px-3 py-3">Aksi</th></tr></thead>
+              <tbody className="divide-y divide-slate-100">
                {pagedParticipants.map((participant) => {
                 const registrationTime = formatRegisteredAt(participant.registeredAt);
                 return (
-                <li key={participant.id} className="grid gap-3 px-4 py-4 text-sm lg:min-w-[82rem] lg:grid-cols-[2rem_9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_10rem_9rem_9rem_18rem] lg:items-center lg:gap-3">
-                  <input
+                 <tr key={participant.id} className="align-top hover:bg-slate-50 [&>td]:px-3 [&>td]:py-3">
+                  <td>
+                   <input
                     type="checkbox"
                     aria-label={`Pilih ${participant.ustadzName}`}
                     checked={selectedParticipants.includes(participant.id)}
                     onChange={(event) => setSelectedParticipants((current) => event.target.checked ? [...current, participant.id] : current.filter((item) => item !== participant.id))}
                     disabled={participant.approvalStatus === "APPROVED"}
                     className="h-4 w-4 accent-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-                  />
-                  <span className="font-mono font-bold text-emerald-800">{participant.participantCode}</span>
-                   <div className="min-w-0"><p className="truncate font-black text-slate-900">{participant.ustadzName}</p><p className="mt-1 truncate text-sm text-slate-600">{participant.ustadzWhatsapp || participant.ustadzPhone || participant.ustadzEmail || "Kontak belum diisi"}</p>{(participant.eventParticipationCount || 0) > 1 && <Link to={`/admin/ustadz/${participant.ustadzId}`} className="mt-1 inline-block text-xs font-bold text-emerald-800 underline">Terdaftar di {participant.eventParticipationCount} event · lihat riwayat</Link>}{participant.publicGroupId && <p className="mt-1 text-xs font-bold text-emerald-800">{participant.isDelegationLead ? "Kepala rombongan reguler" : "Anggota rombongan reguler"}</p>}</div>
-                  <span className="truncate text-slate-500">{participant.institutionName || (participant.publicGroupId ? `Rombongan ${participant.publicGroupId.slice(0, 8)}` : "Individu")}</span>
-                  <div className="flex items-start gap-2 text-slate-700">
+                   />
+                  </td>
+                  <td className="font-mono font-bold text-emerald-800">{participant.participantCode}</td>
+                  <td className="max-w-56"><p className="font-black text-slate-900">{participant.ustadzName}</p><p className="mt-1 break-all text-xs text-slate-600">{participant.ustadzWhatsapp || participant.ustadzPhone || participant.ustadzEmail || "Kontak belum diisi"}</p>{(participant.eventParticipationCount || 0) > 1 && <Link to={`/admin/ustadz/${participant.ustadzId}`} className="mt-1 inline-block text-xs font-bold text-emerald-800 underline">Terdaftar di {participant.eventParticipationCount} event · lihat riwayat</Link>}{participant.publicGroupId && <p className="mt-1 text-xs font-bold text-emerald-800">{participant.isDelegationLead ? "Kepala rombongan reguler" : "Anggota rombongan reguler"}</p>}</td>
+                  <td className="max-w-44 break-words text-slate-600">{participant.institutionName || (participant.publicGroupId ? `Rombongan ${participant.publicGroupId.slice(0, 8)}` : "Individu")}</td>
+                  <td><div className="flex items-start gap-2 text-slate-700">
                     <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
                     <div>
                       <time dateTime={participant.registeredAt || undefined} className="block whitespace-nowrap font-bold">{registrationTime.date}</time>
                       <span className="mt-0.5 block whitespace-nowrap text-xs text-slate-500">{registrationTime.time}</span>
                     </div>
-                  </div>
-                  <StatusBadge label={participant.confirmationStatus.replaceAll("_", " ")} variant={participant.confirmationStatus === "CONFIRMED" ? "success" : "neutral"} />
-                   <div><StatusBadge label={participant.approvalStatus.replaceAll("_", " ")} variant={participant.approvalStatus === "APPROVED" ? "success" : participant.approvalStatus === "PENDING_REVIEW" ? "warning" : "neutral"} />{["REJECTED", "DECLINED", "WAITLISTED", "PENDING_REVIEW"].includes(participant.approvalStatus) && <p className="mt-1 text-xs text-amber-900">{participant.statusReason ? `Alasan: ${participant.statusReason}` : "Alasan belum dicatat"}</p>}</div>
-                  <div className="flex flex-wrap gap-2">
+                   </div></td>
+                  <td><StatusBadge label={participant.confirmationStatus.replaceAll("_", " ")} variant={participant.confirmationStatus === "CONFIRMED" ? "success" : "neutral"} /></td>
+                  <td className="max-w-36"><StatusBadge label={participant.approvalStatus.replaceAll("_", " ")} variant={participant.approvalStatus === "APPROVED" ? "success" : participant.approvalStatus === "PENDING_REVIEW" ? "warning" : "neutral"} />{["REJECTED", "DECLINED", "WAITLISTED", "PENDING_REVIEW"].includes(participant.approvalStatus) && <p className="mt-1 text-xs text-amber-900">{participant.statusReason ? `Alasan: ${participant.statusReason}` : "Alasan belum dicatat"}</p>}</td>
+                  <td><div className="flex max-w-72 flex-wrap gap-2">
                     <ParticipantProfileDialog
                       participant={{
                         id: participant.id,
@@ -961,11 +963,12 @@ export const EventRegistrationsPage: React.FC = () => {
                         Setujui
                       </button>
                     )}
-                  </div>
-                </li>
+                   </div></td>
+                 </tr>
                 );
               })}
-            </ul>
+              </tbody>
+            </table>
            ) : <div className="p-10 text-center text-xs text-slate-500">Tidak ada peserta yang cocok.</div>}
          </div>
          {filteredParticipants.length > 0 && <nav aria-label="Halaman peserta event" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm"><span>Menampilkan {(visibleParticipantPage - 1) * 25 + 1}–{Math.min(visibleParticipantPage * 25, filteredParticipants.length)} dari {filteredParticipants.length} peserta</span><div className="flex items-center gap-2"><button type="button" disabled={visibleParticipantPage <= 1} onClick={() => setParticipantPage(visibleParticipantPage - 1)} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Sebelumnya</button><span>Halaman {visibleParticipantPage}/{participantPageCount}</span><button type="button" disabled={visibleParticipantPage >= participantPageCount} onClick={() => setParticipantPage(visibleParticipantPage + 1)} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Berikutnya</button></div></nav>}

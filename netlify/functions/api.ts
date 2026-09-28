@@ -59,6 +59,7 @@ import {
   checkUstadzDuplicatesService,
   createUstadzService,
   updateUstadzService,
+  setUstadzArchiveService,
   updateUstadzSelfProfileService,
   addUstadzAffiliationService,
   updateUstadzAffiliationService,
@@ -110,6 +111,7 @@ import {
   createInvitationSchema,
   requestInvitationOtpSchema,
   submitResponseSchema,
+  submitIndividualInvitationSchema,
   verifyInvitationOtpSchema,
   verifyInstitutionAccessCodeSchema,
 } from "./lib/validations/invitationValidation";
@@ -199,11 +201,12 @@ import {
   resolvePortalUstadzIdService,
 } from "./lib/services/portalService";
 
-import { processCheckinSchema, queryCheckinLogsSchema } from "./lib/validations/attendanceValidation";
+import { processCheckinSchema, queryCheckinLogsSchema, searchCheckinParticipantSchema } from "./lib/validations/attendanceValidation";
 import {
   getActiveSessionService,
   processOnSiteCheckinService,
   getRecentCheckinLogsService,
+  searchEventCheckinParticipantsService,
 } from "./lib/services/attendanceService";
 
 import {
@@ -288,8 +291,11 @@ export const handler: Handler = async (event, _context) => {
     const pubIndivRespMatch = path.match(/^\/invitations\/public\/individual\/([a-z0-9_]+)\/response$/i);
     if (pubIndivRespMatch && method === "POST") {
       const rawToken = pubIndivRespMatch[1];
-      const body = event.body ? JSON.parse(event.body) : {};
-      const result = await submitIndividualResponseService(rawToken, body.responseStatus || "ACCEPTED", requestId);
+      const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+      const rateLimit = checkRateLimit(`pub_inv_individual_${rawToken.slice(-12)}_${clientIp}`, 5, 600000);
+      if (!rateLimit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak percobaan pengiriman undangan.", requestId, 429);
+      const input = validateRequestData(submitIndividualInvitationSchema, event.body ? JSON.parse(event.body) : {});
+      const result = await submitIndividualResponseService(rawToken, input, requestId);
       return buildSuccessResponse(result, requestId);
     }
 
@@ -1231,6 +1237,11 @@ export const handler: Handler = async (event, _context) => {
     }
 
     const ustadzMatch = path.match(/^\/ustadz\/([a-f0-9-]+)$/i);
+    if (ustadzMatch && method === "DELETE") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "ustadz.update");
+      return buildSuccessResponse(await setUstadzArchiveService(ustadzMatch[1], true, session.userId, requestId), requestId);
+    }
     if (ustadzMatch && method === "GET") {
       requirePermission(userSession, "ustadz.read");
       return buildSuccessResponse(await getUstadzByIdService(ustadzMatch[1]), requestId);
@@ -1244,6 +1255,12 @@ export const handler: Handler = async (event, _context) => {
         await updateUstadzService(ustadzMatch[1], validated, session.userId, requestId),
         requestId,
       );
+    }
+    const ustadzRestoreMatch = path.match(/^\/ustadz\/([a-f0-9-]+)\/restore$/i);
+    if (ustadzRestoreMatch && method === "POST") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "ustadz.update");
+      return buildSuccessResponse(await setUstadzArchiveService(ustadzRestoreMatch[1], false, session.userId, requestId), requestId);
     }
 
     if (path === "/audit-logs" && method === "GET") {
@@ -1478,6 +1495,12 @@ export const handler: Handler = async (event, _context) => {
     }
 
     // On-Site Check-in Module Endpoints
+    const gateSearchMatch = path.match(/^\/events\/([a-f0-9-]+)\/checkin\/search$/i);
+    if (gateSearchMatch && method === "GET") {
+      requirePermission(userSession, "attendance.record", gateSearchMatch[1]);
+      const input = validateRequestData(searchCheckinParticipantSchema, event.queryStringParameters || {});
+      return buildSuccessResponse(await searchEventCheckinParticipantsService(gateSearchMatch[1], input.q), requestId);
+    }
     const sessActiveMatch = path.match(/^\/events\/([a-f0-9-]+)\/sessions\/active$/i);
     if (sessActiveMatch && method === "GET") {
       const eventId = sessActiveMatch[1];

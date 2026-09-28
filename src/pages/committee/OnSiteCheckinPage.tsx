@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { AlertTriangle, Camera, CameraOff, CheckCircle2, Clock3, QrCode, RefreshCw, ScanLine } from "lucide-react";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { CommitteeAssignment, committeeApi } from "@/lib/committeeApi";
+import { Link } from "react-router-dom";
 
 type CheckinUnit = {
   id: string;
@@ -265,6 +266,7 @@ export const OnSiteCheckinPage: React.FC = () => {
             <p className="text-xs font-black uppercase tracking-widest text-emerald-300">Operasional kehadiran</p>
             <h1 className="mt-2 text-2xl font-black">Scanner dan check-in peserta</h1>
             <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">Pilih event dan unit kehadiran sebelum memindai. Hari berjeda hanya menampilkan tanggal kegiatan yang benar-benar dijadwalkan.</p>
+            <Link to={selectedAssignment?.eventSlug ? `/gate/${selectedAssignment.eventSlug}` : "/gate"} className="mt-3 inline-flex min-h-11 items-center rounded-lg border border-emerald-300 px-3 text-sm font-bold text-emerald-100">Buka halaman gate cepat</Link>
           </div>
           <label className="text-xs font-bold text-slate-200">Event penugasan<select value={eventId} onChange={(event) => void changeEvent(event.target.value)} className="mt-2 min-h-[44px] w-full rounded-lg border border-slate-700 bg-slate-900 px-3 text-sm text-white">{assignments.map((assignment) => <option key={assignment.eventId} value={assignment.eventId}>{assignment.eventCode} · {assignment.eventName}</option>)}</select></label>
         </div>

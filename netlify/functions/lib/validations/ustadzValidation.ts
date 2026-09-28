@@ -38,7 +38,7 @@ export const queryUstadzSchema = z.object({
   institutionId: z.string().uuid().optional(),
   cityCode: z.string().optional(),
   provinceCode: z.string().optional(),
-  profileStatus: z.enum(["ACTIVE", "INACTIVE", "MERGED"]).optional(),
+  profileStatus: z.enum(["ACTIVE", "INACTIVE", "MERGED", "ARCHIVED"]).optional(),
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(25),
 });

@@ -15,7 +15,7 @@ afterEach(() => {
 });
 
 describe("pendaftaran rombongan reguler", () => {
-  const input = { fullName: "Ustadz Ahmad", email: "Ahmad@Example.ID", whatsapp: "081234567890", code: "123456", challengeToken: "token-example-1234567890", consentConfirmed: true as const, delegates: [{ fullName: "Ustadz Hasan", email: "hasan@example.id", whatsapp: "081298765432" }] };
+  const input = { fullName: "Ustadz Ahmad", email: "Ahmad@Example.ID", whatsapp: "081234567890", city: "KOTA BANDUNG", province: "JAWA BARAT", consentConfirmed: true as const, delegates: [{ fullName: "Ustadz Hasan", email: "hasan@example.id", whatsapp: "081298765432", city: "KOTA BANDUNG", province: "JAWA BARAT" }] };
   it("menormalisasi kepala dan anggota", () => {
     expect(submitPublicRegistrationSchema.safeParse(input).success).toBe(true);
     const people = normalizePublicRegistrationGroup(input);

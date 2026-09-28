@@ -80,6 +80,7 @@ export async function getEventBySlugPublicService(slug: string) {
     registrationOpenAt: event.registrationOpenAt,
     registrationCloseAt: event.registrationCloseAt,
     capacity: event.capacity,
+    defaultInstitutionQuota: event.defaultInstitutionQuota,
     regularQuota: event.regularQuota,
     invitationQuota: event.invitationQuota,
     regularApproved,

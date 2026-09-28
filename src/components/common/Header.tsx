@@ -23,7 +23,7 @@ export const Header: React.FC<HeaderProps> = ({
   return (
     <header className="bg-emerald-950 text-white shadow-md border-b border-emerald-900 sticky top-0 z-30">
       <div className="flex h-16 w-full items-center justify-between px-4 sm:px-5 lg:px-6">
-        <div className="flex items-center space-x-3">
+        <div className="flex min-w-0 items-center gap-2 sm:gap-3">
           {onMobileMenuToggle && (
             <button
               onClick={onMobileMenuToggle}
@@ -35,9 +35,9 @@ export const Header: React.FC<HeaderProps> = ({
             </button>
           )}
           <img src="/images/tarbiyah-sunnah-mark.svg" alt="Tarbiyah Sunnah" width="40" height="36" className="h-9 w-10 shrink-0 object-contain" />
-          <div>
-            <h1 className="text-sm font-semibold leading-none sm:text-lg">Aman Daurah Asatidz</h1>
-            <span className="text-xs text-emerald-300 font-medium">Tarbiyah Sunnah · {portalName}</span>
+          <div className="min-w-0">
+            <h1 className="hidden text-sm font-semibold leading-none min-[380px]:block sm:text-lg">Aman Daurah Asatidz</h1>
+            <span className="block max-w-[9rem] truncate text-xs font-medium text-emerald-300 sm:max-w-none">Tarbiyah Sunnah · {portalName}</span>
           </div>
         </div>
 

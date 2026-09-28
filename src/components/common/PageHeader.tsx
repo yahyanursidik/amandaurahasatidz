@@ -35,8 +35,8 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
           ))}
         </nav>
       )}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
+      <div className="flex min-w-0 flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0 flex-1">
           <h1 className="min-w-0 text-xl font-bold leading-tight text-slate-900 [overflow-wrap:anywhere] sm:text-2xl">
             {title}
           </h1>
@@ -46,7 +46,7 @@ export const PageHeader: React.FC<PageHeaderProps> = ({
             </p>
           )}
         </div>
-        {actions && <div className="flex flex-wrap items-center gap-2 sm:justify-end">{actions}</div>}
+        {actions && <div className="flex max-w-full flex-wrap items-center gap-2 lg:justify-end">{actions}</div>}
       </div>
     </div>
   );

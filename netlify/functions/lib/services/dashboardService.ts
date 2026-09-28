@@ -7,8 +7,9 @@ import {
   emailJobs,
   attendanceRecords,
   checkinLogs,
+  ustadzProfiles,
 } from "../db/schema";
-import { eq, and, count, desc, sql, inArray } from "drizzle-orm";
+import { eq, and, count, desc, sql, inArray, isNull, isNotNull } from "drizzle-orm";
 
 export async function getAdminDashboardMetricsService() {
   const db = getDbClient();
@@ -20,7 +21,14 @@ export async function getAdminDashboardMetricsService() {
 
   const invitedInstitutionsRes = await db
     .select({ total: count() })
-    .from(institutions);
+    .from(institutions).where(isNull(institutions.deletedAt));
+
+  const [asatidzRes, archivedAsatidzRes, openRegistrationRes, queuedEmailsRes] = await Promise.all([
+    db.select({ total: count() }).from(ustadzProfiles).where(isNull(ustadzProfiles.deletedAt)),
+    db.select({ total: count() }).from(ustadzProfiles).where(isNotNull(ustadzProfiles.deletedAt)),
+    db.select({ total: count() }).from(events).where(eq(events.status, "REGISTRATION_OPEN")),
+    db.select({ total: count() }).from(emailJobs).where(inArray(emailJobs.status, ["QUEUED", "PENDING"])),
+  ]);
 
   const responsesRes = await db
     .select({ total: count() })
@@ -44,7 +52,7 @@ export async function getAdminDashboardMetricsService() {
   const failedEmailsRes = await db
     .select({ total: count() })
     .from(emailJobs)
-    .where(eq(emailJobs.status, "DEAD_LETTER"));
+    .where(inArray(emailJobs.status, ["FAILED", "DEAD_LETTER"]));
 
   const recentEvents = await db
     .select({
@@ -57,12 +65,16 @@ export async function getAdminDashboardMetricsService() {
     })
     .from(events)
     .where(inArray(events.status, ["DRAFT", "PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING"]))
-    .orderBy(desc(events.startDate))
+    .orderBy(sql`case ${events.status} when 'ONGOING' then 0 when 'REGISTRATION_OPEN' then 1 when 'PUBLISHED' then 2 when 'REGISTRATION_CLOSED' then 3 else 4 end`, desc(events.startDate))
     .limit(4);
 
   return {
     activeEventsCount: activeEventsRes[0]?.total || 0,
     invitedInstitutionsCount: invitedInstitutionsRes[0]?.total || 0,
+    asatidzProfilesCount: asatidzRes[0]?.total || 0,
+    archivedProfilesCount: archivedAsatidzRes[0]?.total || 0,
+    openRegistrationsCount: openRegistrationRes[0]?.total || 0,
+    queuedEmailsCount: queuedEmailsRes[0]?.total || 0,
     totalResponsesCount: responsesRes[0]?.total || 0,
     approvedParticipantsCount: approvedParticipantsRes[0]?.total || 0,
     pendingParticipantsCount: pendingParticipantsRes[0]?.total || 0,

@@ -36,6 +36,9 @@ function assertInvitationResponseOpen(result: { invitation: any; event: any; lin
   if (result.invitation.status === "REVOKED" || result.link?.revokedAt) {
     throw new ForbiddenError("Tautan undangan ini telah dicabut oleh panitia.");
   }
+  if (["ACCEPTED", "DECLINED"].includes(result.invitation.status)) {
+    throw new ConflictError("Undangan ini sudah dijawab secara final. Hubungi panitia untuk perubahan data.");
+  }
   const deadline = result.invitation.responseDeadline || result.event.invitationResponseDeadline;
   if (deadline && new Date(deadline) < new Date()) {
     throw new ForbiddenError("Batas konfirmasi undangan telah berakhir. Silakan hubungi panitia.");
@@ -401,15 +404,7 @@ export async function submitInstitutionResponseService(
 
   const { invitation, event } = result;
   assertInvitationResponseOpen(result);
-
-  const verificationValid = Boolean(
-    payload.verificationToken &&
-      (verifyInstitutionAccessVerification(payload.verificationToken, invitation.id) ||
-        verifyInvitationVerificationToken(payload.verificationToken, invitation.id)),
-  );
-  if (!verificationValid) {
-    throw new ForbiddenError("Verifikasi undangan telah berakhir. Masukkan kembali kode unik lembaga untuk melanjutkan.");
-  }
+  if (invitation.invitationType !== "INSTITUTION") throw new ValidationError("Jalur undangan tidak sesuai.");
 
   if (payload.captchaToken) {
     const isCaptchaValid = await verifyCaptcha(payload.captchaToken);
@@ -532,7 +527,11 @@ export async function getPublicIndividualInvitationService(rawToken: string, req
   };
 }
 
-export async function submitIndividualResponseService(rawToken: string, responseStatus: "ACCEPTED" | "DECLINED", requestId: string) {
+export async function submitIndividualResponseService(rawToken: string, payload: {
+  responseStatus: "ACCEPTED" | "DECLINED"; institutionName?: string | null;
+  delegates?: Array<{ fullName: string; email: string; phone?: string | null; whatsapp?: string | null; address?: string | null;
+    city: string; province: string; cityCode?: string | null; provinceCode?: string | null; isLead?: boolean }>;
+}, requestId: string) {
   const tokenHash = hashToken(rawToken);
   const result = await findInvitationByTokenHashRepository(tokenHash);
 
@@ -540,20 +539,32 @@ export async function submitIndividualResponseService(rawToken: string, response
 
   const { invitation, event } = result;
   assertInvitationResponseOpen(result);
-  const savedResponse = await saveInvitationResponseRepository(invitation.id, responseStatus, null, true);
+  if (invitation.invitationType !== "INDIVIDUAL") throw new ValidationError("Jalur undangan tidak sesuai.");
+  const saved = await saveInstitutionDelegationRepository(invitation.id, {
+    ...payload, isFinal: true, delegates: payload.responseStatus === "ACCEPTED" ? payload.delegates?.map((delegate) => ({ ...delegate, isLead: true })) : [],
+  });
+  const portalAccounts = [];
+  for (const participant of saved.participants) {
+    try { portalAccounts.push(await provisionParticipantPortalAccountService(event.id, participant.id, false, null, requestId)); }
+    catch { portalAccounts.push({ participantId: participant.id, participantName: payload.delegates?.[0]?.fullName || "Peserta",
+      email: payload.delegates?.[0]?.email || "", temporaryPassword: null, loginUrl: "/login/ustadz", action: "SETUP_REQUIRED",
+      shownOnce: false, setupError: "Aktivasi akses portal perlu dibantu panitia." }); }
+  }
 
   await createAuditLog({
     actorUserId: null,
     action: "INDIVIDUAL_INVITATION_RSVP_SUBMITTED",
     resourceType: "INVITATION_RESPONSE",
-    resourceId: savedResponse.id,
+    resourceId: saved.response.id,
     eventId: event.id,
-    reason: `RSVP undangan individu ${invitation.invitationNumber}: ${responseStatus}`,
+    reason: `RSVP undangan individu ${invitation.invitationNumber}: ${payload.responseStatus}`,
     requestId,
   });
 
   return {
-    response: savedResponse,
-    message: `Konfirmasi RSVP Anda (${responseStatus}) berhasil disimpan.`,
+    response: saved.response,
+    participants: saved.participants,
+    portalAccounts,
+    message: `Konfirmasi undangan (${payload.responseStatus}) berhasil disimpan.`,
   };
 }

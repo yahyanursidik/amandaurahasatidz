@@ -16,6 +16,7 @@ import {
 import { eq, and, desc, sql, or, isNull, ne } from "drizzle-orm";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { withTransaction } from "../db/transaction";
+import { resolveRegistrationInstitution } from "../services/registrationInstitutionService";
 
 export async function findInvitationsRepository(eventId?: string) {
   const db = getDbClient();
@@ -61,6 +62,7 @@ export async function saveInstitutionDelegationRepository(
   payload: {
     responseStatus: "ACCEPTED" | "DECLINED";
     notes?: string | null;
+    institutionName?: string | null;
     isFinal: boolean;
     delegates?: Array<{
       existingProfileId?: string | null;
@@ -69,6 +71,10 @@ export async function saveInstitutionDelegationRepository(
       phone?: string | null;
       whatsapp?: string | null;
       address?: string | null;
+      city?: string;
+      province?: string;
+      cityCode?: string | null;
+      provinceCode?: string | null;
       isLead?: boolean;
     }>;
   }
@@ -81,6 +87,9 @@ export async function saveInstitutionDelegationRepository(
       .limit(1);
     const invitation = invitationRows[0];
     if (!invitation) throw new Error("Undangan tidak ditemukan.");
+    const participantInstitutionId = payload.isFinal && payload.responseStatus === "ACCEPTED"
+      ? invitation.institutionId || await resolveRegistrationInstitution(tx, payload.institutionName)
+      : invitation.institutionId;
 
     const responseRows = await tx
       .insert(invitationResponses)
@@ -100,7 +109,7 @@ export async function saveInstitutionDelegationRepository(
         const normalizedEmail = normalizeEmail(delegate.email);
         const normalizedPhone = normalizePhone(delegate.phone);
         const normalizedWhatsapp = normalizePhone(delegate.whatsapp || delegate.phone);
-        let ustadzId = delegate.existingProfileId || null;
+        let ustadzId = delegate.existingProfileId || (invitation.invitationType === "INDIVIDUAL" ? invitation.ustadzId : null);
         if (!ustadzId) {
           const matches = await tx
             .select({ id: ustadzProfiles.id })
@@ -123,7 +132,9 @@ export async function saveInstitutionDelegationRepository(
                 email: normalizedEmail,
                 phone: normalizedPhone,
                 whatsapp: normalizedWhatsapp,
-                address: delegate.address?.trim() || null,
+                    address: delegate.address?.trim() || null,
+                    cityCode: delegate.cityCode || delegate.city?.trim() || null,
+                    provinceCode: delegate.provinceCode || delegate.province?.trim() || null,
                 profileStatus: "ACTIVE",
               })
               .returning({ id: ustadzProfiles.id });
@@ -138,6 +149,8 @@ export async function saveInstitutionDelegationRepository(
         if (normalizedPhone) submittedContactData.phone = normalizedPhone;
         if (normalizedWhatsapp) submittedContactData.whatsapp = normalizedWhatsapp;
         if (delegate.address?.trim()) submittedContactData.address = delegate.address.trim();
+        if (delegate.cityCode || delegate.city?.trim()) submittedContactData.cityCode = delegate.cityCode || delegate.city?.trim();
+        if (delegate.provinceCode || delegate.province?.trim()) submittedContactData.provinceCode = delegate.provinceCode || delegate.province?.trim();
         await tx
           .update(ustadzProfiles)
           .set(submittedContactData)
@@ -190,21 +203,21 @@ export async function saveInstitutionDelegationRepository(
           }
         }
 
-        if (invitation.institutionId) {
+        if (participantInstitutionId) {
           const existingAffiliation = await tx
             .select({ id: ustadzInstitutionAffiliations.id })
             .from(ustadzInstitutionAffiliations)
             .where(
               and(
                 eq(ustadzInstitutionAffiliations.ustadzId, ustadzId),
-                eq(ustadzInstitutionAffiliations.institutionId, invitation.institutionId)
+                eq(ustadzInstitutionAffiliations.institutionId, participantInstitutionId)
               )
             )
             .limit(1);
           if (existingAffiliation.length === 0) {
             await tx.insert(ustadzInstitutionAffiliations).values({
               ustadzId,
-              institutionId: invitation.institutionId,
+              institutionId: participantInstitutionId,
               isPrimary: Boolean(delegate.isLead),
               status: "ACTIVE",
             });
@@ -217,9 +230,9 @@ export async function saveInstitutionDelegationRepository(
           .values({
             eventId: invitation.eventId,
             ustadzId,
-            institutionId: invitation.institutionId,
+            institutionId: participantInstitutionId,
             invitationId,
-            registrationSource: "INSTITUTION_DELEGATION",
+            registrationSource: invitation.invitationType === "INDIVIDUAL" ? "INDIVIDUAL_INVITATION" : "INSTITUTION_DELEGATION",
             participantCode: code,
             isDelegationLead: Boolean(delegate.isLead),
             confirmationStatus: "CONFIRMED",
@@ -229,7 +242,7 @@ export async function saveInstitutionDelegationRepository(
           .onConflictDoUpdate({
             target: [eventParticipants.eventId, eventParticipants.ustadzId],
             set: {
-              institutionId: invitation.institutionId,
+              institutionId: participantInstitutionId,
               invitationId,
               isDelegationLead: Boolean(delegate.isLead),
               confirmationStatus: "CONFIRMED",

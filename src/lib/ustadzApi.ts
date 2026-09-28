@@ -55,6 +55,7 @@ export interface UstadzProfile {
   expertiseSummary?: string | null;
   profileStatus: UstadzProfileStatus;
   mergedIntoId?: string | null;
+  deletedAt?: string | null;
   createdAt?: string;
   updatedAt?: string;
   primaryInstitution?: {
@@ -100,6 +101,7 @@ export interface UstadzSummary {
   merged: number;
   incomplete: number;
   duplicateCandidates: number;
+  archived?: number;
 }
 
 interface ApiResponse<T> {
@@ -143,6 +145,8 @@ const cleanPayload = (values: Partial<UstadzFormValues>) =>
 export const ustadzApi = {
   list: (params: URLSearchParams) => request<UstadzProfile[]>(`/ustadz?${params.toString()}`),
   get: async (id: string) => (await request<UstadzProfile>(`/ustadz/${id}`)).data,
+  archive: async (id: string) => (await request<{ id: string; archived: boolean; message: string }>(`/ustadz/${id}`, { method: "DELETE" })).data,
+  restore: async (id: string) => (await request<{ id: string; archived: boolean; message: string }>(`/ustadz/${id}/restore`, { method: "POST" })).data,
   create: async (values: UstadzFormValues) =>
     (
       await request<{ profile: UstadzProfile; duplicateCandidates: UstadzProfile[] }>("/ustadz", {
