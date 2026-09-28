@@ -1,11 +1,34 @@
 import { getDbClient } from "../db/client";
 import { emailJobs, emailDeliveries, emailTemplates } from "../db/schema";
-import { eq, and, desc, sql, lt, lte, or } from "drizzle-orm";
+import { eq, and, desc, sql, lt, lte, or, gte } from "drizzle-orm";
 import { renderEmailTemplate, renderHtmlEmailTemplate } from "./emailTemplateEngine";
 import { sendTransactionalEmail } from "./emailTransport";
 import { logInfo, logError } from "../utils/logger";
 import { createAuditLog } from "./auditService";
 import { ConflictError, NotFoundError } from "../utils/errors";
+import { broadcastHtml } from "./broadcastService";
+
+export function nextBroadcastDay(now = new Date()) {
+  // 08:00 WIB tomorrow, independent of the server's own timezone.
+  const key = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric",
+    month: "2-digit", day: "2-digit" }).format(now);
+  return new Date(Date.parse(`${key}T08:00:00+07:00`) + 86_400_000);
+}
+
+async function campaignDailyLimitReached(db: ReturnType<typeof getDbClient>, payload: Record<string, unknown>, now = new Date()) {
+  const campaignId = payload.campaignId;
+  const dailyLimit = payload.dailyLimit;
+  if (typeof campaignId !== "string" || typeof dailyLimit !== "number" || !Number.isInteger(dailyLimit) || dailyLimit < 1) return false;
+  const end = new Date(nextBroadcastDay(now).getTime() - 8 * 3_600_000);
+  const start = new Date(end.getTime() - 86_400_000);
+  const [result] = await db.select({ count: sql<number>`count(*)::int` }).from(emailJobs).where(and(
+    sql`${emailJobs.payload}->>'campaignId' = ${campaignId}`,
+    or(eq(emailJobs.status, "SENT"), eq(emailJobs.status, "PROCESSING")),
+    gte(emailJobs.updatedAt, start), lt(emailJobs.updatedAt, end),
+    sql`${emailJobs.payload}->>'isTest' is distinct from 'true'`,
+  ));
+  return (result?.count || 0) >= dailyLimit;
+}
 
 export interface EnqueueOptions {
   templateCode: string;
@@ -102,6 +125,13 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
   const processedResults = [];
 
   for (const job of jobsToProcess) {
+    const payloadObj = (job.payload as Record<string, unknown>) || {};
+    if (await campaignDailyLimitReached(db, payloadObj)) {
+      await db.update(emailJobs).set({ scheduledAt: nextBroadcastDay(), updatedAt: new Date() })
+        .where(and(eq(emailJobs.id, job.id), or(eq(emailJobs.status, "QUEUED"), eq(emailJobs.status, "PENDING"))));
+      processedResults.push({ jobId: job.id, status: "DEFERRED", reason: "Batas email harian kampanye tercapai." });
+      continue;
+    }
     // Claim atomically: a second worker must not send the same job.
     const claimed = await db
       .update(emailJobs)
@@ -122,26 +152,30 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
     if (claimed.length === 0) continue;
 
     try {
-      const payloadObj = (job.payload as any) || {};
-      const templateCode: string = payloadObj.templateCode || "";
-      const variables: Record<string, any> = payloadObj.variables || {};
+      const templateCode = String(payloadObj.templateCode || "");
+      const variables: Record<string, any> = (payloadObj.variables as Record<string, any>) || {};
 
       // Render HTML email template untuk pengiriman nyata
       let subjectStr: string;
       let htmlBody: string;
       let textBody: string;
 
-      try {
-        const rendered = renderHtmlEmailTemplate(templateCode, variables);
-        subjectStr = rendered.subject;
-        htmlBody = rendered.htmlBody;
-        textBody = rendered.textBody;
-      } catch {
-        // Fallback: gunakan payload yang sudah di-render saat enqueue
-        subjectStr = payloadObj.subject || "Email Notification";
-        htmlBody = `<p>${payloadObj.bodyText || ""}</p>`;
-        textBody = payloadObj.bodyText || "";
-      }
+        if (templateCode === "BROADCAST_CUSTOM") {
+          subjectStr = String(payloadObj.subject || "Sapaan untuk Asatidz");
+          textBody = String(payloadObj.bodyText || "");
+          htmlBody = broadcastHtml(textBody);
+        } else {
+          try {
+            const rendered = renderHtmlEmailTemplate(templateCode, variables);
+            subjectStr = rendered.subject;
+            htmlBody = rendered.htmlBody;
+            textBody = rendered.textBody;
+          } catch {
+            subjectStr = String(payloadObj.subject || "Email Notification");
+            textBody = String(payloadObj.bodyText || "");
+            htmlBody = broadcastHtml(textBody);
+          }
+        }
 
       logInfo(requestId, `Mengirim email ke ${job.recipientEmail}: ${subjectStr}`);
 
@@ -265,6 +299,8 @@ export async function getEmailJobsDashboardService() {
       id: emailJobs.id,
       recipientEmail: emailJobs.recipientEmail,
       recipientName: emailJobs.recipientName,
+      templateName: sql<string | null>`${emailJobs.payload}->>'templateName'`,
+      subject: sql<string | null>`${emailJobs.payload}->>'subject'`,
       status: emailJobs.status,
       scheduledAt: emailJobs.scheduledAt,
       createdAt: emailJobs.createdAt,

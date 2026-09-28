@@ -227,6 +227,14 @@ export const OnSiteCheckinPage: React.FC = () => {
     setSubmitting(true);
     setFeedback(null);
     try {
+      if (!preview) {
+        const refreshed = await committeeApi<CheckinSchedule>(`/events/${eventId}/sessions/active`);
+        const freshUnit = refreshed.units.find((item) => item.id === selectedUnit.id);
+        if (!freshUnit?.isOpen) {
+          setUnits(refreshed.units);
+          throw new Error("Jendela unit kehadiran telah berubah. Pilih unit yang masih dibuka lalu coba lagi.");
+        }
+      }
       const result = preview
         ? { status: "SUCCESS" as const, checkinAt: new Date().toISOString(), participant: { participantCode: inputCode.toUpperCase(), ustadzName: "Peserta pratinjau" }, attendanceUnit: selectedUnit }
         : await committeeApi<CheckinResult>(`/events/${eventId}/checkin`, {

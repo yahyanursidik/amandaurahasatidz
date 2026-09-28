@@ -1138,6 +1138,7 @@ export const ParticipantPortalPage: React.FC = () => {
       {activeTab === "QR" && selectedParticipation && (
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="border border-slate-200 bg-white p-5 text-center sm:p-8 print:border-0">
+            <img src="/images/tarbiyah-sunnah-logo.svg" alt="Tarbiyah Sunnah" width="150" height="43" className="mx-auto mb-5 h-auto w-[150px] object-contain" />
             <StatusBadge
               label="Bukti pendaftaran dan QR kehadiran"
               variant="success"

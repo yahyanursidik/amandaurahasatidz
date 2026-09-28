@@ -4,13 +4,15 @@ import { users, userRoleAssignments, roles, ustadzProfiles } from "../db/schema"
 import { eq, or } from "drizzle-orm";
 import { RoleCode } from "../../../../src/config/permissions";
 import { parseCookies } from "../utils/cookie";
-import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { verifyPassword } from "../utils/password";
 import { AppError, UnauthorizedError, ForbiddenError } from "../utils/errors";
 
 function isProductionRuntime() {
   return process.env.APP_ENV === "production" || process.env.CONTEXT === "production";
 }
+
+const localSessionSecret = randomBytes(32).toString("hex");
 
 function getSessionSecret() {
   const configuredSecret =
@@ -23,7 +25,7 @@ function getSessionSecret() {
       "AUTH_CONFIGURATION_ERROR",
     );
   }
-  return "fallback_aman_daurah_session_dev_2026";
+  return localSessionSecret;
 }
 
 function signToken(payload: any): string {
@@ -86,12 +88,6 @@ const PORTAL_ROLES: Record<string, RoleCode[]> = {
   ustadz: ["USTADZ"],
 };
 
-const DEVELOPMENT_ACCOUNTS: Record<string, { password: string; role: RoleCode }> = {
-  "admin@yts.or.id": { password: "DemoAsatidz2026!", role: "SUPER_ADMIN" },
-  "panitia@yts.or.id": { password: "DemoAsatidz2026!", role: "COMMITTEE_LEAD" },
-  "ustadz.demo@yts.or.id": { password: "DemoAsatidz2026!", role: "USTADZ" },
-};
-
 export async function authenticatePasswordService(
   email: string,
   password: string,
@@ -122,40 +118,15 @@ export async function authenticatePasswordService(
     }
   } catch (error) {
     if (error instanceof UnauthorizedError) throw error;
-    if (isProductionRuntime()) {
-      throw new AppError(
-        "Layanan akun belum dapat menjangkau database. Coba kembali atau hubungi administrator.",
-        503,
-        "AUTH_DATABASE_UNAVAILABLE",
-      );
-    }
-  }
-
-  if (!passwordValid && !isProductionRuntime()) {
-    const demo = DEVELOPMENT_ACCOUNTS[normalizedEmail];
-    if (demo && password === demo.password) {
-      passwordValid = true;
-      context = {
-        userId: "00000000-0000-0000-0000-000000000001",
-        email: normalizedEmail,
-        name: normalizedEmail.split("@")[0],
-        assignments: [{ roleCode: demo.role, eventId: portal === "committee" ? "*" : undefined }],
-      };
-    }
+    throw new AppError(
+      "Layanan akun belum dapat menjangkau database. Coba kembali atau hubungi administrator.",
+      503,
+      "AUTH_DATABASE_UNAVAILABLE",
+    );
   }
 
   if (!passwordValid || !context) {
     throw new UnauthorizedError("Email atau password tidak sesuai.");
-  }
-
-  // The local committee demo account is intentionally broad so every
-  // committee workflow can be exercised. Production always uses persisted,
-  // event-scoped assignments from the database.
-  if (!isProductionRuntime() && normalizedEmail === "panitia@yts.or.id") {
-    context = {
-      ...context,
-      assignments: [{ roleCode: "COMMITTEE_LEAD", eventId: "*" }],
-    };
   }
 
   const allowedRoles = PORTAL_ROLES[portal] || [];
@@ -198,11 +169,6 @@ export async function getUserSession(
           return isProductionRuntime()
             ? resolveUserContextFromEmail(payload.email)
             : payload.userContext || resolveUserContextFromEmail(payload.email);
-        }
-      } else {
-        // Direct email fallback for local development and mock compatibility.
-        if (!isProductionRuntime()) {
-          return resolveUserContextFromEmail(token.includes("@") ? token : "admin@yts.or.id");
         }
       }
     }

@@ -232,11 +232,12 @@
     border: 1px solid color-mix(in oklch, var(--color-login-paper) 24%, transparent);
     border-radius: var(--radius-login-control);
     color: var(--color-login-accent-ink);
-    background: var(--login-accent);
+    background: color-mix(in oklch, var(--color-login-paper) 8%, transparent);
     font-size: var(--text-login-small);
     font-weight: 900;
     letter-spacing: -0.02em;
   }
+  .login-brand__mark img { width: 2.25rem; height: 2rem; object-fit: contain; }
 
   .login-brand__copy {
     display: grid;
@@ -255,8 +256,7 @@
   }
 
   .login-brand:focus-visible,
-  .login-back:focus-visible,
-  .login-demo button:focus-visible {
+  .login-back:focus-visible {
     outline: 3px solid var(--login-accent);
     outline-offset: 3px;
   }
@@ -650,61 +650,6 @@
     color: var(--login-accent);
   }
 
-  .login-demo {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-login-3);
-    border-block: 1px solid var(--color-login-rule);
-    padding-block: var(--space-login-3);
-  }
-
-  .login-demo > div {
-    min-width: 0;
-    display: grid;
-    gap: var(--space-login-1);
-  }
-
-  .login-demo strong,
-  .login-demo span {
-    overflow-wrap: anywhere;
-  }
-
-  .login-demo strong {
-    font-size: var(--text-login-small);
-  }
-
-  .login-demo span {
-    color: var(--color-login-muted);
-    font-size: var(--text-login-caption);
-  }
-
-  .login-demo button {
-    min-height: 2.75rem;
-    flex: 0 0 auto;
-    border: 1px solid var(--login-accent);
-    border-radius: var(--radius-login-control);
-    background: transparent;
-    color: var(--login-accent);
-    padding-inline: var(--space-login-3);
-    font-size: var(--text-login-small);
-    font-weight: 800;
-    cursor: pointer;
-  }
-
-  .login-demo button:hover:not(:disabled) {
-    background: color-mix(in oklch, var(--login-accent) 7%, var(--color-login-paper));
-  }
-
-  .login-demo button:active:not(:disabled) {
-    transform: translateY(1px);
-  }
-
-  .login-demo button:disabled {
-    cursor: not-allowed;
-    opacity: 0.55;
-  }
-
   .login-back {
     width: fit-content;
     min-height: 2.75rem;
@@ -774,15 +719,6 @@
 
   .login-form__intro {
     margin-bottom: var(--space-login-6);
-  }
-
-  .login-demo {
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .login-demo button {
-    width: 100%;
   }
 
   .login-footer {
@@ -6564,7 +6500,7 @@
 }
 .public-programs__header > p, .public-register__header p,
 .event-public-enrollment__eyebrow { margin: 0; color: var(--color-public-accent); font-size: var(--text-public-small); font-weight: 800; }
-.public-programs__header h1, .public-register__header h1 { margin: 0; font-size: var(--text-public-title); line-height: 1.12; font-weight: 800; letter-spacing: -0.035em; }
+.public-programs__header h1, .public-register__header h1, .public-register__header h2 { margin: 0; font-size: var(--text-public-title); line-height: 1.12; font-weight: 800; letter-spacing: -0.035em; }
 .public-programs__header > span, .public-register__header > div > span { max-width: 65ch; color: var(--color-public-muted); font-size: var(--text-public-body); line-height: 1.6; }
 .public-programs__header a, .public-programs__item > a, .public-register__back a,
 .public-register__aside a, .event-public-enrollment a {

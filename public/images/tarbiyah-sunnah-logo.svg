@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 170" role="img" aria-labelledby="title">
+  <title id="title">Tarbiyah Sunnah</title>
+  <g transform="translate(5 8) scale(1.22)">
+    <path fill="#E9AB00" d="M80 0 147 99q3 5-3 5L80 35Z"/>
+    <path fill="#CF8119" d="M47 16 149 108q3 5-3 5L47 62Z"/>
+    <path fill="#4E6940" d="M38 68 150 116q4 2 0 4H38Z"/>
+  </g>
+  <g fill="#4E6940" font-family="Trebuchet MS, Arial, sans-serif" font-weight="700" letter-spacing="-2">
+    <text x="204" y="77" font-size="70">Tarbiyah</text>
+    <text x="204" y="148" font-size="70">Sunnah</text>
+  </g>
+</svg>

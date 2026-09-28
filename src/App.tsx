@@ -50,7 +50,7 @@ import { NotFoundPage } from "./pages/NotFoundPage";
 
 export const App: React.FC = () => {
   return (
-    <BrowserRouter>
+    <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
       <Refine
         authProvider={authProvider}
         dataProvider={dataProvider}
@@ -284,6 +284,7 @@ export const App: React.FC = () => {
             }
           />
           <Route path="/admin/email-jobs" element={<ProtectedRoute><AdminEmailJobsPage /></ProtectedRoute>} />
+          <Route path="/admin/broadcast" element={<ProtectedRoute><AdminEmailJobsPage mode="broadcast" /></ProtectedRoute>} />
 
           <Route path="/admin/committee" element={<ProtectedRoute><CommitteeDirectoryPage /></ProtectedRoute>} />
           <Route path="/admin/committee/create" element={<ProtectedRoute><CommitteeCreatePage /></ProtectedRoute>} />

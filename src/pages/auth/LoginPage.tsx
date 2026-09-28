@@ -36,7 +36,6 @@ const portalConfig: Record<
     description: string;
     helper: string;
     guide: string;
-    defaultEmail: string;
     icon: React.ComponentType<{ className?: string }>;
   }
 > = {
@@ -47,7 +46,6 @@ const portalConfig: Record<
     description: "Kelola event, lembaga, undangan, data asatidz, dan laporan dari satu ruang kerja.",
     helper: "Akses khusus administrator dan pengelola event.",
     guide: "Siapkan email dan password akun admin. Setelah masuk, Anda dapat meninjau program, pendaftaran, dan laporan.",
-    defaultEmail: "admin@yts.or.id",
     icon: ShieldCheck,
   },
   committee: {
@@ -57,7 +55,6 @@ const portalConfig: Record<
     description: "Tangani check-in, kehadiran, dan informasi acara tanpa membuka data administrasi yang tidak diperlukan.",
     helper: "Akses khusus panitia yang ditugaskan pada event.",
     guide: "Gunakan akun panitia yang sudah ditugaskan. Tugas check-in dan presensi akan tampil sesuai kewenangan Anda.",
-    defaultEmail: "panitia@yts.or.id",
     icon: ClipboardCheck,
   },
   ustadz: {
@@ -67,7 +64,6 @@ const portalConfig: Record<
     description: "Akses jadwal, kartu peserta, QR kehadiran, pengumuman, dan riwayat presensi Anda.",
     helper: "Gunakan akun pribadi yang terdaftar sebagai peserta.",
     guide: "Sudah didaftarkan lembaga atau mendaftar reguler? Gunakan email peserta yang sama. Jika belum punya password, pilih aktivasi akun di bawah.",
-    defaultEmail: "ustadz.demo@yts.or.id",
     icon: BookOpen,
   },
 };
@@ -82,7 +78,7 @@ export const LoginPage: React.FC = () => {
   const config = portalConfig[portal];
   const PortalIcon = config.icon;
 
-  const [email, setEmail] = useState(import.meta.env.DEV ? config.defaultEmail : "");
+  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [capsLockOn, setCapsLockOn] = useState(false);
@@ -96,11 +92,10 @@ export const LoginPage: React.FC = () => {
   const [activationCode, setActivationCode] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const [previewCode, setPreviewCode] = useState("");
 
   useEffect(() => {
     window.scrollTo(0, 0);
-    setEmail(import.meta.env.DEV ? config.defaultEmail : "");
+    setEmail("");
     setPassword("");
     setShowPassword(false);
     setCapsLockOn(false);
@@ -108,7 +103,7 @@ export const LoginPage: React.FC = () => {
     setActivationOpen(false);
     setActivationStep("request");
     setActivationError("");
-  }, [config.defaultEmail]);
+  }, [portal]);
 
   const readApiError = async (response: Response) => {
     const payload = await response.json().catch(() => ({}));
@@ -128,7 +123,6 @@ export const LoginPage: React.FC = () => {
       if (!response.ok) throw new Error(await readApiError(response));
       const payload = await response.json();
       setChallengeToken(payload.data.challengeToken);
-      setPreviewCode(payload.data.previewCode || "");
       setActivationStep("complete");
     } catch (activationRequestError) {
       setActivationError(
@@ -175,12 +169,6 @@ export const LoginPage: React.FC = () => {
     }
   };
 
-  const fillDevelopmentAccount = () => {
-    setEmail(config.defaultEmail);
-    setPassword("DemoAsatidz2026!");
-    setError("");
-  };
-
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
     setError("");
@@ -221,10 +209,10 @@ export const LoginPage: React.FC = () => {
             className="login-brand"
             aria-label="Aman Daurah Asatidz, kembali ke beranda"
           >
-            <span className="login-brand__mark">ADA</span>
+            <span className="login-brand__mark"><img src="/images/tarbiyah-sunnah-mark.svg" alt="" width="36" height="32" /></span>
             <span className="login-brand__copy">
-              <strong>Aman Daurah Asatidz</strong>
-              <span>Sistem pengelolaan daurah</span>
+              <strong>Tarbiyah Sunnah</strong>
+              <span>Aman Daurah Asatidz</span>
             </span>
           </Link>
           <span className="login-nav__portal">
@@ -398,11 +386,6 @@ export const LoginPage: React.FC = () => {
                         <strong>Buat password baru</strong>
                         <p>Kode berlaku 10 menit. Password minimal 10 karakter, memakai huruf besar, huruf kecil, dan angka.</p>
                       </div>
-                      {previewCode && (
-                        <p className="login-activation__preview">
-                          Mode development · kode lokal <strong>{previewCode}</strong>
-                        </p>
-                      )}
                       <label className="login-activation__field">
                         <span>Kode aktivasi</span>
                         <input
@@ -475,17 +458,6 @@ export const LoginPage: React.FC = () => {
                 <CheckCircle2 aria-hidden="true" />
                 <span>Akses akan diverifikasi berdasarkan peran akun dan jalur portal ini.</span>
               </div>
-              {import.meta.env.DEV && (
-                <div className="login-demo">
-                  <div>
-                    <strong>Akun uji lokal</strong>
-                    <span>{config.defaultEmail}</span>
-                  </div>
-                  <button type="button" onClick={fillDevelopmentAccount} disabled={isPending}>
-                    Isi akun uji
-                  </button>
-                </div>
-              )}
               <Link
                 to="/"
                 className="login-back"

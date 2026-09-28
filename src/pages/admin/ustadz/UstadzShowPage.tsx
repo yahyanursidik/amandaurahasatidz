@@ -346,6 +346,15 @@ export const UstadzShowPage: React.FC = () => {
             {activeTab === "EVENTS" && (
               <section className="ustadz-panel">
                 <div className="ustadz-panel__head"><div><p>Jejak partisipasi</p><h2>Undangan, konfirmasi, dan kehadiran</h2></div></div>
+                <div className="grid grid-cols-2 gap-2 p-4 sm:grid-cols-5" aria-label="Statistik keikutsertaan asatidz">
+                  {([
+                    ["Pernah terdaftar", profile.participationStats?.totalEvents ?? profile.eventHistory?.length ?? 0],
+                    ["Disetujui", profile.participationStats?.approved ?? 0],
+                    ["Pernah hadir", profile.participationStats?.attended ?? 0],
+                    ["Ditolak", profile.participationStats?.rejected ?? 0],
+                    ["Ditandai/menunggu", profile.participationStats?.flagged ?? 0],
+                  ] as const).map(([label, value]) => <div key={label} className="rounded-lg border border-slate-200 bg-slate-50 p-3"><strong className="text-xl text-slate-950">{value}</strong><p className="mt-1 text-xs font-bold text-slate-600">{label}</p></div>)}
+                </div>
                 <div className="ustadz-event-list">
                   {(profile.eventHistory || []).length === 0 ? (
                     <p className="ustadz-panel__empty">Belum ada riwayat event yang tertaut ke profil ini.</p>
@@ -353,7 +362,7 @@ export const UstadzShowPage: React.FC = () => {
                     profile.eventHistory?.map((event) => (
                       <article key={event.participantId}>
                         <time>{formatDate(event.eventStartDate)}</time>
-                        <div><strong>{event.eventName}</strong><span>{event.eventCode} · Peserta {event.participantCode}</span><small>{event.institutionName || "Peserta individual"} · {event.registrationSource.replaceAll("_", " ")}</small></div>
+                         <div><strong>{event.eventName}</strong><span>{event.eventCode} · Peserta {event.participantCode}</span><small>{event.institutionName || "Peserta individual"} · {event.registrationSource.replaceAll("_", " ")}</small><small>Status: {event.approvalStatus.replaceAll("_", " ")}{event.statusReason ? ` · Alasan: ${event.statusReason}` : ["REJECTED", "DECLINED", "WAITLISTED"].includes(event.approvalStatus) ? " · Alasan belum dicatat panitia" : ""}</small></div>
                         <div><span>{event.attendanceStatus.replaceAll("_", " ")}</span><strong>{event.attendedUnits}/{event.requiredUnits} unit · {event.completionPercentage}%</strong></div>
                       </article>
                     ))

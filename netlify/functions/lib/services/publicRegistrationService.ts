@@ -8,15 +8,12 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { enqueueEmailJob } from "./emailQueueService";
 import { createAuditLog } from "./auditService";
-import { createInvitationOtpChallenge, shouldExposeInvitationPreviewCode, verifyInvitationOtpChallenge } from "./invitationOtpService";
 
 type PublicRegistrationInput = {
   fullName: string;
   email: string;
   whatsapp: string;
   address?: string | null;
-  code: string;
-  challengeToken: string;
   consentConfirmed: true;
   delegates?: Array<{ fullName: string; email: string; whatsapp: string; address?: string | null }>;
 };
@@ -70,30 +67,9 @@ async function getOpenEvent(slug: string) {
   return event;
 }
 
-export async function requestPublicRegistrationCodeService(slug: string, email: string) {
-  const event = await getOpenEvent(slug);
-  const normalizedEmail = normalizeEmail(email);
-  if (!normalizedEmail) throw new ValidationError("Alamat email tidak valid.");
-  const challenge = createInvitationOtpChallenge(event.id, normalizedEmail);
-  await enqueueEmailJob({
-    templateCode: "OTP_CODE",
-    recipientEmail: normalizedEmail,
-    variables: { otpCode: challenge.code, expiresMinutes: 5 },
-    idempotencyKey: `public_registration_${event.id}_${randomBytes(12).toString("hex")}`,
-  });
-  return {
-    challengeToken: challenge.challengeToken,
-    expiresAt: challenge.expiresAt,
-    ...(shouldExposeInvitationPreviewCode() ? { previewCode: challenge.code } : {}),
-  };
-}
-
 export async function submitPublicRegistrationService(slug: string, input: PublicRegistrationInput, requestId: string) {
   const event = await getOpenEvent(slug);
   const people = normalizePublicRegistrationGroup(input);
-  if (!verifyInvitationOtpChallenge(input.challengeToken, input.code, event.id, people[0].email)) {
-    throw new ForbiddenError("Kode email salah atau sudah kedaluwarsa. Minta kode baru.");
-  }
 
   const result = await withTransaction(async (tx) => {
     const role = (await tx.select().from(roles).where(eq(roles.code, "USTADZ")).limit(1))[0];
@@ -143,7 +119,7 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
       const roleExists = (await tx.select({ id: userRoleAssignments.id }).from(userRoleAssignments)
         .where(and(eq(userRoleAssignments.userId, user.id), eq(userRoleAssignments.roleId, role.id), eq(userRoleAssignments.eventId, event.id))).limit(1))[0];
       if (!roleExists) await tx.insert(userRoleAssignments).values({ userId: user.id, roleId: role.id, eventId: event.id });
-      const participantCode = `ADA-${event.code.slice(0, 8).replace(/[^A-Za-z0-9]/g, "").toUpperCase()}-${randomBytes(4).toString("hex").toUpperCase()}`;
+      const participantCode = `P-${randomBytes(4).toString("hex").toUpperCase()}`;
       const participant = (await tx.insert(eventParticipants).values({
         eventId: event.id, ustadzId: profile.id, registrationSource: "DIRECT_PUBLIC",
         publicGroupId, isDelegationLead: Boolean(publicGroupId && index === 0), participantCode,

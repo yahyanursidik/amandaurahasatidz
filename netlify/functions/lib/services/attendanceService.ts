@@ -134,19 +134,20 @@ export async function processOnSiteCheckinService(
   selection?: { sessionId?: string | null; dayId?: string | null },
 ) {
   const schedule = await getAttendanceCheckinUnitsService(eventId);
-  const requestedUnit = selection?.sessionId
+   const requestedUnit = selection?.sessionId
     ? schedule.units.find((unit) => unit.sessionId === selection.sessionId)
     : selection?.dayId
       ? schedule.units.find((unit) => unit.type === "DAY" && unit.dayId === selection.dayId)
       : null;
-  const unit = requestedUnit ||
-    schedule.openUnits.find((item) => item.type === "SESSION") ||
-    schedule.openUnits[0];
+   const unit = requestedUnit ||
+     (schedule.openUnits.length === 1 ? schedule.openUnits[0] : null);
 
   if ((selection?.sessionId || selection?.dayId) && !requestedUnit) {
     throw new ValidationError("Unit kehadiran yang dipilih tidak termasuk dalam event ini.");
   }
-  if (!unit) throw new ValidationError("Belum ada unit kehadiran yang sedang membuka check-in.");
+   if (!unit) throw new ValidationError(schedule.openUnits.length > 1
+     ? "Beberapa unit sedang dibuka. Pilih hari atau sesi kehadiran terlebih dahulu."
+     : "Belum ada unit kehadiran yang sedang membuka check-in.");
   if (!unit.isOpen) {
     await recordCheckinLogRepository({
       eventId,
@@ -161,14 +162,15 @@ export async function processOnSiteCheckinService(
     throw new ValidationError(`Jendela check-in '${unit.title}' belum dibuka atau telah ditutup.`);
   }
 
-  let verified;
+   const actualMethod = qrTokenOrCode.trim().startsWith("pqr_") ? "QR_SCAN" : "MANUAL_CODE";
+   let verified;
   try {
     verified = await verifyQrTokenForCheckinService(eventId, qrTokenOrCode, actorUserId, requestId);
   } catch (error: any) {
     await recordCheckinLogRepository({
       eventId,
       eventSessionId: unit.sessionId,
-      method,
+       method: actualMethod,
       result: "FAILED",
       failureReason: error.message || "Token QR atau kode tidak valid",
       scannedBy: actorUserId,
@@ -185,7 +187,7 @@ export async function processOnSiteCheckinService(
       dayId: unit.dayId,
       sessionId: unit.sessionId,
       participantId: participant.id,
-      method,
+       method: actualMethod,
       actorUserId,
       requestId,
     });

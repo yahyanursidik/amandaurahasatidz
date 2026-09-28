@@ -44,9 +44,8 @@ export async function seedDatabase() {
   }
 
   console.log("Seeding role-specific login accounts...");
-  const developmentPassword =
-    process.env.SEED_DEFAULT_PASSWORD ||
-    (process.env.APP_ENV !== "production" ? "DemoAsatidz2026!" : undefined);
+  // Seed akun hanya bisa dipakai masuk bila password diberikan eksplisit oleh operator.
+  const developmentPassword = process.env.SEED_DEFAULT_PASSWORD || undefined;
   const accountDefinitions = [
     { email: "admin@yts.or.id", name: "Super Admin YTS", roleCode: "SUPER_ADMIN" },
     { email: "panitia@yts.or.id", name: "Koordinator Panitia Daurah", roleCode: "COMMITTEE_LEAD" },

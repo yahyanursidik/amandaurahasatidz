@@ -1,9 +1,10 @@
 /* Hallmark · genre: modern-minimal · macrostructure: Narrative Workflow · design-system: design.md · designed-as-app */
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, CheckCircle2, Mail, Plus, ShieldCheck, Trash2, Users } from "lucide-react";
+import { ArrowLeft, ArrowRight, CheckCircle2, Plus, ShieldCheck, Trash2, Users } from "lucide-react";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { ENV } from "@/config/env";
+import { getRegularRegistrationState } from "@/lib/regularRegistration";
 
 type EventSummary = {
   name: string;
@@ -39,10 +40,10 @@ async function readResponse<T>(response: Response): Promise<T> {
   return payload.data as T;
 }
 
-export const PublicEventRegistrationPage: React.FC = () => {
+export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummary }> = ({ embeddedEvent }) => {
   const { slug = "" } = useParams<{ slug: string }>();
-  const [event, setEvent] = useState<EventSummary | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [event, setEvent] = useState<EventSummary | null>(embeddedEvent || null);
+  const [loading, setLoading] = useState(!embeddedEvent);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [email, setEmail] = useState("");
@@ -50,12 +51,10 @@ export const PublicEventRegistrationPage: React.FC = () => {
   const [whatsapp, setWhatsapp] = useState("");
   const [address, setAddress] = useState("");
   const [delegates, setDelegates] = useState<Delegate[]>([]);
-  const [challengeToken, setChallengeToken] = useState("");
-  const [previewCode, setPreviewCode] = useState("");
-  const [code, setCode] = useState("");
   const [result, setResult] = useState<RegistrationResult | null>(null);
 
   useEffect(() => {
+    if (embeddedEvent) { setEvent(embeddedEvent); setLoading(false); return; }
     const controller = new AbortController();
     setLoading(true);
     fetch(`${ENV.API_BASE_URL}/events/public/${encodeURIComponent(slug)}`, { signal: controller.signal })
@@ -64,31 +63,9 @@ export const PublicEventRegistrationPage: React.FC = () => {
       .catch((loadError) => { if (!controller.signal.aborted) setError(loadError instanceof Error ? loadError.message : "Program tidak dapat dimuat."); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [slug]);
+  }, [slug, embeddedEvent]);
 
-  const open = Boolean(event &&
-    ["PUBLIC_OPEN", "MIXED"].includes(event.audienceMode) &&
-    event.status === "REGISTRATION_OPEN" &&
-    (event.regularQuota == null || event.regularApproved < event.regularQuota) &&
-    (event.capacity == null || event.regularApproved + event.invitationApproved < event.capacity) &&
-    (!event.registrationOpenAt || new Date(event.registrationOpenAt) <= new Date()) &&
-    (!event.registrationCloseAt || new Date(event.registrationCloseAt) >= new Date()));
-
-  const requestCode = async (formEvent: React.FormEvent) => {
-    formEvent.preventDefault();
-    setBusy(true);
-    setError("");
-    try {
-      const data = await readResponse<{ challengeToken: string; previewCode?: string }>(await fetch(
-        `${ENV.API_BASE_URL}/events/public/${encodeURIComponent(slug)}/registration/code`,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ email: email.trim() }) },
-      ));
-      setChallengeToken(data.challengeToken);
-      setPreviewCode(data.previewCode || "");
-    } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Kode verifikasi gagal dikirim.");
-    } finally { setBusy(false); }
-  };
+  const registration = event ? getRegularRegistrationState(event) : null;
 
   const submit = async (formEvent: React.FormEvent) => {
     formEvent.preventDefault();
@@ -99,7 +76,7 @@ export const PublicEventRegistrationPage: React.FC = () => {
     try {
       const data = await readResponse<RegistrationResult>(await fetch(
         `${ENV.API_BASE_URL}/events/public/${encodeURIComponent(slug)}/registration`,
-        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fullName, email: email.trim(), whatsapp, address, code, challengeToken, delegates, consentConfirmed: true }) },
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fullName, email: email.trim(), whatsapp, address, delegates, consentConfirmed: true }) },
       ));
       setResult(data);
     } catch (submitError) {
@@ -107,17 +84,14 @@ export const PublicEventRegistrationPage: React.FC = () => {
     } finally { setBusy(false); }
   };
 
-  return <PublicLayout>
+  const content = (
     <div className="public-register">
-      <nav aria-label="Navigasi pendaftaran" className="public-register__back"><Link to={`/events/${slug}`}><ArrowLeft aria-hidden="true" /> Informasi program</Link></nav>
+      {!embeddedEvent && <nav aria-label="Navigasi pendaftaran" className="public-register__back"><Link to={`/events/${slug}`}><ArrowLeft aria-hidden="true" /> Informasi program</Link></nav>}
       <header className="public-register__header">
         <div>
           <p>Pendaftaran reguler</p>
-          <h1>{event?.name || "Daftar program daurah"}</h1>
-          <span>Daftar sendiri atau sebagai kepala rombongan. Setiap asatidz memperoleh kode peserta, akun, dan QR masing-masing setelah disetujui panitia.</span>
-        </div>
-        <div className="public-register__steps" aria-label="Tahapan pendaftaran">
-          <span>1. Isi email</span><span>2. Verifikasi</span><span>3. Isi data</span><span>4. Pantau status</span>
+           {embeddedEvent ? <h2>Formulir pendaftaran reguler</h2> : <h1>{event?.name || "Daftar program daurah"}</h1>}
+           <span>Daftar langsung di halaman ini, sendiri atau sebagai kepala rombongan. Setiap asatidz memperoleh kode peserta dan QR masing-masing setelah disetujui panitia.</span>
         </div>
       </header>
       {loading ? <p role="status" className="public-register__notice">Memuat informasi program…</p> : !event ? <p role="alert" className="public-register__error">{error || "Program tidak tersedia."}</p> : result ? (
@@ -134,23 +108,17 @@ export const PublicEventRegistrationPage: React.FC = () => {
           </ol>
           <Link to="/login/ustadz" className="public-register__primary">Buka Portal Asatidz <ArrowRight aria-hidden="true" /></Link>
         </section>
-      ) : !open ? <div className="public-register__notice"><strong>Pendaftaran reguler tidak sedang dibuka.</strong><p>Lihat informasi program atau hubungi panitia bila Anda menerima undangan khusus.</p></div> : (
+      ) : !registration?.open ? <div className="public-register__notice" role="status"><strong>Formulir reguler belum dapat diisi.</strong><p>{registration?.reason}</p></div> : (
         <div className="public-register__layout">
           <section className="public-register__form-panel">
-            <h2>{challengeToken ? "Lengkapi rombongan" : "Mulai dengan email kepala rombongan"}</h2>
-            <p>Gunakan email pribadi yang dapat Anda buka. Kode verifikasi dikirim ke kepala rombongan; setiap peserta nanti memakai emailnya sendiri untuk portal.</p>
-            {error && <p role="alert" className="public-register__error">{error}</p>}
-            {!challengeToken ? <form onSubmit={requestCode} className="public-register__form">
-              <label htmlFor="register-email">Email pribadi</label>
-              <input id="register-email" type="email" autoComplete="email" required value={email} onChange={(input) => setEmail(input.target.value)} placeholder="nama@contoh.id" />
-              <button disabled={busy} type="submit" className="public-register__primary"><Mail aria-hidden="true" /> {busy ? "Mengirim kode…" : "Kirim kode verifikasi"}</button>
-            </form> : <form onSubmit={submit} className="public-register__form">
-              <p className="public-register__sent">Kode 6 digit dikirim ke <strong>{email}</strong>. Berlaku 5 menit.</p>
-              {previewCode && <p className="public-register__sent">Mode lokal · kode uji: <strong>{previewCode}</strong></p>}
-              <label htmlFor="register-code">Kode verifikasi email</label>
-              <input id="register-code" required inputMode="numeric" autoComplete="one-time-code" pattern="[0-9]{6}" maxLength={6} value={code} onChange={(input) => setCode(input.target.value.replace(/\D/g, ""))} placeholder="6 digit" />
-              <label htmlFor="register-name">Nama lengkap asatidz</label>
-              <input id="register-name" required minLength={3} autoComplete="name" value={fullName} onChange={(input) => setFullName(input.target.value)} placeholder="Sesuai nama yang digunakan di lembaga" />
+             <h2>Data pendaftar</h2>
+             <p>Isi nama, email pribadi, dan WhatsApp aktif. Data dikirim ke panitia untuk ditinjau. Anggota rombongan dapat ditambahkan bila mendaftar bersama.</p>
+             {error && <p role="alert" className="public-register__error">{error}</p>}
+             <form onSubmit={submit} className="public-register__form">
+               <label htmlFor="register-name">Nama lengkap asatidz</label>
+               <input id="register-name" required minLength={3} autoComplete="name" value={fullName} onChange={(input) => setFullName(input.target.value)} placeholder="Sesuai nama yang digunakan di lembaga" />
+               <label htmlFor="register-email">Email pribadi</label>
+               <input id="register-email" type="email" autoComplete="email" required value={email} onChange={(input) => setEmail(input.target.value)} placeholder="nama@contoh.id" />
               <label htmlFor="register-whatsapp">Nomor WhatsApp aktif</label>
               <input id="register-whatsapp" required type="tel" inputMode="tel" autoComplete="tel" value={whatsapp} onChange={(input) => setWhatsapp(input.target.value)} placeholder="08…" />
               <label htmlFor="register-address">Alamat domisili <span>(opsional)</span></label>
@@ -161,14 +129,12 @@ export const PublicEventRegistrationPage: React.FC = () => {
               </section>
               <label className="public-register__consent"><input type="checkbox" required /> <span>Saya telah mendapat persetujuan anggota rombongan untuk menyerahkan data kontak mereka kepada panitia dan mengirimkan informasi program melalui email.</span></label>
               <button disabled={busy} type="submit" className="public-register__primary">{busy ? "Menyimpan…" : "Kirim pendaftaran"} <ArrowRight aria-hidden="true" /></button>
-              <button type="button" className="public-register__secondary" onClick={() => { setChallengeToken(""); setCode(""); setError(""); }}>Ganti email atau minta kode baru</button>
-            </form>}
+             </form>
           </section>
           <aside className="public-register__aside">
             <ShieldCheck aria-hidden="true" />
             <h2>Sebelum mendaftar</h2>
             <ul>
-              <li>Jika Anda sudah didaftarkan oleh lembaga, jangan mendaftar ulang melalui jalur reguler.</li>
               <li>Satu profil asatidz boleh mengikuti beberapa program, tetapi hanya satu pendaftaran per program. Kepala rombongan dapat mendaftarkan beberapa asatidz sekaligus.</li>
               <li>Setiap peserta memakai QR miliknya sendiri saat presensi.</li>
             </ul>
@@ -177,5 +143,6 @@ export const PublicEventRegistrationPage: React.FC = () => {
         </div>
       )}
     </div>
-  </PublicLayout>;
+  );
+  return embeddedEvent ? content : <PublicLayout>{content}</PublicLayout>;
 };

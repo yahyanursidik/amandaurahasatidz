@@ -1,7 +1,7 @@
 import { getDbClient } from "../db/client";
 import { withTransaction } from "../db/transaction";
 import { eventParticipants, events, institutions, ustadzProfiles, ustadzInstitutionAffiliations } from "../db/schema";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { AppError, ValidationError, ForbiddenError, NotFoundError, ConflictError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
@@ -59,6 +59,8 @@ export interface ParticipantImportDryRunResult {
       resolvedInstitutionId: string | null;
       resolvedInstitutionName: string | null;
       finalParticipantCode: string;
+      matchedUstadzId: string | null;
+      previousApprovedEvents: number;
     }
   >;
 }
@@ -104,13 +106,26 @@ export function isPreviouslyImportedParticipant(row: ParticipantImportRowItem, e
     (!name || name === existing.institutionName?.toLowerCase()));
 }
 
+export function countPreviouslyApprovedEvents(
+  history: Array<{ ustadzId: string; eventId: string }>, ustadzId: string, currentEventId: string,
+) {
+  return new Set(history.filter((item) => item.ustadzId === ustadzId && item.eventId !== currentEventId)
+    .map((item) => item.eventId)).size;
+}
+
+// Historical phone values may contain spaces/dashes or start with 0 rather than 62.
+const normalizedDbPhone = (column: typeof ustadzProfiles.phone | typeof ustadzProfiles.whatsapp) =>
+  sql<string>`case when regexp_replace(coalesce(${column}, ''), '[^0-9]', '', 'g') like '0%'
+    then '62' || substring(regexp_replace(${column}, '[^0-9]', '', 'g') from 2)
+    else regexp_replace(coalesce(${column}, ''), '[^0-9]', '', 'g') end`;
+
 function buildParticipantCode(eventId: string, rowIndex: number, usedCodes: Set<string>, providedCode?: string | null) {
   const cleanProvided = providedCode?.trim();
   if (cleanProvided) return cleanProvided;
   let sequence = rowIndex;
   let code = "";
   do {
-    code = `ADA-${eventId.slice(0, 8).toUpperCase()}-${String(sequence).padStart(3, "0")}`;
+    code = `P-${String(sequence).padStart(4, "0")}`;
     sequence += 1;
   } while (usedCodes.has(code.toLowerCase()));
   return code;
@@ -160,9 +175,14 @@ export async function processEventParticipantImportDryRunService(
         .select({ id: ustadzProfiles.id, normalizedName: ustadzProfiles.normalizedName, email: ustadzProfiles.email, phone: ustadzProfiles.phone, whatsapp: ustadzProfiles.whatsapp })
         .from(ustadzProfiles)
         .where(or(
-          ...(contactEmails.length ? [inArray(ustadzProfiles.email, contactEmails)] : []),
-          ...(contactPhones.length ? [inArray(ustadzProfiles.phone, contactPhones), inArray(ustadzProfiles.whatsapp, contactPhones)] : []),
+          ...(contactEmails.length ? [inArray(sql<string>`lower(${ustadzProfiles.email})`, contactEmails)] : []),
+          ...(contactPhones.length ? [inArray(normalizedDbPhone(ustadzProfiles.phone), contactPhones), inArray(normalizedDbPhone(ustadzProfiles.whatsapp), contactPhones)] : []),
         ))
+    : [];
+  const previousApprovals = matchingProfiles.length
+    ? await db.select({ ustadzId: eventParticipants.ustadzId, eventId: eventParticipants.eventId })
+        .from(eventParticipants).where(and(inArray(eventParticipants.ustadzId, matchingProfiles.map((profile) => profile.id)),
+          eq(eventParticipants.approvalStatus, "APPROVED")))
     : [];
 
   const errorReport: ParticipantImportDryRunResult["errorReport"] = [];
@@ -282,6 +302,9 @@ export async function processEventParticipantImportDryRunService(
         resolvedInstitutionId: resolvedInstitution?.id || null,
         resolvedInstitutionName: resolvedInstitution?.name || null,
         finalParticipantCode,
+        matchedUstadzId: matchingByContact[0]?.id || null,
+        previousApprovedEvents: matchingByContact[0]
+          ? countPreviouslyApprovedEvents(previousApprovals, matchingByContact[0].id, eventId) : 0,
         approvalStatus: normalizeParticipantApprovalStatus(row.approvalStatus),
       });
     }
@@ -320,21 +343,23 @@ export async function commitEventParticipantImportService(
 
   const rowsToImport = dryRun.previewData;
   const participantCodes: string[] = [];
+  let reusedProfileCount = 0;
   const failureReport: { line: number; participantCode: string; error: string }[] = [];
 
   for (const row of rowsToImport) {
     try {
       const participantCode = await withTransaction(async (tx) => {
       const phones = [...new Set([row.normalizedPhone, row.normalizedWhatsapp].filter((value): value is string => Boolean(value)))];
-      const profiles = await tx
-        .select()
-        .from(ustadzProfiles)
-        .where(or(
-          ...(row.normalizedEmail ? [eq(ustadzProfiles.email, row.normalizedEmail)] : []),
-          ...(phones.length ? [inArray(ustadzProfiles.phone, phones), inArray(ustadzProfiles.whatsapp, phones)] : []),
-        ))
-        .limit(2);
-      if (profiles.length > 1 || (profiles[0] && profiles[0].normalizedName !== row.normalizedName)) {
+       const profiles = await tx
+         .select()
+         .from(ustadzProfiles)
+         .where(row.matchedUstadzId ? eq(ustadzProfiles.id, row.matchedUstadzId) : or(
+           ...(row.normalizedEmail ? [eq(sql<string>`lower(${ustadzProfiles.email})`, row.normalizedEmail)] : []),
+           ...(phones.length ? [inArray(normalizedDbPhone(ustadzProfiles.phone), phones), inArray(normalizedDbPhone(ustadzProfiles.whatsapp), phones)] : []),
+         ))
+         .limit(2);
+       if (row.matchedUstadzId && !profiles[0] || profiles.length > 1 || (profiles[0] &&
+          (profiles[0].normalizedName !== row.normalizedName || !participantIdentityKeys(profiles[0]).some((key) => participantIdentityKeys(row).includes(key))))) {
         throw new ConflictError(`Kontak pada baris ${row.line} sudah terkait profil asatidz lain. Periksa data induk lalu preview ulang.`);
       }
       let profile = profiles[0];
@@ -419,6 +444,7 @@ export async function commitEventParticipantImportService(
         return created.participantCode;
       });
       participantCodes.push(participantCode);
+      if (row.matchedUstadzId) reusedProfileCount += 1;
     } catch (error) {
       failureReport.push({
         line: row.line,
@@ -438,7 +464,7 @@ export async function commitEventParticipantImportService(
     resourceType: "EVENT_PARTICIPANT",
     resourceId: `event_${eventId}_participant_import`,
     eventId,
-    afterData: { importedCount, skippedCount: dryRun.alreadyImportedCount, failedCount: failureReport.length, participantCodes },
+    afterData: { importedCount, skippedCount: dryRun.alreadyImportedCount, failedCount: failureReport.length, reusedProfileCount, participantCodes },
     reason: `Impor peserta event: ${importedCount} berhasil, ${dryRun.alreadyImportedCount} sudah ada, ${failureReport.length} gagal.`,
     requestId,
   });
@@ -453,6 +479,7 @@ export async function commitEventParticipantImportService(
     failedCount: failureReport.length,
     failureReport,
     participantCodes,
+    reusedProfileCount,
   };
 }
 

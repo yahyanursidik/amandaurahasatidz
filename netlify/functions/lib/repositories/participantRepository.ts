@@ -58,9 +58,14 @@ export async function findParticipantsRepository(eventId: string) {
       publicGroupId: eventParticipants.publicGroupId,
       registrationSource: eventParticipants.registrationSource,
       participantCode: eventParticipants.participantCode,
+      eventParticipationCount: sql<number>`(select count(*)::int from event_participants other where other.ustadz_id = ${eventParticipants.ustadzId})`,
       isDelegationLead: eventParticipants.isDelegationLead,
       confirmationStatus: eventParticipants.confirmationStatus,
       approvalStatus: eventParticipants.approvalStatus,
+      statusReason: sql<string | null>`(select h.reason from participant_status_histories h
+        where h.participant_id = ${eventParticipants.id} and h.status_type = 'APPROVAL_STATUS'
+          and h.to_status = ${eventParticipants.approvalStatus}
+        order by h.changed_at desc limit 1)`,
       replacementForParticipantId: eventParticipants.replacementForParticipantId,
       registeredAt: eventParticipants.createdAt,
       portalUserId: ustadzProfiles.userId,

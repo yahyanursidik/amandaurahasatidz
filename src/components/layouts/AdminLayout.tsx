@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   ListChecks,
   Mail,
+  Megaphone,
   PencilLine,
   Plus,
   ShieldCheck,
@@ -96,6 +97,19 @@ export const getAdminNavItems = (pathname: string): SidebarNavItem[] => {
       ],
     },
     {
+      label: "BC & Kampanye Email",
+      shortLabel: "BC Email",
+      href: "/admin/broadcast",
+      icon: <Megaphone />,
+      mobilePrimary: true,
+      description: "Template, pratinjau, jadwal sapaan rutin dan laporan pengiriman.",
+      keywords: ["bc", "broadcast", "kampanye", "sapaan", "template", "email"],
+      children: [
+        { label: "Buat & jadwalkan BC", href: "/admin/broadcast", icon: <Megaphone />, exact: true, keywords: ["sapaan", "template", "jadwal"] },
+        { label: "Antrean & email gagal", href: "/admin/email-jobs", icon: <Mail />, exact: true, keywords: ["pengiriman", "retry"] },
+      ],
+    },
+    {
       label: "Panitia & Akses",
       shortLabel: "Panitia",
       href: "/admin/committee",
@@ -117,7 +131,6 @@ export const getAdminNavItems = (pathname: string): SidebarNavItem[] => {
       keywords: ["log", "riwayat", "keamanan", "email gagal"],
       children: [
         { label: "Jejak aktivitas", href: "/admin/audit-logs", icon: <ShieldCheck />, exact: true, keywords: ["audit", "request id"] },
-        { label: "Antrean email", href: "/admin/email-jobs", icon: <Mail />, exact: true, keywords: ["pengiriman", "gagal", "retry"] },
       ],
     },
   ];

@@ -19,9 +19,13 @@ export type ParticipantEventContext = {
   endDate?: string | null;
   venueName?: string | null;
   venueAddress?: string | null;
+  publicUrl?: string | null;
 };
 
 export type CommunicationTemplateId =
+  | "PROFILE_GREETING"
+  | "EVENT_INVITATION"
+  | "REGULAR_REGISTRATION"
   | "REGISTRATION_CONFIRMATION"
   | "COMPLETE_DATA"
   | "ATTENDANCE_CONFIRMATION"
@@ -39,6 +43,9 @@ export type CommunicationTemplate = {
 };
 
 export const PARTICIPANT_COMMUNICATION_TEMPLATES: CommunicationTemplate[] = [
+  { id: "PROFILE_GREETING", label: "Sapaan asatidz", description: "Sapaan umum dari direktori, tanpa menganggap penerima sudah terdaftar pada suatu event." },
+  { id: "EVENT_INVITATION", label: "Undangan event", description: "Undangan pribadi; tautan khusus lembaga hanya dibagikan melalui menu undangan." },
+  { id: "REGULAR_REGISTRATION", label: "Pendaftaran reguler", description: "Informasi pendaftaran melalui halaman resmi program." },
   {
     id: "REGISTRATION_CONFIRMATION",
     label: "Konfirmasi pendaftaran",
@@ -166,6 +173,16 @@ export function buildParticipantMessage(
   const approval = statusLabels[cleanLine(participant.approvalStatus)] || cleanLine(participant.approvalStatus).toLowerCase();
 
   const bodies: Record<CommunicationTemplateId, string> = {
+    PROFILE_GREETING:
+      "Semoga antum senantiasa dalam keadaan sehat. Kami dari Tarbiyah Sunnah ingin menjaga silaturahmi dan berbagi informasi program daurah mendatang. Silakan kabari bila data kontak antum perlu diperbarui.",
+    EVENT_INVITATION:
+      `Kami mengundang antum mengikuti ${eventInfo.name}${eventInfo.date ? ` pada ${eventInfo.date}` : ""}${eventInfo.venue ? ` di ${eventInfo.venue}` : ""}. ` +
+      `Informasi resmi: ${cleanLine(event?.publicUrl) || "hubungi panitia"}. ` +
+      `Jika antum menerima undangan lembaga, gunakan tautan khusus yang disampaikan secara pribadi oleh panitia.`,
+    REGULAR_REGISTRATION:
+      `Kami menginformasikan pendaftaran reguler ${eventInfo.name}${eventInfo.date ? ` pada ${eventInfo.date}` : ""}. ` +
+      `Lihat syarat dan status pendaftaran di ${cleanLine(event?.publicUrl) || "halaman program resmi"}. ` +
+      `Bila jalur reguler belum dibuka, tunggu pengumuman panitia.`,
     REGISTRATION_CONFIRMATION:
       `Data pendaftaran antum untuk ${eventInfo.name} telah kami terima` +
       `${participant.institutionName ? ` melalui ${participant.institutionName}` : ""}. ` +

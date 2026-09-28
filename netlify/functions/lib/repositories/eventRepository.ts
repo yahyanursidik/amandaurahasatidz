@@ -1,6 +1,42 @@
 import { getDbClient } from "../db/client";
 import { events, eventDays, eventSessions, eventCommitteeAssignments, users } from "../db/schema";
-import { eq, ilike, and, isNull, count, desc, asc, inArray } from "drizzle-orm";
+import { eq, ilike, and, or, isNull, count, desc, asc, inArray, sql } from "drizzle-orm";
+
+export async function findEventCatalogRepository(query: { page: number; pageSize: number; search: string; status: string }) {
+  const db = getDbClient();
+  const keyword = query.search.trim();
+  const filter = and(
+    query.status === "ARCHIVED" ? undefined : isNull(events.archivedAt),
+    query.status === "ALL" ? undefined : eq(events.status, query.status),
+    keyword ? or(
+      ilike(events.name, `%${keyword}%`),
+      ilike(events.code, `%${keyword}%`),
+      ilike(events.venueName, `%${keyword}%`),
+    ) : undefined,
+  );
+  const [items, [totalRow], statusRows] = await Promise.all([
+    db.select({
+      id: events.id, code: events.code, slug: events.slug, name: events.name,
+      startDate: events.startDate, endDate: events.endDate, timezone: events.timezone,
+      venueName: events.venueName,
+      // Full data-URI posters can be hundreds of KB each; omit them from the index only.
+      posterUrl: sql<string | null>`case when ${events.posterUrl} like 'data:image/%' then null else ${events.posterUrl} end`,
+      posterAlt: events.posterAlt, posterFocalPoint: events.posterFocalPoint,
+      audienceMode: events.audienceMode, status: events.status,
+    }).from(events).where(filter).orderBy(desc(events.startDate), desc(events.createdAt))
+      .limit(query.pageSize).offset((query.page - 1) * query.pageSize),
+    db.select({ total: count() }).from(events).where(filter),
+    db.select({ status: events.status, total: count() }).from(events)
+      .where(isNull(events.archivedAt)).groupBy(events.status),
+  ]);
+  return {
+    items,
+    total: totalRow?.total || 0,
+    page: query.page,
+    pageCount: Math.max(1, Math.ceil((totalRow?.total || 0) / query.pageSize)),
+    statusCounts: Object.fromEntries(statusRows.map((row) => [row.status, row.total])),
+  };
+}
 
 export async function findEventsRepository(search?: string, status?: string) {
   const db = getDbClient();

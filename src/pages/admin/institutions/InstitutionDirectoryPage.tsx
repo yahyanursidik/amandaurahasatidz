@@ -10,7 +10,7 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { InstitutionWorkspaceNav } from "@/components/admin/institutions/InstitutionWorkspaceNav";
 import { Institution, institutionApi } from "@/lib/institutionApi";
-import { Building2, CircleAlert, Download, Edit3, Eye, Plus, RefreshCw, Search, ShieldCheck } from "lucide-react";
+import { Building2, CircleAlert, Download, Edit3, Eye, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from "lucide-react";
 
 export const InstitutionDirectoryPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -20,16 +20,30 @@ export const InstitutionDirectoryPage: React.FC = () => {
   const [meta, setMeta] = useState({ page: 1, pageCount: 1, total: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [pendingId, setPendingId] = useState("");
+  const [refresh, setRefresh] = useState(0);
   const reloadKey = searchParams.toString();
 
   useEffect(() => {
+    if (search.trim() === (searchParams.get("search") || "")) return;
     const timer = window.setTimeout(() => {
-      const params = new URLSearchParams(searchParams);
-      if (search.trim()) params.set("search", search.trim()); else params.delete("search");
-      params.set("pageSize", "25");
-      setLoading(true);
-      institutionApi.list(params)
+      const next = new URLSearchParams(searchParams);
+      if (search.trim()) next.set("search", search.trim()); else next.delete("search");
+      next.delete("page");
+      setSearchParams(next, { replace: true });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [search, reloadKey]);
+
+  useEffect(() => {
+    let active = true;
+    const params = new URLSearchParams(searchParams);
+    params.set("pageSize", "25");
+    setLoading(true);
+    institutionApi.list(params)
         .then((result) => {
+          if (!active) return;
           setItems(result.data);
           setSummary(result.meta?.summary || []);
           setMeta({
@@ -39,11 +53,22 @@ export const InstitutionDirectoryPage: React.FC = () => {
           });
           setError("");
         })
-        .catch((cause) => setError(cause instanceof Error ? cause.message : "Data lembaga gagal dimuat."))
-        .finally(() => setLoading(false));
-    }, 250);
-    return () => window.clearTimeout(timer);
-  }, [reloadKey, search]);
+        .catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Data lembaga gagal dimuat."); })
+        .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [reloadKey, refresh]);
+
+  const deactivate = async (item: Institution) => {
+    if (!window.confirm(`Nonaktifkan ${item.name} dan sembunyikan dari direktori aktif? Riwayat dan relasi peserta tetap ada; ini bukan penghapusan permanen.`)) return;
+    setPendingId(item.id); setError(""); setNotice("");
+    try {
+      const result = await institutionApi.deactivate(item.id);
+      setNotice(result.message);
+      if (items.length === 1 && meta.page > 1) updateFilter("page", String(meta.page - 1));
+      else setRefresh((value) => value + 1);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Lembaga gagal dinonaktifkan."); }
+    finally { setPendingId(""); }
+  };
 
   const totals = useMemo(() => {
     const total = summary.reduce((acc, row) => acc + Number(row.total), 0);
@@ -107,11 +132,12 @@ export const InstitutionDirectoryPage: React.FC = () => {
               <select aria-label="Filter verifikasi" value={searchParams.get("verificationStatus") || "ALL"} onChange={(event) => updateFilter("verificationStatus", event.target.value)}>
                 <option value="ALL">Semua verifikasi</option><option value="VERIFIED">Terverifikasi</option><option value="UNVERIFIED">Belum verifikasi</option>
               </select>
-              <button type="button" className="institution-icon-button" aria-label="Muat ulang" onClick={() => setSearchParams(new URLSearchParams(searchParams))}><RefreshCw /></button>
+               <button type="button" className="institution-icon-button" aria-label="Muat ulang" onClick={() => setRefresh((value) => value + 1)}><RefreshCw /></button>
             </div>
           </div>
 
-          {error && <div className="institution-alert" role="alert">{error}</div>}
+           {error && <div className="institution-alert" role="alert">{error}</div>}
+           {notice && <div role="status" className="border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</div>}
           {loading ? <div className="institution-loading">Memuat direktori lembaga…</div> : items.length === 0 ? (
             <EmptyState title="Lembaga tidak ditemukan" description="Ubah kata kunci atau filter, atau tambahkan lembaga baru." action={<Link className="institution-button institution-button--primary" to="/admin/institutions/create">Tambah lembaga</Link>} />
           ) : (
@@ -125,7 +151,7 @@ export const InstitutionDirectoryPage: React.FC = () => {
                       <td><strong>{item.email || "Email belum diisi"}</strong><span>{item.whatsapp || item.phone || "Nomor belum diisi"}</span></td>
                       <td><strong>{item.cityCode || "—"}</strong><span>{item.provinceCode ? `Provinsi ${item.provinceCode}` : "Wilayah belum lengkap"}</span></td>
                       <td><div className="institution-table__badges"><StatusBadge label={item.status === "ACTIVE" ? "Aktif" : "Nonaktif"} variant={item.status === "ACTIVE" ? "success" : "neutral"} /><StatusBadge label={item.verificationStatus === "VERIFIED" ? "Terverifikasi" : "Perlu verifikasi"} variant={item.verificationStatus === "VERIFIED" ? "success" : "warning"} /></div></td>
-                      <td><div className="institution-table__actions"><Link to={`/admin/institutions/${item.id}`} aria-label={`Lihat ${item.name}`}><Eye /></Link><Link to={`/admin/institutions/${item.id}/edit`} aria-label={`Edit ${item.name}`}><Edit3 /></Link></div></td>
+                       <td><div className="institution-table__actions"><Link to={`/admin/institutions/${item.id}`} aria-label={`Lihat ${item.name}`}><Eye /></Link><Link to={`/admin/institutions/${item.id}/edit`} aria-label={`Edit ${item.name}`}><Edit3 /></Link>{item.status === "ACTIVE" && <button type="button" disabled={Boolean(pendingId)} onClick={() => void deactivate(item)} aria-label={`Nonaktifkan dan hapus ${item.name} dari daftar aktif`} title="Nonaktifkan (riwayat tetap tersimpan)" className="inline-grid min-h-11 min-w-11 place-items-center rounded-lg text-rose-700 disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>}</div></td>
                     </tr>
                   ))}</tbody>
                 </table>

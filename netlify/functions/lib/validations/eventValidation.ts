@@ -1,5 +1,12 @@
 import { z } from "zod";
 
+export const eventCatalogQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(100000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
+  search: z.string().trim().max(100).default(""),
+  status: z.enum(["ALL", "DRAFT", "PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING", "COMPLETED", "ARCHIVED", "CANCELLED"]).default("ALL"),
+});
+
 const posterSourceSchema = z
   .string()
   .max(900_000, "Ukuran poster setelah optimasi terlalu besar")
@@ -82,6 +89,11 @@ export const createEventSessionSchema = z.object({
   checkinCloseAt: z.string().optional().nullable(),
   sortOrder: z.coerce.number().default(0),
 });
+
+export const updateEventSessionSchema = createEventSessionSchema.omit({ eventDayId: true }).partial().refine(
+  (value) => Object.keys(value).length > 0,
+  "Isi setidaknya satu perubahan sesi.",
+);
 
 export const assignCommitteeSchema = z.object({
   userId: z.string().uuid("ID Pengguna tidak valid"),

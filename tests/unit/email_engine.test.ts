@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderEmailTemplate, renderHtmlEmailTemplate } from "../../netlify/functions/lib/services/emailTemplateEngine";
 import { renderHtmlByTemplateCode } from "../../netlify/functions/lib/services/emailHtmlTemplates";
+import { broadcastHtml } from "../../netlify/functions/lib/services/broadcastService";
 import { enqueueEmailSchema } from "../../netlify/functions/lib/validations/emailValidation";
 
 // Mock smtpTransport agar tidak membuka koneksi SMTP nyata di test
@@ -99,6 +100,22 @@ describe("Email Engine, Queue & Template Whitelist Unit Tests", () => {
     expect(html).toContain("Pendaftaran Berhasil");
     expect(html).toContain("Ustadz Zaid bin Ali");
     expect(html).toContain("no-reply@radiotarbiyahsunnah.com");
+  });
+
+  it("includes the Tarbiyah Sunnah logo in transactional and broadcast email when APP_URL is configured", () => {
+    const previous = process.env.APP_URL;
+    process.env.APP_URL = "https://example.org";
+    try {
+      const html = renderHtmlByTemplateCode("OTP_CODE", { otpCode: "123456", expiresMinutes: "10" });
+      const broadcast = broadcastHtml("Sapaan untuk asatidz");
+      for (const content of [html, broadcast]) {
+        expect(content).toContain("https://example.org/images/tarbiyah-sunnah-logo.png");
+        expect(content).toContain('alt="Tarbiyah Sunnah"');
+      }
+    } finally {
+      if (previous === undefined) delete process.env.APP_URL;
+      else process.env.APP_URL = previous;
+    }
   });
 
   it("should render OTP_CODE HTML template with masked security warning", () => {
