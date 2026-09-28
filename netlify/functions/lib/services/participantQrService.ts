@@ -27,6 +27,7 @@ export async function getParticipantQrTokenService(participantId: string): Promi
       qrTokenVersion: eventParticipants.qrTokenVersion,
       qrIssuedAt: eventParticipants.qrIssuedAt,
       status: eventParticipants.confirmationStatus,
+      approvalStatus: eventParticipants.approvalStatus,
       eventName: events.name,
       ustadzName: ustadzProfiles.fullName,
     })
@@ -47,6 +48,9 @@ export async function getParticipantQrTokenService(participantId: string): Promi
     throw new ValidationError(
       `QR Code tidak aktif. Peserta ${p.participantCode} berstatus '${p.status}'.`
     );
+  }
+  if (p.approvalStatus !== "APPROVED") {
+    throw new ForbiddenError("QR presensi tersedia setelah data peserta disetujui panitia.");
   }
 
   const issuedAt = p.qrIssuedAt || new Date();

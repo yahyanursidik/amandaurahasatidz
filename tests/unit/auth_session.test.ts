@@ -67,6 +67,20 @@ describe("Authentication & Session Security Unit Tests", () => {
     expect(newSession).not.toBeNull();
   });
 
+  it("does not embed role assignments or profile data in production tokens", () => {
+    const previous = process.env.APP_ENV;
+    try {
+      process.env.APP_ENV = "production";
+      const { sessionId } = createSessionToken("admin@yts.or.id", contextFor("admin@yts.or.id"));
+      const payload = JSON.parse(Buffer.from(sessionId.split(".")[0], "base64url").toString("utf8"));
+      expect(payload).not.toHaveProperty("userContext");
+      expect(payload.email).toBe("admin@yts.or.id");
+    } finally {
+      if (previous === undefined) delete process.env.APP_ENV;
+      else process.env.APP_ENV = previous;
+    }
+  });
+
   it("should enforce rate limiting on OTP requests (max 3 per 10 mins)", () => {
     const key = "rate_limit_test_key";
     

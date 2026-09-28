@@ -1,4 +1,5 @@
 import React from "react";
+import { Link } from "react-router-dom";
 import { AppFooter } from "@/components/common/AppFooter";
 
 interface PublicLayoutProps {
@@ -10,17 +11,15 @@ export const PublicLayout: React.FC<PublicLayoutProps> = ({ children }) => {
     <div className="min-h-screen bg-slate-100 flex flex-col justify-between">
       <header className="bg-white border-b border-slate-200 py-4 shadow-sm">
         <div className="max-w-4xl mx-auto px-4 flex items-center justify-between">
-          <div className="flex items-center space-x-3">
+          <Link to="/programs" className="flex items-center space-x-3 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600" aria-label="Aman Daurah Asatidz — daftar program">
             <div className="w-8 h-8 rounded-lg bg-emerald-600 flex items-center justify-center text-white font-bold text-sm">
               ADA
             </div>
             <span className="font-semibold text-slate-800 text-base">
               Aman Daurah Asatidz
             </span>
-          </div>
-          <span className="text-xs text-slate-600 font-medium bg-slate-100 px-2.5 py-1 rounded">
-            Portal Daurah
-          </span>
+          </Link>
+          <Link to="/login/ustadz" className="shrink-0 rounded bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-700 hover:bg-emerald-50 hover:text-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600" aria-label="Masuk ke Portal Asatidz">Masuk</Link>
         </div>
       </header>
 

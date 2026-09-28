@@ -5,7 +5,7 @@ import { SidebarNavItem } from "../common/Sidebar";
 
 const portalNavItems: SidebarNavItem[] = [
   { label: "Beranda Asatidz", shortLabel: "Beranda", href: "/portal", icon: <Home />, exact: true, mobilePrimary: true },
-  { label: "Undangan Saya", shortLabel: "Undangan", href: "/portal/invitations", icon: <Mail />, mobilePrimary: true },
+  { label: "Pendaftaran Saya", shortLabel: "Daftar", href: "/portal/invitations", icon: <Mail />, mobilePrimary: true },
   { label: "Kegiatan Saya", shortLabel: "Kegiatan", href: "/portal/activities", icon: <CalendarRange /> },
   { label: "Jadwal Daurah", shortLabel: "Jadwal", href: "/portal/schedule", icon: <Calendar /> },
   { label: "QR Kehadiran", shortLabel: "QR", href: "/portal/qr", icon: <QrCode />, mobilePrimary: true },

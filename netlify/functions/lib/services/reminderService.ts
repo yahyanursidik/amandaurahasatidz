@@ -1,126 +1,71 @@
 import { getDbClient } from "../db/client";
-import { invitations, invitationLinks, invitationResponses, eventParticipants, attendanceRecords, ustadzProfiles } from "../db/schema";
-import { eq, and, isNull, sql } from "drizzle-orm";
+import { attendanceRecords, eventDays, eventParticipants, events, ustadzProfiles } from "../db/schema";
+import { and, asc, desc, eq, gte, inArray, lt } from "drizzle-orm";
 import { enqueueEmailJob } from "./emailQueueService";
-import { logInfo } from "../utils/logger";
+import { NotFoundError, ValidationError } from "../utils/errors";
 
-export type SegmentType =
-  | "UNOPENED_LINK"
-  | "NO_RESPONSE"
-  | "DRAFT_UNFINALIZED"
-  | "APPROVED_PARTICIPANTS"
-  | "ATTENDED_PREVIOUS_DAY";
+export type SegmentType = "APPROVED_PARTICIPANTS" | "ATTENDED_PREVIOUS_DAY";
+export const REMINDER_SEGMENTS: SegmentType[] = ["APPROVED_PARTICIPANTS", "ATTENDED_PREVIOUS_DAY"];
 
-// Timezone Conversion Helper (Compliance Point 2 & 3)
 export function convertEventTimeToUtc(dateStr: string, timeStr: string, timezone = "Asia/Jakarta"): Date {
-  let offsetHours = 7; // WIB (Asia/Jakarta)
-  if (timezone === "Asia/Makassar") offsetHours = 8; // WITA
-  if (timezone === "Asia/Jayapura") offsetHours = 9; // WIT
-
-  const localIso = `${dateStr}T${timeStr}:00+0${offsetHours}:00`;
-  return new Date(localIso);
+  const offset = timezone === "Asia/Makassar" ? 8 : timezone === "Asia/Jayapura" ? 9 : 7;
+  return new Date(`${dateStr}T${timeStr}:00+0${offset}:00`);
 }
 
-export async function querySegmentTargetsService(segment: SegmentType, eventId: string) {
+function jakartaDate(date: Date) {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit", day: "2-digit" }).format(date);
+}
+
+export async function querySegmentTargetsService(segment: SegmentType, eventId: string, now = new Date()) {
+  if (!REMINDER_SEGMENTS.includes(segment)) throw new ValidationError("Segmen pengingat tidak dikenal.");
   const db = getDbClient();
+  const participants = await db.select({
+    participantId: eventParticipants.id,
+    participantCode: eventParticipants.participantCode,
+    ustadzName: ustadzProfiles.fullName,
+    email: ustadzProfiles.email,
+  }).from(eventParticipants)
+    .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
+    .where(and(eq(eventParticipants.eventId, eventId), eq(eventParticipants.approvalStatus, "APPROVED")));
+  if (segment === "APPROVED_PARTICIPANTS") return participants.filter((item) => item.email);
 
-  if (segment === "UNOPENED_LINK") {
-    // 1. Link belum pernah dibuka (usedCount = 0)
-    return await db
-      .select({
-        invitationId: invitations.id,
-        invitationNumber: invitations.invitationNumber,
-        linkId: invitationLinks.id,
-      })
-      .from(invitations)
-      .innerJoin(invitationLinks, eq(invitations.id, invitationLinks.invitationId))
-      .where(and(eq(invitations.eventId, eventId), eq(invitationLinks.usedCount, 0)));
-  }
-
-  if (segment === "NO_RESPONSE") {
-    // 2. Undangan SENT belum direspon
-    return await db
-      .select({
-        invitationId: invitations.id,
-        invitationNumber: invitations.invitationNumber,
-      })
-      .from(invitations)
-      .where(and(eq(invitations.eventId, eventId), eq(invitations.status, "SENT"), isNull(invitations.respondedAt)));
-  }
-
-  if (segment === "DRAFT_UNFINALIZED") {
-    // 3. Respon draft belum final (isFinal = false)
-    return await db
-      .select({
-        invitationId: invitations.id,
-        invitationNumber: invitations.invitationNumber,
-        responseId: invitationResponses.id,
-      })
-      .from(invitations)
-      .innerJoin(invitationResponses, eq(invitations.id, invitationResponses.invitationId))
-      .where(and(eq(invitations.eventId, eventId), eq(invitationResponses.isFinal, false)));
-  }
-
-  if (segment === "APPROVED_PARTICIPANTS") {
-    // 4. Peserta status APPROVED
-    return await db
-      .select({
-        participantId: eventParticipants.id,
-        participantCode: eventParticipants.participantCode,
-        ustadzName: ustadzProfiles.fullName,
-        email: ustadzProfiles.email,
-      })
-      .from(eventParticipants)
-      .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
-      .where(and(eq(eventParticipants.eventId, eventId), eq(eventParticipants.approvalStatus, "APPROVED")));
-  }
-
-  if (segment === "ATTENDED_PREVIOUS_DAY") {
-    // 5. Peserta hadir presensi hari sebelumnya
-    return await db
-      .select({
-        participantId: eventParticipants.id,
-        participantCode: eventParticipants.participantCode,
-        ustadzName: ustadzProfiles.fullName,
-        email: ustadzProfiles.email,
-      })
-      .from(eventParticipants)
-      .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
-      .innerJoin(attendanceRecords, eq(eventParticipants.id, attendanceRecords.participantId))
-      .where(and(eq(eventParticipants.eventId, eventId), eq(attendanceRecords.attendanceStatus, "PRESENT")));
-  }
-
-  return [];
+  // Hari acara dapat tidak berurutan; ambil hari terjadwal terakhir yang sudah berlalu.
+  const previousDay = (await db.select({ id: eventDays.id }).from(eventDays)
+    .where(and(eq(eventDays.eventId, eventId), lt(eventDays.date, jakartaDate(now))))
+    .orderBy(desc(eventDays.date)).limit(1))[0];
+  const dayIds = previousDay ? [previousDay.id] : [];
+  if (!dayIds.length) return [];
+  const attended = await db.select({ participantId: attendanceRecords.participantId }).from(attendanceRecords)
+    .where(and(inArray(attendanceRecords.eventDayId, dayIds), eq(attendanceRecords.attendanceStatus, "PRESENT")));
+  const attendedIds = new Set(attended.map((row) => row.participantId));
+  return participants.filter((item) => item.email && attendedIds.has(item.participantId));
 }
 
-export async function processScheduledReminderService(segment: SegmentType, eventId: string, requestId = "req-reminder") {
-  const targets = await querySegmentTargetsService(segment, eventId);
-  logInfo(requestId, `Found ${targets.length} targets for segment '${segment}' on event ${eventId}`);
-
+export async function processScheduledReminderService(segment: SegmentType, eventId: string, requestId = "req-reminder", now = new Date()) {
+  if (!REMINDER_SEGMENTS.includes(segment)) throw new ValidationError("Segmen pengingat tidak dikenal.");
+  const db = getDbClient();
+  const event = (await db.select({ name: events.name, startDate: events.startDate, endDate: events.endDate, venueName: events.venueName })
+    .from(events).where(eq(events.id, eventId)).limit(1))[0];
+  if (!event) throw new NotFoundError("Program untuk pengingat tidak ditemukan.");
+  const targets = await querySegmentTargetsService(segment, eventId, now);
+  const eventDates = new Intl.DateTimeFormat("id-ID", { dateStyle: "long", timeZone: "Asia/Jakarta" }).format(new Date(`${event.startDate}T00:00:00+07:00`));
+  const daysRemaining = Math.max(0, Math.ceil((new Date(`${event.startDate}T00:00:00+07:00`).getTime() - now.getTime()) / 86_400_000));
+  const upcomingDay = segment === "ATTENDED_PREVIOUS_DAY" ? (await db.select({ date: eventDays.date }).from(eventDays)
+    .where(and(eq(eventDays.eventId, eventId), gte(eventDays.date, jakartaDate(now))))
+    .orderBy(asc(eventDays.date)).limit(1))[0] : null;
+  if (segment === "ATTENDED_PREVIOUS_DAY" && !upcomingDay) throw new ValidationError("Tidak ada hari acara berikutnya untuk dikirimkan pengingat.");
+  const nextDate = upcomingDay ? new Intl.DateTimeFormat("id-ID", { dateStyle: "long", timeZone: "Asia/Jakarta" }).format(new Date(`${upcomingDay.date}T00:00:00+07:00`)) : "";
   let enqueuedCount = 0;
-
-  for (const t of targets) {
-    const email = (t as any).email || "perwakilan@yts.or.id";
-    const name = (t as any).ustadzName || "Perwakilan Lembaga";
-    const idempotencyKey = `rem_${segment}_${eventId}_${(t as any).participantId || (t as any).invitationId}_${Date.now()}`;
-
-    await enqueueEmailJob({
-      templateCode: segment === "APPROVED_PARTICIPANTS" ? "REGISTRATION_CONFIRMED" : "INVITATION_INDIVIDUAL",
-      recipientEmail: email,
-      recipientName: name,
-      variables: {
-        ustadzName: name,
-        eventName: "Daurah Asatidz Nasional 2026",
-        eventDates: "15-18 Agustus 2026",
-        participantCode: (t as any).participantCode || "PAR-001",
-        qrCodeUrl: "http://localhost:3000/portal",
-        invitationLink: "http://localhost:3000/invitation",
-      },
-      idempotencyKey,
+  for (const person of targets) {
+    if (!person.email) continue;
+    const result = await enqueueEmailJob({
+      templateCode: segment === "ATTENDED_PREVIOUS_DAY" ? "EVENT_CONTINUATION_REMINDER" : "EVENT_REMINDER", recipientEmail: person.email, recipientName: person.ustadzName,
+      variables: segment === "ATTENDED_PREVIOUS_DAY"
+        ? { ustadzName: person.ustadzName, eventName: event.name, nextDate, eventVenue: event.venueName || "Lokasi menyusul", participantCode: person.participantCode, portalLink: `${process.env.APP_URL || ""}/portal/activities` }
+        : { ustadzName: person.ustadzName, eventName: event.name, eventDates, eventVenue: event.venueName || "Lokasi menyusul", participantCode: person.participantCode, daysRemaining, portalLink: `${process.env.APP_URL || ""}/portal/activities` },
+      idempotencyKey: `rem_${segment}_${eventId}_${person.participantId}_${jakartaDate(now)}`,
     });
-
-    enqueuedCount++;
+    if (!result.isDuplicate) enqueuedCount++;
   }
-
   return { segment, eventId, targetsCount: targets.length, enqueuedCount };
 }

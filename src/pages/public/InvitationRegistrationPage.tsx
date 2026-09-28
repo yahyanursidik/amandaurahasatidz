@@ -448,7 +448,7 @@ export const InvitationRegistrationPage: React.FC = () => {
                   style={{ objectPosition: posterObjectPosition(data.event.posterFocalPoint || "CENTER") }}
                   width="960"
                   height="1200"
-                  fetchPriority="high"
+                  loading="eager"
                 />
               </figure>
               <div className="invitation-registration__event-copy">

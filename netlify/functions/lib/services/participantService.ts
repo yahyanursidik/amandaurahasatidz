@@ -3,6 +3,7 @@ import {
   findParticipantByIdRepository,
   countInstitutionParticipantsRepository,
   countApprovedParticipantsForEventRepository,
+  countApprovedParticipantsBySourceRepository,
   updateParticipantStatusRepository,
   updateParticipantApprovalStatusRepository,
   replaceParticipantTxRepository,
@@ -15,6 +16,7 @@ import { NotFoundError, ValidationError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
 import { assertAttendanceConfirmationAllowed, assertParticipantEligibleForCheckin } from "./deadlineService";
 import { hashPassword } from "../utils/password";
+import { isRegularRegistrationSource, quotaForSource } from "./eventQuota";
 
 function generateTemporaryPassword() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
@@ -126,7 +128,6 @@ export async function updateParticipantStatusService(
     if (!event) throw new NotFoundError("Event peserta tidak ditemukan.");
     lateReview = assertAttendanceConfirmationAllowed(event).needsReview;
   }
-
   const updated = await updateParticipantStatusRepository(participantId, toStatus, reason, actorUserId);
   if (lateReview) {
     await updateParticipantApprovalStatusRepository(participantId, "PENDING_REVIEW", "Konfirmasi melewati batas waktu; perlu peninjauan panitia.", actorUserId);
@@ -158,6 +159,7 @@ export async function approveParticipantService(
 ) {
   const participant = await findParticipantByIdRepository(participantId);
   if (!participant) throw new NotFoundError(`Peserta ID ${participantId} tidak ditemukan.`);
+  if (participant.approvalStatus === "APPROVED") return participant;
 
   const event = await findEventByIdRepository(participant.eventId);
   if (event && event.capacity) {
@@ -166,6 +168,18 @@ export async function approveParticipantService(
       throw new ValidationError(
         `Kapasitas event daurah (${event.capacity} peserta) telah penuh. Peserta disarankan dialihkan ke waitlist.`
       );
+    }
+  }
+  if (event) {
+    const limit = quotaForSource(event, participant.registrationSource);
+    if (limit != null) {
+      const currentApproved = await countApprovedParticipantsBySourceRepository(
+        participant.eventId,
+        isRegularRegistrationSource(participant.registrationSource),
+      );
+      if (currentApproved >= limit) {
+        throw new ValidationError(`Kuota ${isRegularRegistrationSource(participant.registrationSource) ? "reguler" : "undangan"} (${limit} peserta) sudah penuh. Pindahkan ke daftar tunggu atau sesuaikan kuota.`);
+      }
     }
   }
 

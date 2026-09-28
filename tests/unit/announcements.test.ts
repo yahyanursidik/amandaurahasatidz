@@ -37,10 +37,12 @@ describe("Announcements Engine Unit Tests", () => {
         title: "Perubahan Ruangan Daurah Sesi 2",
         body: "Sesi 2 dipindahkan ke Hall Utama Daurah YTS.",
         audienceType: target,
+        ...(target === "SPECIFIC_INSTITUTION" ? { targetInstitutionId: "00000000-0000-4000-8000-000000000001" } : {}),
         sendEmailNotification: true,
       });
       expect(parsed.success).toBe(true);
     }
+    expect(createAnnouncementSchema.safeParse({ title: "Info lembaga", body: "Pesan khusus lembaga", audienceType: "SPECIFIC_INSTITUTION" }).success).toBe(false);
   });
 
   it("should verify announcement lifecycle state transitions (DRAFT -> PUBLISHED -> UNPUBLISHED)", () => {

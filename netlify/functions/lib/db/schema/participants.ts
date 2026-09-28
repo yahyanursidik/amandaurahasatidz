@@ -13,6 +13,7 @@ export const eventParticipants = pgTable(
     ustadzId: uuid("ustadz_id").notNull().references(() => ustadzProfiles.id),
     institutionId: uuid("institution_id").references(() => institutions.id),
     invitationId: uuid("invitation_id").references(() => invitations.id),
+    publicGroupId: uuid("public_group_id"),
     registrationSource: text("registration_source").notNull().default("INSTITUTION_DELEGATION"),
     participantCode: text("participant_code").notNull(),
     qrTokenVersion: integer("qr_token_version").notNull().default(1),
@@ -35,6 +36,7 @@ export const eventParticipants = pgTable(
     uniqueIndex("uniq_participant_event_code").on(table.eventId, table.participantCode),
     index("idx_participants_approval").on(table.eventId, table.approvalStatus),
     index("idx_participants_inst").on(table.eventId, table.institutionId),
+    index("idx_participants_public_group").on(table.eventId, table.publicGroupId),
   ]
 );
 

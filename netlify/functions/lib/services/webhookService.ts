@@ -2,7 +2,7 @@ import crypto from "crypto";
 import { getDbClient } from "../db/client";
 import { emailDeliveries, emailJobs } from "../db/schema";
 import { eq } from "drizzle-orm";
-import { UnauthorizedError } from "../utils/errors";
+import { NotFoundError, UnauthorizedError } from "../utils/errors";
 import { logInfo } from "../utils/logger";
 
 export function verifyWebhookSignature(signature: string | undefined, rawBody: string, secret: string): boolean {
@@ -13,7 +13,7 @@ export function verifyWebhookSignature(signature: string | undefined, rawBody: s
   try {
     return crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expectedSignature));
   } catch (_err) {
-    return signature === expectedSignature;
+    return false;
   }
 }
 
@@ -30,14 +30,9 @@ export async function processWebhookIdempotentService(
   requestId = "req-webhook"
 ) {
   const provider = payload.provider || "RESEND";
-  const webhookSecret = process.env.WEBHOOK_SECRET || "default_webhook_secret_key_123";
+  const webhookSecret = process.env.WEBHOOK_SECRET || "";
 
-  if (rawBody && signature) {
-    const isValid = verifyWebhookSignature(signature, rawBody, webhookSecret);
-    if (!isValid) {
-      throw new UnauthorizedError("Signature webhook tidak valid.");
-    }
-  }
+  if (!rawBody || !verifyWebhookSignature(signature, rawBody, webhookSecret)) throw new UnauthorizedError("Signature webhook tidak valid atau belum dikonfigurasi.");
 
   const db = getDbClient();
 
@@ -72,19 +67,5 @@ export async function processWebhookIdempotentService(
     return { status: "IDEMPOTENT_UPDATED", deliveryId: del.id };
   }
 
-  // Create new delivery record if not existing
-  const dummyJobId = "00000000-0000-0000-0000-000000000001";
-  const created = await db
-    .insert(emailDeliveries)
-    .values({
-      emailJobId: dummyJobId,
-      provider: provider,
-      providerMessageId: payload.providerMessageId,
-      status: payload.eventType,
-      deliveredAt: payload.eventType === "DELIVERED" ? new Date() : null,
-      openedAt: payload.eventType === "OPENED" ? new Date() : null,
-    })
-    .returning();
-
-  return { status: "CREATED", deliveryId: created[0].id };
+  throw new NotFoundError(`ID email dari ${provider} tidak ditemukan pada antrean aplikasi.`);
 }

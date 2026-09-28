@@ -9,7 +9,7 @@ import { eventApi } from "@/lib/eventApi";
 export const EventEditPage: React.FC = () => {
   const navigate = useNavigate();
   const { id = "" } = useParams<{ id: string }>();
-  const previewMode = !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
+  const previewMode = import.meta.env.DEV && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
   const [values, setValues] = useState<EventFormValues | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
@@ -42,6 +42,8 @@ export const EventEditPage: React.FC = () => {
           mapsUrl: "",
           defaultInstitutionQuota: "3",
           capacity: "300",
+          regularQuota: "100",
+          invitationQuota: "200",
         });
         return;
       }
@@ -72,6 +74,8 @@ export const EventEditPage: React.FC = () => {
           mapsUrl: event.mapsUrl || "",
           defaultInstitutionQuota: event.defaultInstitutionQuota ? String(event.defaultInstitutionQuota) : "",
           capacity: event.capacity ? String(event.capacity) : "",
+          regularQuota: event.regularQuota == null ? "" : String(event.regularQuota),
+          invitationQuota: event.invitationQuota == null ? "" : String(event.invitationQuota),
         });
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Rincian event gagal dimuat.");
@@ -97,6 +101,8 @@ export const EventEditPage: React.FC = () => {
           slug: undefined,
           capacity: nextValues.capacity ? Number(nextValues.capacity) : null,
           defaultInstitutionQuota: nextValues.defaultInstitutionQuota ? Number(nextValues.defaultInstitutionQuota) : null,
+          regularQuota: nextValues.regularQuota === "" ? null : Number(nextValues.regularQuota),
+          invitationQuota: nextValues.invitationQuota === "" ? null : Number(nextValues.invitationQuota),
           mapsUrl: nextValues.mapsUrl || null,
         }),
       });

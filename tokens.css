@@ -286,4 +286,31 @@
   --dur-delegation-micro: 120ms;
   --dur-delegation-short: 220ms;
   --ease-delegation-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --color-public-paper: var(--color-event-paper);
+  --color-public-surface: var(--color-invitation-surface);
+  --color-public-ink: var(--color-event-ink);
+  --color-public-muted: var(--color-event-muted);
+  --color-public-rule: var(--color-event-rule);
+  --color-public-accent: var(--color-event-accent);
+  --color-public-accent-ink: var(--color-event-accent-ink);
+  --color-public-focus: var(--color-event-focus);
+  --color-public-error: var(--color-invitation-danger);
+  --color-public-error-paper: var(--color-invitation-danger-paper);
+  --color-public-success-paper: var(--color-invitation-success-paper);
+  --font-public-display: var(--font-event-display);
+  --font-public-body: var(--font-event-body);
+  --space-public-xs: 0.5rem;
+  --space-public-sm: 0.75rem;
+  --space-public-md: 1rem;
+  --space-public-lg: 1.5rem;
+  --space-public-xl: 2rem;
+  --space-public-2xl: 3rem;
+  --text-public-small: 0.875rem;
+  --text-public-body: 1rem;
+  --text-public-title: clamp(1.875rem, 4vw, 2.75rem);
+  --radius-public-control: 0.625rem;
+  --radius-public-panel: 0.875rem;
+  --dur-public-short: 220ms;
+  --ease-public-out: cubic-bezier(0.16, 1, 0.3, 1);
 }

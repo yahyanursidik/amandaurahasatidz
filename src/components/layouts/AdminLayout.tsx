@@ -117,6 +117,7 @@ export const getAdminNavItems = (pathname: string): SidebarNavItem[] => {
       keywords: ["log", "riwayat", "keamanan", "email gagal"],
       children: [
         { label: "Jejak aktivitas", href: "/admin/audit-logs", icon: <ShieldCheck />, exact: true, keywords: ["audit", "request id"] },
+        { label: "Antrean email", href: "/admin/email-jobs", icon: <Mail />, exact: true, keywords: ["pengiriman", "gagal", "retry"] },
       ],
     },
   ];

@@ -18,6 +18,7 @@ import {
   FileText,
   Info,
   Loader2,
+  RefreshCw,
   MapPin,
   MessageCircle,
   QrCode,
@@ -71,6 +72,7 @@ type PortalParticipation = {
   participantCode: string;
   registrationSource: string;
   invitationId?: string | null;
+  publicGroupId?: string | null;
   isDelegationLead: boolean;
   confirmationStatus: string;
   approvalStatus: string;
@@ -116,8 +118,9 @@ type PortalDelegation = {
   actorParticipantId: string;
   eventId: string;
   eventName: string;
-  institutionId: string;
+  institutionId: string | null;
   institutionName?: string | null;
+  kind?: "PUBLIC_GROUP";
   quota: number;
   members: DelegationMember[];
 };
@@ -266,8 +269,8 @@ const tabMeta: Record<PortalTab, { title: string; description: string }> = {
     description: "Lihat posisi Anda dalam alur persiapan dan tindakan yang perlu diselesaikan.",
   },
   INVITATIONS: {
-    title: "Undangan saya",
-    description: "Riwayat jalur pendaftaran, status konfirmasi, dan batas waktu setiap event.",
+    title: "Pendaftaran saya",
+    description: "Semua program yang Anda ikuti, baik reguler maupun undangan, beserta status persetujuan.",
   },
   ACTIVITIES: {
     title: "Kegiatan saya",
@@ -335,6 +338,7 @@ export const ParticipantPortalPage: React.FC = () => {
   const [qrLoading, setQrLoading] = useState(false);
   const [preview, setPreview] = useState(false);
   const [error, setError] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [copyDone, setCopyDone] = useState(false);
   const [profileState, setProfileState] = useState({
     phone: "",
@@ -363,6 +367,7 @@ export const ParticipantPortalPage: React.FC = () => {
     const load = async () => {
       setLoading(true);
       setError("");
+      setPreview(false);
       try {
         const [overviewData, announcementData] = await Promise.all([
           eventApi<PortalOverview>("/portal/overview"),
@@ -381,17 +386,23 @@ export const ParticipantPortalPage: React.FC = () => {
         });
       } catch (loadError) {
         if (cancelled) return;
-        setPreview(true);
-        setOverview(previewOverview);
-        setAnnouncements(previewAnnouncements);
-        setSelectedParticipantId(previewOverview.participations[0].participantId);
-        setProfileState({
-          phone: previewOverview.profile.phone || "",
-          whatsapp: previewOverview.profile.whatsapp || "",
-          educationSummary: previewOverview.profile.educationSummary || "",
-          expertiseSummary: previewOverview.profile.expertiseSummary || "",
-          address: previewOverview.profile.address || "",
-        });
+        if (import.meta.env.DEV) {
+          setPreview(true);
+          setOverview(previewOverview);
+          setAnnouncements(previewAnnouncements);
+          setSelectedParticipantId(previewOverview.participations[0].participantId);
+          setProfileState({
+            phone: previewOverview.profile.phone || "",
+            whatsapp: previewOverview.profile.whatsapp || "",
+            educationSummary: previewOverview.profile.educationSummary || "",
+            expertiseSummary: previewOverview.profile.expertiseSummary || "",
+            address: previewOverview.profile.address || "",
+          });
+        } else {
+          setOverview(null);
+          setAnnouncements([]);
+          setSelectedParticipantId("");
+        }
         setError(
           loadError instanceof Error
             ? loadError.message
@@ -405,7 +416,7 @@ export const ParticipantPortalPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [reloadKey]);
 
   const selectedParticipation = useMemo(
     () =>
@@ -419,6 +430,11 @@ export const ParticipantPortalPage: React.FC = () => {
 
   useEffect(() => {
     if (activeTab !== "QR" || !selectedParticipation) return;
+    if (selectedParticipation.approvalStatus !== "APPROVED" || ["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus)) {
+      setQr(null);
+      setQrLoading(false);
+      return;
+    }
     if (preview) {
       setQr({
         participantId: selectedParticipation.participantId,
@@ -431,14 +447,16 @@ export const ParticipantPortalPage: React.FC = () => {
       });
       return;
     }
+    setQr(null);
     setQrLoading(true);
     void eventApi<PortalQr>(
       `/portal/qr?participantId=${encodeURIComponent(selectedParticipation.participantId)}`,
     )
       .then(setQr)
-      .catch((qrError) =>
-        setError(qrError instanceof Error ? qrError.message : "QR peserta gagal dimuat."),
-      )
+      .catch((qrError) => {
+        setQr(null);
+        setError(qrError instanceof Error ? qrError.message : "QR peserta gagal dimuat.");
+      })
       .finally(() => setQrLoading(false));
   }, [activeTab, overview?.profile.fullName, preview, selectedParticipation]);
 
@@ -469,8 +487,8 @@ export const ParticipantPortalPage: React.FC = () => {
       },
       {
         label: "QR individu",
-        detail: "Siapkan sebelum tiba di meja registrasi.",
-        complete: ["CONFIRMED", "ACCEPTED"].includes(selectedParticipation.confirmationStatus),
+        detail: selectedParticipation.approvalStatus === "APPROVED" ? "Siapkan sebelum tiba di meja registrasi." : "QR untuk presensi berlaku setelah disetujui panitia.",
+        complete: selectedParticipation.approvalStatus === "APPROVED" && ["CONFIRMED", "ACCEPTED"].includes(selectedParticipation.confirmationStatus),
         href: "/portal/qr",
       },
     ];
@@ -557,7 +575,8 @@ export const ParticipantPortalPage: React.FC = () => {
         });
         return;
       }
-      const data = await eventApi<PortalDelegation>(`/portal/delegations/${participantId}`);
+      const isPublicGroup = overview?.participations.some((participation) => participation.participantId === participantId && participation.publicGroupId);
+      const data = await eventApi<PortalDelegation>(isPublicGroup ? `/portal/groups/${participantId}` : `/portal/delegations/${participantId}`);
       setDelegation(data);
     } catch (delegationLoadError) {
       setDelegationError(
@@ -629,6 +648,20 @@ export const ParticipantPortalPage: React.FC = () => {
     window.setTimeout(() => setCopyDone(false), 1800);
   };
 
+  if (!loading && !overview) {
+    return (
+      <PortalLayout>
+        <div className="mx-auto max-w-xl border-t-4 border-rose-700 bg-white p-6 text-center shadow-sm" role="alert">
+          <h1 className="text-xl font-black text-slate-950">Data portal belum dapat dimuat</h1>
+          <p className="mt-2 text-sm leading-6 text-slate-600">{error || "Periksa koneksi lalu coba lagi."}</p>
+          <button type="button" onClick={() => setReloadKey((current) => current + 1)} className="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800">
+            <RefreshCw className="h-4 w-4" /> Coba lagi
+          </button>
+        </div>
+      </PortalLayout>
+    );
+  }
+
   if (loading || !overview) {
     return (
       <PortalLayout>
@@ -666,6 +699,22 @@ export const ParticipantPortalPage: React.FC = () => {
               {error} Navigasi, profil, pengumuman, dan QR dapat dicoba tanpa mengubah data produksi.
             </p>
           </div>
+        </div>
+      )}
+
+      {!selectedParticipation && (
+        <section className="portal-first-step">
+          <CalendarDays aria-hidden="true" />
+          <h2>Belum ada program pada akun ini</h2>
+          <p>Lihat program daurah yang telah dipublikasikan. Jika lembaga sudah mendaftarkan Anda tetapi belum muncul di sini, pastikan email portal sama dengan email yang diberikan kepada lembaga.</p>
+          <Link to="/programs">Lihat program daurah <ArrowRight aria-hidden="true" /></Link>
+        </section>
+      )}
+
+      {selectedParticipation && selectedParticipation.approvalStatus !== "APPROVED" && (
+        <div className="portal-status-guide" role="status">
+          <Info aria-hidden="true" />
+          <p><strong>Pendaftaran tersimpan, menunggu pemeriksaan panitia.</strong> Anda dapat melengkapi profil dan membaca jadwal. QR belum dapat digunakan untuk check-in sampai status disetujui.</p>
         </div>
       )}
 
@@ -871,7 +920,7 @@ export const ParticipantPortalPage: React.FC = () => {
                   </p>
                 </div>
                 <div className="mt-5 grid gap-2">
-                  {participation.isDelegationLead && participation.invitationId && (
+                  {participation.isDelegationLead && (participation.invitationId || participation.publicGroupId) && (
                     <button
                       type="button"
                       onClick={() => void loadDelegation(participation.participantId)}
@@ -879,7 +928,7 @@ export const ParticipantPortalPage: React.FC = () => {
                       disabled={delegationLoading}
                     >
                       {delegationLoading ? <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" /> : <Crown className="h-4 w-4" />}
-                      {delegationLoading ? "Memuat delegasi…" : "Kelola delegasi"}
+                      {delegationLoading ? "Memuat rombongan…" : participation.publicGroupId ? "Lihat rombongan" : "Kelola delegasi"}
                     </button>
                   )}
                   <button
@@ -903,8 +952,8 @@ export const ParticipantPortalPage: React.FC = () => {
               <header className="portal-delegation__header">
                 <div>
                   <span><Crown aria-hidden="true" /> Akses kepala rombongan</span>
-                  <h2 id="portal-delegation-title">Delegasi {delegation.institutionName}</h2>
-                  <p>{delegation.members.length} dari {delegation.quota} kuota · penggantian peserta masuk pemeriksaan panitia.</p>
+                  <h2 id="portal-delegation-title">{delegation.kind === "PUBLIC_GROUP" ? `Rombongan ${delegation.eventName}` : `Delegasi ${delegation.institutionName}`}</h2>
+                  <p>{delegation.kind === "PUBLIC_GROUP" ? `${delegation.members.length} asatidz terdaftar · setiap peserta memantau persetujuan dan QR di akun sendiri.` : `${delegation.members.length} dari ${delegation.quota} kuota · penggantian peserta masuk pemeriksaan panitia.`}</p>
                 </div>
                 <button type="button" onClick={() => { setDelegation(null); setReplaceTarget(null); }} aria-label="Tutup pengelolaan delegasi">
                   <X aria-hidden="true" />
@@ -928,7 +977,7 @@ export const ParticipantPortalPage: React.FC = () => {
                       </div>
                       <div className="portal-delegation__member-actions">
                         <StatusBadge label={member.hasCheckedIn ? "Sudah check-in" : member.approvalStatus} variant={member.hasCheckedIn ? "success" : statusVariant(member.approvalStatus)} />
-                        {!member.isDelegationLead && (
+                        {delegation.kind !== "PUBLIC_GROUP" && !member.isDelegationLead && (
                           <button
                             type="button"
                             onClick={() => beginReplacement(member)}
@@ -944,7 +993,7 @@ export const ParticipantPortalPage: React.FC = () => {
                   ))}
                 </div>
 
-                <aside className="portal-delegation__editor">
+                {delegation.kind === "PUBLIC_GROUP" ? <aside className="portal-delegation__editor"><div className="portal-delegation__empty"><ShieldCheck aria-hidden="true" /><strong>Akun pribadi setiap asatidz</strong><p>Mintalah setiap anggota membuka email pendaftaran, mengaktifkan akun, dan memeriksa statusnya sendiri. Perubahan anggota dibantu panitia agar riwayat tetap tercatat.</p></div></aside> : <aside className="portal-delegation__editor">
                   {replaceTarget ? (
                     <form onSubmit={submitReplacement} aria-busy={replaceState === "saving"}>
                       <div className="portal-delegation__editor-heading">
@@ -993,7 +1042,7 @@ export const ParticipantPortalPage: React.FC = () => {
                       <p>Data kepala rombongan dan peserta yang sudah check-in dikunci. Perubahan lain akan diajukan ke panitia.</p>
                     </div>
                   )}
-                </aside>
+                </aside>}
               </div>
               {delegationError && <p role="alert" className="portal-delegation__error">{delegationError}</p>}
               {replaceState === "success" && <p role="status" className="portal-delegation__success">Data pengganti tersimpan dan menunggu review panitia.</p>}
@@ -1104,8 +1153,14 @@ export const ParticipantPortalPage: React.FC = () => {
                 "Peserta individual"}
             </p>
             <div className="mx-auto mt-7 grid min-h-[248px] w-full max-w-[248px] place-items-center rounded-2xl border-8 border-slate-950 bg-white p-4 shadow-lg">
-              {qrLoading || !qr ? (
+              {selectedParticipation.approvalStatus !== "APPROVED" ? (
+                <p className="max-w-[190px] text-sm font-bold text-slate-700">QR tersedia setelah panitia menyetujui pendaftaran.</p>
+              ) : ["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus) ? (
+                <p className="max-w-[190px] text-sm font-bold text-slate-700">QR tidak aktif karena pendaftaran dibatalkan atau diganti.</p>
+              ) : qrLoading ? (
                 <Loader2 className="h-8 w-8 animate-spin text-emerald-700 motion-reduce:animate-none" />
+              ) : !qr ? (
+                <p className="max-w-[190px] text-sm font-bold text-slate-700">QR belum dapat dimuat. Coba buka kembali halaman ini atau hubungi panitia.</p>
               ) : (
                 <QRCodeSVG
                   value={qr.opaqueQrToken}
@@ -1117,7 +1172,7 @@ export const ParticipantPortalPage: React.FC = () => {
               )}
             </div>
             <div className="mx-auto mt-6 max-w-md rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-bold text-slate-500">Kode fallback manual</p>
+              <p className="text-xs font-bold text-slate-500">Kode peserta{selectedParticipation.approvalStatus === "APPROVED" ? " · fallback manual" : " · belum berlaku untuk presensi"}</p>
               <p className="mt-2 font-mono text-lg font-black tracking-wider text-emerald-900">
                 {selectedParticipation.participantCode}
               </p>

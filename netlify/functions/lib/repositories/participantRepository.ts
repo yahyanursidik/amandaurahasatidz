@@ -55,6 +55,7 @@ export async function findParticipantsRepository(eventId: string) {
       institutionId: eventParticipants.institutionId,
       institutionName: institutions.name,
       invitationId: eventParticipants.invitationId,
+      publicGroupId: eventParticipants.publicGroupId,
       registrationSource: eventParticipants.registrationSource,
       participantCode: eventParticipants.participantCode,
       isDelegationLead: eventParticipants.isDelegationLead,
@@ -599,6 +600,20 @@ export async function countApprovedParticipantsForEventRepository(eventId: strin
     );
 
   return res[0]?.total || 0;
+}
+
+export async function countApprovedParticipantsBySourceRepository(eventId: string, regular: boolean): Promise<number> {
+  const db = getDbClient();
+  const sources = regular ? ["DIRECT_PUBLIC", "DIRECT_ADMIN_UPLOAD"] : ["INSTITUTION_DELEGATION", "INDIVIDUAL_INVITATION"];
+  const result = await db
+    .select({ total: count() })
+    .from(eventParticipants)
+    .where(and(
+      eq(eventParticipants.eventId, eventId),
+      eq(eventParticipants.approvalStatus, "APPROVED"),
+      inArray(eventParticipants.registrationSource, sources),
+    ));
+  return result[0]?.total || 0;
 }
 
 export async function updateParticipantApprovalStatusRepository(

@@ -64,7 +64,7 @@ export const UstadzShowPage: React.FC = () => {
     setLoading(true);
     setError("");
     try {
-      if (id.startsWith("preview-")) {
+      if (import.meta.env.DEV && id.startsWith("preview-")) {
         setProfile(getUstadzPreviewProfile(id));
         setPreview(true);
       } else {

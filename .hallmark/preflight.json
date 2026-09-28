@@ -1,9 +1,9 @@
 {
-  "scannedAt": "2026-08-01",
-  "fontStack": "Inter, system-ui, sans-serif",
-  "palette": "Emerald and slate via HSL CSS variables and Tailwind tokens",
+  "scannedAt": "2026-09-28",
+  "fontStack": "Inter, system-ui, sans-serif; existing --font-event-display and --font-event-body tokens",
+  "palette": "Emerald and slate via CSS variables and Tailwind tokens",
   "motion": "CSS motion tokens only; no motion library",
-  "spacing": "Tailwind 4px scale",
+  "spacing": "Tailwind 4px scale and existing named event/login/portal tokens",
   "framework": "React 18, Vite 8.2, Tailwind CSS 3.4",
-  "preserve": ["font stack", "palette", "spacing scale"]
+  "preserve": ["font stack", "palette", "spacing scale", "brand", "routes", "role boundaries", "faceless library interior"]
 }

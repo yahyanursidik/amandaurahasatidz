@@ -20,6 +20,8 @@ export const EventCreatePage: React.FC = () => {
           ...values,
           capacity: values.capacity ? Number(values.capacity) : null,
           defaultInstitutionQuota: values.defaultInstitutionQuota ? Number(values.defaultInstitutionQuota) : null,
+          regularQuota: values.regularQuota === "" ? null : Number(values.regularQuota),
+          invitationQuota: values.invitationQuota === "" ? null : Number(values.invitationQuota),
           mapsUrl: values.mapsUrl || null,
         }),
       });

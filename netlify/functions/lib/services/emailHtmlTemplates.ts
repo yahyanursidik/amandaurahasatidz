@@ -1,6 +1,6 @@
 /**
  * emailHtmlTemplates.ts
- * Template email HTML premium dengan branding Daurah Asatidz YTS.
+ * Template email HTML Aman Daurah Asatidz.
  * Inline CSS untuk kompatibilitas maksimal (Gmail, Outlook, Apple Mail).
  * Mobile responsive dengan max-width 600px.
  */
@@ -46,7 +46,7 @@ function wrapHtmlLayout(title: string, bodyContent: string): string {
           <!-- Footer -->
           <tr>
             <td style="background-color:#f8faf8;border-top:1px solid #e8f0e8;padding:24px 40px;text-align:center;">
-              <p style="margin:0 0 6px 0;font-size:13px;color:#5a6b5c;font-weight:600;">Radio Tarbiyah Sunnah</p>
+              <p style="margin:0 0 6px 0;font-size:13px;color:#5a6b5c;font-weight:600;">Aman Daurah Asatidz</p>
               <p style="margin:0 0 4px 0;font-size:12px;color:#8a9b8a;">no-reply@radiotarbiyahsunnah.com</p>
               <p style="margin:12px 0 0 0;font-size:11px;color:#aaaaaa;line-height:1.5;">
                 Email ini dikirim secara otomatis oleh sistem. Mohon tidak membalas email ini.<br/>
@@ -150,7 +150,7 @@ export function renderInvitationInstitutionHtml(vars: {
     <td style="padding:0 40px 32px;">
       <p style="margin:0;font-size:13px;color:#5a6b5c;line-height:1.7;">
         Jazakumullah Khairan atas perhatian dan kerjasama Bapak/Ibu.<br/>
-        <strong style="color:${BRAND_PRIMARY};">Panitia Daurah YTS</strong>
+        <strong style="color:${BRAND_PRIMARY};">Panitia Aman Daurah Asatidz</strong>
       </p>
     </td>
   </tr>`;
@@ -209,7 +209,7 @@ export function renderRegistrationConfirmedHtml(vars: {
     <td style="padding:0 40px 32px;">
       <p style="margin:0;font-size:13px;color:#5a6b5c;line-height:1.7;">
         Jazakumullah Khairan. Semoga kegiatan ini memberikan keberkahan dan manfaat yang besar.<br/>
-        <strong style="color:${BRAND_PRIMARY};">Panitia Daurah YTS</strong>
+        <strong style="color:${BRAND_PRIMARY};">Panitia Aman Daurah Asatidz</strong>
       </p>
     </td>
   </tr>`;
@@ -257,7 +257,7 @@ export function renderThankYouConfirmedHtml(vars: {
     <td style="padding:0 40px 32px;">
       <p style="margin:0;font-size:13px;color:#5a6b5c;line-height:1.7;">
         Jazakumullah Khairan atas komitmen dan semangat Ustadz dalam menuntut ilmu.<br/>
-        <strong style="color:${BRAND_PRIMARY};">Panitia Daurah YTS</strong>
+        <strong style="color:${BRAND_PRIMARY};">Panitia Aman Daurah Asatidz</strong>
       </p>
     </td>
   </tr>`;
@@ -301,7 +301,7 @@ export function renderThankYouAttendedHtml(vars: {
     <td style="padding:8px 40px 32px;">
       <p style="margin:0;font-size:13px;color:#5a6b5c;line-height:1.7;">
         Wassalamu'alaikum Warahmatullah Wabarakatuh,<br/>
-        <strong style="color:${BRAND_PRIMARY};">Panitia Daurah YTS — Radio Tarbiyah Sunnah</strong>
+        <strong style="color:${BRAND_PRIMARY};">Panitia Aman Daurah Asatidz</strong>
       </p>
     </td>
   </tr>`;
@@ -381,7 +381,7 @@ export function renderEventReminderHtml(vars: {
     <td style="padding:0 40px 32px;">
       <p style="margin:0;font-size:13px;color:#5a6b5c;line-height:1.7;">
         Baarakallahu fiikum. Semoga Allah memudahkan perjalanan dan memberikan keberkahan.<br/>
-        <strong style="color:${BRAND_PRIMARY};">Panitia Daurah YTS</strong>
+        <strong style="color:${BRAND_PRIMARY};">Panitia Aman Daurah Asatidz</strong>
       </p>
     </td>
   </tr>`;
@@ -425,7 +425,7 @@ export function renderOtpCodeHtml(vars: {
 
       <div style="background-color:#fff8f8;border:1px solid #ffcccc;border-radius:8px;padding:12px 20px;text-align:center;">
         <p style="margin:0;font-size:12px;color:#cc0000;">
-          🚫 <strong>Jangan bagikan kode ini kepada siapapun.</strong> Tim YTS tidak pernah meminta kode OTP Anda.
+          🚫 <strong>Jangan bagikan kode ini kepada siapa pun.</strong> Panitia Aman Daurah Asatidz tidak pernah meminta kode OTP Anda.
         </p>
       </div>
     </td>
@@ -438,7 +438,7 @@ export function renderOtpCodeHtml(vars: {
     </td>
   </tr>`;
 
-  return wrapHtmlLayout("Kode OTP — Daurah Asatidz YTS", body);
+  return wrapHtmlLayout("Kode OTP — Aman Daurah Asatidz", body);
 }
 
 // ─── Dispatcher: render by template code ─────────────────────────────────────
@@ -512,9 +512,9 @@ export function renderHtmlByTemplateCode(
 
     default:
       // Fallback: plain text wrapper
-      return wrapHtmlLayout("Notifikasi Daurah YTS", `
+      return wrapHtmlLayout("Notifikasi Aman Daurah Asatidz", `
         <tr><td style="padding:40px;">
-          <p style="font-size:14px;color:${BRAND_TEXT};line-height:1.7;">${variables.body || "Notifikasi dari Panitia Daurah YTS."}</p>
+          <p style="font-size:14px;color:${BRAND_TEXT};line-height:1.7;">${variables.body || "Notifikasi dari Panitia Aman Daurah Asatidz."}</p>
         </td></tr>`);
   }
 }

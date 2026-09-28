@@ -3,7 +3,7 @@ import { Link, useParams } from "react-router-dom";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { StatusBadge, StatusVariant } from "@/components/common/StatusBadge";
 import { ENV } from "@/config/env";
-import { AlertCircle, Calendar, Clock, ExternalLink, MapPin, RefreshCw } from "lucide-react";
+import { AlertCircle, ArrowRight, Calendar, Clock, ExternalLink, MapPin, RefreshCw, TicketCheck, Users } from "lucide-react";
 import { DEFAULT_EVENT_POSTER, posterObjectPosition } from "@/lib/eventPoster";
 
 type EventDay = {
@@ -42,6 +42,14 @@ type PublicEvent = {
   venueAddress: string | null;
   mapsUrl: string | null;
   status: string;
+  audienceMode: string;
+  capacity: number | null;
+  regularQuota: number | null;
+  invitationQuota: number | null;
+  regularApproved: number;
+  invitationApproved: number;
+  registrationOpenAt: string | null;
+  registrationCloseAt: string | null;
   days: EventDay[];
   sessions: EventSession[];
 };
@@ -64,6 +72,14 @@ const previewEvent: PublicEvent = {
   venueAddress: "Alamat akan mengikuti data event.",
   mapsUrl: null,
   status: "DRAFT",
+  audienceMode: "MIXED",
+  capacity: null,
+  regularQuota: null,
+  invitationQuota: null,
+  regularApproved: 0,
+  invitationApproved: 0,
+  registrationOpenAt: null,
+  registrationCloseAt: null,
   days: [
     { id: "preview-day", dayNumber: 1, date: "2026-08-15", title: "Hari pertama" },
   ],
@@ -119,7 +135,7 @@ export const EventPublicPage: React.FC = () => {
     try {
       const response = await fetch(`${ENV.API_BASE_URL}/events/public/${encodeURIComponent(slug)}`);
       const result = await response.json();
-      if (!response.ok) throw new Error(result.error?.message || "Informasi event tidak dapat dimuat.");
+      if (!response.ok) throw new Error(response.status >= 500 ? "Informasi program sedang tidak tersedia. Coba lagi sebentar atau hubungi panitia." : result.error?.message || "Informasi event tidak dapat dimuat.");
       setEventData(result.data);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Informasi event tidak dapat dimuat.");
@@ -146,10 +162,15 @@ export const EventPublicPage: React.FC = () => {
       })),
     [eventData]
   );
+  const regularEnabled = Boolean(eventData && ["PUBLIC_OPEN", "MIXED"].includes(eventData.audienceMode));
+  const regularOpen = Boolean(eventData && regularEnabled && eventData.status === "REGISTRATION_OPEN" &&
+    (eventData.regularQuota == null || eventData.regularApproved < eventData.regularQuota) &&
+    (!eventData.registrationOpenAt || new Date(eventData.registrationOpenAt) <= new Date()) &&
+    (!eventData.registrationCloseAt || new Date(eventData.registrationCloseAt) >= new Date()));
 
   return (
     <PublicLayout>
-      <main className="mx-auto max-w-4xl">
+      <div className="mx-auto max-w-4xl">
         {loading ? (
           <div className="space-y-4" aria-label="Memuat informasi event">
             <div className="h-72 animate-pulse rounded-2xl bg-slate-200" />
@@ -225,6 +246,28 @@ export const EventPublicPage: React.FC = () => {
                 </dl>
               </div>
             </header>
+
+            <section className="event-public-enrollment" aria-labelledby="event-enrollment-title">
+              <div>
+                <p className="event-public-enrollment__eyebrow">Cara mengikuti program</p>
+                <h2 id="event-enrollment-title">Pilih jalur yang sesuai</h2>
+                <p>Setiap pendaftaran ditinjau panitia. Kode peserta dan QR kehadiran berlaku atas nama masing-masing asatidz.</p>
+              </div>
+              <div className="event-public-enrollment__routes">
+                {regularEnabled && <article>
+                  <Users aria-hidden="true" />
+                  <h3>Reguler</h3>
+                  <p>Daftar mandiri memakai email pribadi. {eventData.regularQuota != null ? `Alokasi ${eventData.regularQuota} tempat; persetujuan mengikuti hasil verifikasi panitia.` : "Ketersediaan dikonfirmasi setelah peninjauan panitia."}</p>
+                  {regularOpen && !previewMode ? <Link to={`/events/${eventData.slug}/register`}>Daftar reguler <ArrowRight aria-hidden="true" /></Link> : <span>{previewMode ? "Form tersedia pada program aktif" : "Pendaftaran reguler belum tersedia"}</span>}
+                </article>}
+                {["INSTITUTION_INVITATION", "INDIVIDUAL_INVITATION", "MIXED"].includes(eventData.audienceMode) && <article>
+                  <TicketCheck aria-hidden="true" />
+                  <h3>Undangan</h3>
+                  <p>Gunakan tautan khusus dari panitia. Lembaga dapat mendaftarkan beberapa perwakilan sesuai kuota undangan mereka.</p>
+                  <span>Sudah menerima tautan? Buka langsung dari pesan panitia.</span>
+                </article>}
+              </div>
+            </section>
 
             {(eventData.description || eventData.venueName || eventData.venueAddress) && (
               <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
@@ -307,14 +350,14 @@ export const EventPublicPage: React.FC = () => {
             </section>
 
             <footer className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs text-slate-500">Pendaftaran hanya melalui tautan undangan resmi lembaga atau individu.</p>
+              <p className="text-sm text-slate-600">Sudah mendaftar? Pantau status, jadwal, dan kartu peserta di portal pribadi.</p>
               <Link to="/login/ustadz" className="text-xs font-black text-emerald-700 hover:text-emerald-900">
                 Masuk Portal Ustadz
               </Link>
             </footer>
           </div>
         )}
-      </main>
+      </div>
     </PublicLayout>
   );
 };

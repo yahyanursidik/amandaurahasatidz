@@ -95,26 +95,31 @@ export const UstadzListPage: React.FC = () => {
       })
       .catch((loadError) => {
         if (!active) return;
-        const queryLower = (searchParams.get("search") || "").toLowerCase();
-        let fallback = ustadzPreviewProfiles.filter(
-          (item) =>
-            (!queryLower ||
-              item.fullName.toLowerCase().includes(queryLower) ||
-              (item.email || "").toLowerCase().includes(queryLower) ||
-              (item.phone || "").includes(queryLower)) &&
-            (profileStatus === "ALL" || item.profileStatus === profileStatus),
-        );
-        setProfiles(fallback);
-        setSummary({
-          total: ustadzPreviewProfiles.length,
-          active: ustadzPreviewProfiles.filter((item) => item.profileStatus === "ACTIVE").length,
-          inactive: ustadzPreviewProfiles.filter((item) => item.profileStatus === "INACTIVE").length,
-          merged: ustadzPreviewProfiles.filter((item) => item.profileStatus === "MERGED").length,
-          incomplete: ustadzPreviewProfiles.filter((item) => (item.completenessPercent || 0) < 70).length,
-          duplicateCandidates: ustadzPreviewProfiles.filter((item) => item.hasDuplicateAlert).length,
-        });
+        if (import.meta.env.DEV) {
+          const queryLower = (searchParams.get("search") || "").toLowerCase();
+          const fallback = ustadzPreviewProfiles.filter(
+            (item) =>
+              (!queryLower ||
+                item.fullName.toLowerCase().includes(queryLower) ||
+                (item.email || "").toLowerCase().includes(queryLower) ||
+                (item.phone || "").includes(queryLower)) &&
+              (profileStatus === "ALL" || item.profileStatus === profileStatus),
+          );
+          setProfiles(fallback);
+          setSummary({
+            total: ustadzPreviewProfiles.length,
+            active: ustadzPreviewProfiles.filter((item) => item.profileStatus === "ACTIVE").length,
+            inactive: ustadzPreviewProfiles.filter((item) => item.profileStatus === "INACTIVE").length,
+            merged: ustadzPreviewProfiles.filter((item) => (item.profileStatus === "MERGED")).length,
+            incomplete: ustadzPreviewProfiles.filter((item) => (item.completenessPercent || 0) < 70).length,
+            duplicateCandidates: ustadzPreviewProfiles.filter((item) => item.hasDuplicateAlert).length,
+          });
+        } else {
+          setProfiles([]);
+          setSummary({ total: 0, active: 0, inactive: 0, merged: 0, incomplete: 0, duplicateCandidates: 0 });
+        }
         setPageCount(1);
-        setPreview(true);
+        setPreview(import.meta.env.DEV);
         setError(loadError instanceof Error ? loadError.message : "Koneksi database belum tersedia.");
       })
       .finally(() => active && setLoading(false));

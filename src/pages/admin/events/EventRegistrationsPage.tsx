@@ -5,6 +5,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
+  AlertTriangle,
   ArrowLeft,
   Building2,
   CalendarClock,
@@ -12,6 +13,8 @@ import {
   CheckCircle2,
   Clipboard,
   Clock3,
+  Download,
+  FileSpreadsheet,
   Link2,
   KeyRound,
   Loader2,
@@ -20,6 +23,7 @@ import {
   Search,
   Send,
   ShieldCheck,
+  Upload,
   UserCheck,
   Users,
   XCircle,
@@ -34,6 +38,7 @@ import { ParticipantProfileDialog } from "@/components/participants/ParticipantP
 import { InvitationShareActions } from "@/components/invitations/InvitationShareActions";
 import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
 import { buildInstitutionInvitationPath } from "@/lib/invitationUrl";
+import { parseParticipantCsv } from "@/lib/participantImportCsv";
 
 type Invitation = {
   id: string;
@@ -51,6 +56,7 @@ type Participant = {
   id: string;
   ustadzId: string;
   invitationId: string | null;
+  publicGroupId?: string | null;
   ustadzName: string;
   ustadzEmail: string | null;
   ustadzPhone: string | null;
@@ -82,6 +88,36 @@ type Institution = {
   email?: string | null;
   phone?: string | null;
   whatsapp?: string | null;
+};
+
+type ParticipantImportRow = {
+  fullName: string;
+  email?: string | null;
+  phone?: string | null;
+  whatsapp?: string | null;
+  address?: string | null;
+  institutionCode?: string | null;
+  institutionName?: string | null;
+  participantCode?: string | null;
+  isDelegationLead?: boolean;
+  approvalStatus?: string;
+  notes?: string | null;
+};
+
+type ParticipantImportPreview = {
+  totalRows: number;
+  validCount: number;
+  alreadyImportedCount: number;
+  invalidCount: number;
+  duplicateCount: number;
+  missingInstitutionCount: number;
+  errorReport: { line: number; field: string; error: string }[];
+  duplicateReport: { line: number; key: string; reason: string }[];
+  previewData: Array<ParticipantImportRow & {
+    line: number;
+    resolvedInstitutionName: string | null;
+    finalParticipantCode: string;
+  }>;
 };
 type EventDeadline = {
   name?: string;
@@ -206,11 +242,56 @@ const formatRegisteredAt = (value: string | null) => {
   };
 };
 
+const participantTemplateHeaders = [
+  "fullName",
+  "email",
+  "whatsapp",
+  "phone",
+  "institutionCode",
+  "institutionName",
+  "isDelegationLead",
+  "approvalStatus",
+  "participantCode",
+  "address",
+  "notes",
+];
+
+const participantTemplateRows = [
+  [
+    "Ustadz Ahmad Abdullah",
+    "ahmad.abdullah@example.org",
+    "081234567890",
+    "081234567890",
+    "INST-BDG-001",
+    "",
+    "TRUE",
+    "PENDING_REVIEW",
+    "",
+    "Bandung",
+    "Kepala rombongan lembaga",
+  ],
+  [
+    "Ustadz Hasan Basri",
+    "hasan.basri@example.org",
+    "081298765432",
+    "081298765432",
+    "",
+    "",
+    "FALSE",
+    "APPROVED",
+    "",
+    "Garut",
+    "Peserta individu",
+  ],
+];
+
+const escapeCsvCell = (value: string) => `"${value.replaceAll('"', '""')}"`;
+
 export const EventRegistrationsPage: React.FC = () => {
   const { id = "" } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const participantView = searchParams.get("view") === "participants";
-  const demoMode = !isUuid(id);
+  const demoMode = import.meta.env.DEV && !isUuid(id);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
@@ -221,6 +302,12 @@ export const EventRegistrationsPage: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   const [participantBusy, setParticipantBusy] = useState("");
   const [selectedParticipants, setSelectedParticipants] = useState<string[]>([]);
+  const [participantImportRows, setParticipantImportRows] = useState<ParticipantImportRow[]>([]);
+  const [participantImportPreview, setParticipantImportPreview] = useState<ParticipantImportPreview | null>(null);
+  const [participantImportFileName, setParticipantImportFileName] = useState("");
+  const [participantImportMessage, setParticipantImportMessage] = useState("");
+  const [participantImportFailures, setParticipantImportFailures] = useState<{ line: number; participantCode: string; error: string }[]>([]);
+  const [participantImportBusy, setParticipantImportBusy] = useState<"preview" | "commit" | "">("");
   const [copied, setCopied] = useState("");
   const [createdLink, setCreatedLink] = useState("");
   const [createdAccessCode, setCreatedAccessCode] = useState("");
@@ -457,6 +544,136 @@ export const EventRegistrationsPage: React.FC = () => {
     }
   };
 
+  const downloadParticipantTemplate = () => {
+    const csv = [
+      participantTemplateHeaders.map(escapeCsvCell).join(","),
+      ...participantTemplateRows.map((row) => row.map(escapeCsvCell).join(",")),
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = `template-peserta-${eventDeadline?.name || id || "event"}`
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .concat(".csv");
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const handleParticipantImportFile = async (file: File | null) => {
+    setParticipantImportMessage("");
+    setParticipantImportFailures([]);
+    setParticipantImportPreview(null);
+    setParticipantImportRows([]);
+    if (!file) return;
+    setParticipantImportFileName(file.name);
+    let rows: ParticipantImportRow[];
+    try {
+      if (file.size > 1024 * 1024) throw new Error("File CSV maksimal 1 MB.");
+      rows = parseParticipantCsv(await file.text());
+    } catch (parseError) {
+      setError(parseError instanceof Error ? parseError.message : "File CSV tidak dapat dibaca.");
+      return;
+    }
+    setParticipantImportRows(rows);
+    if (rows.length === 0) {
+      setError("File CSV belum berisi data peserta. Pastikan baris pertama adalah header template.");
+      return;
+    }
+    if (demoMode) {
+      setParticipantImportPreview({
+        totalRows: rows.length,
+        validCount: rows.length,
+        alreadyImportedCount: 0,
+        invalidCount: 0,
+        duplicateCount: 0,
+        missingInstitutionCount: 0,
+        errorReport: [],
+        duplicateReport: [],
+        previewData: rows.map((row, index) => ({
+          ...row,
+          line: index + 2,
+          resolvedInstitutionName: row.institutionName || (row.institutionCode ? "Lembaga contoh" : null),
+          finalParticipantCode: row.participantCode || `ADA-DEMO-${String(index + 1).padStart(3, "0")}`,
+        })),
+      });
+      setParticipantImportMessage("Preview demo siap. Impor tidak akan mengubah database karena event ini masih mode pratinjau.");
+      return;
+    }
+    setParticipantImportBusy("preview");
+    setError("");
+    try {
+      const preview = await api<ParticipantImportPreview>(`/events/${id}/participants/import/preview`, {
+        method: "POST",
+        body: JSON.stringify({ rows }),
+      });
+      setParticipantImportPreview(preview);
+      setParticipantImportMessage(`${preview.validCount} baris siap diimpor${preview.alreadyImportedCount ? `, ${preview.alreadyImportedCount} sudah pernah diimpor` : ""}.`);
+    } catch (previewError) {
+      setError(previewError instanceof Error ? previewError.message : "Preview import peserta gagal diproses.");
+    } finally {
+      setParticipantImportBusy("");
+    }
+  };
+
+  const commitParticipantImport = async () => {
+    if (!participantImportPreview || participantImportRows.length === 0) return;
+    if (participantImportPreview.invalidCount > 0 || participantImportPreview.duplicateCount > 0) {
+      setError("Perbaiki baris invalid atau duplikat sebelum impor final.");
+      return;
+    }
+    if (demoMode) {
+      const imported = participantImportPreview.previewData.map((row, index): Participant => ({
+        id: `part-upload-demo-${index}`,
+        ustadzId: `ustadz-upload-demo-${index}`,
+        invitationId: null,
+        ustadzName: row.fullName,
+        ustadzEmail: row.email || null,
+        ustadzPhone: row.phone || null,
+        ustadzWhatsapp: row.whatsapp || row.phone || null,
+        ustadzAddress: row.address || null,
+        eventName: eventDeadline?.name || "Contoh Daurah Asatidz",
+        eventStartDate: eventDeadline?.startDate || null,
+        eventEndDate: eventDeadline?.endDate || null,
+        eventVenueName: eventDeadline?.venueName || null,
+        eventVenueAddress: null,
+        participantCode: row.finalParticipantCode,
+        isDelegationLead: Boolean(row.isDelegationLead),
+        confirmationStatus: "CONFIRMED",
+        approvalStatus: row.approvalStatus || "PENDING_REVIEW",
+        institutionName: row.resolvedInstitutionName,
+        registrationSource: "DIRECT_ADMIN_UPLOAD",
+        registeredAt: new Date().toISOString(),
+      }));
+      setParticipants((current) => [...imported, ...current]);
+      setParticipantImportMessage(`${imported.length} peserta demo ditambahkan ke tampilan pratinjau.`);
+      setParticipantImportPreview(null);
+      setParticipantImportRows([]);
+      return;
+    }
+    setParticipantImportBusy("commit");
+    setError("");
+    try {
+      const result = await api<{ status: "SUCCESS" | "PARTIAL"; importedCount: number; failedCount: number; message: string; failureReport: { line: number; participantCode: string; error: string }[] }>(`/events/${id}/participants/import/commit`, {
+        method: "POST",
+        body: JSON.stringify({ rows: participantImportRows, approved: true }),
+      });
+      setParticipantImportMessage(result.message || `Berhasil mengimpor ${result.importedCount} peserta.`);
+      setParticipantImportFailures(result.failureReport || []);
+      if (result.status === "SUCCESS") {
+        setParticipantImportPreview(null);
+        setParticipantImportRows([]);
+      }
+      await loadData();
+    } catch (commitError) {
+      setError(commitError instanceof Error ? commitError.message : "Import peserta gagal disimpan.");
+    } finally {
+      setParticipantImportBusy("");
+    }
+  };
+
   if (participantView) {
     return (
       <AdminLayout>
@@ -484,6 +701,124 @@ export const EventRegistrationsPage: React.FC = () => {
               <p className="mt-1 truncate text-[10px] font-black uppercase tracking-wide text-slate-500">{label}</p>
             </div>
           ))}
+        </section>
+        <section className="mt-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <FileSpreadsheet className="h-5 w-5 text-emerald-700" />
+                <h2 className="text-sm font-black text-slate-950">Upload peserta event</h2>
+              </div>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
+                Gunakan CSV untuk menambahkan peserta massal. Kolom lembaga boleh memakai kode lembaga yang sudah ada; kosongkan bila peserta individu.
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={downloadParticipantTemplate}
+                className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+              >
+                <Download className="h-4 w-4" />
+                Unduh template
+              </button>
+              <label className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg bg-emerald-700 px-3 text-sm font-bold text-white hover:bg-emerald-800 focus-within:outline focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-emerald-700">
+                {participantImportBusy === "preview" ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+                Pilih CSV
+                <input
+                  type="file"
+                  accept=".csv,text/csv"
+                  className="sr-only"
+                  onChange={(event) => {
+                    void handleParticipantImportFile(event.target.files?.[0] || null);
+                    event.target.value = "";
+                  }}
+                />
+              </label>
+            </div>
+          </div>
+
+          {(participantImportMessage || participantImportFileName) && (
+            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-950">
+              <span className="font-bold">{participantImportFileName || "Template peserta"}</span>
+              {participantImportMessage ? <span className="ml-2">{participantImportMessage}</span> : null}
+            </div>
+          )}
+
+          {participantImportFailures.length > 0 && (
+            <div role="alert" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-950">
+              <p className="font-black">{participantImportFailures.length} baris gagal. Perbaiki datanya atau tekan Impor peserta untuk mencoba ulang file yang sama.</p>
+              <ul className="mt-2 list-disc space-y-1 pl-5">
+                {participantImportFailures.slice(0, 20).map((failure) => <li key={`${failure.line}-${failure.participantCode}`}>Baris {failure.line} ({failure.participantCode}): {failure.error}</li>)}
+              </ul>
+            </div>
+          )}
+
+          {participantImportPreview && (
+            <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1fr)_18rem]">
+              <div className="min-w-0 overflow-x-auto rounded-lg border border-slate-200">
+                <div className="grid min-w-[54rem] grid-cols-[4rem_minmax(12rem,1fr)_minmax(12rem,1fr)_10rem_10rem] gap-3 bg-slate-50 px-3 py-2 text-[11px] font-black uppercase tracking-wide text-slate-500">
+                  <span>Baris</span>
+                  <span>Nama</span>
+                  <span>Lembaga</span>
+                  <span>Kode</span>
+                  <span>Status</span>
+                </div>
+                <div className="max-h-64 min-w-[54rem] divide-y divide-slate-100 overflow-y-auto bg-white">
+                  {participantImportPreview.previewData.slice(0, 25).map((row) => (
+                    <div key={`${row.line}-${row.finalParticipantCode}`} className="grid grid-cols-[4rem_minmax(12rem,1fr)_minmax(12rem,1fr)_10rem_10rem] gap-3 px-3 py-3 text-sm">
+                      <span className="font-mono text-slate-500">{row.line}</span>
+                      <div className="min-w-0">
+                        <p className="truncate font-bold text-slate-950">{row.fullName}</p>
+                        <p className="truncate text-xs text-slate-500">{row.email || row.whatsapp || row.phone || "Kontak belum diisi"}</p>
+                      </div>
+                      <span className="truncate text-slate-600">{row.resolvedInstitutionName || row.institutionName || "Individu"}</span>
+                      <span className="truncate font-mono text-xs font-bold text-emerald-800">{row.finalParticipantCode}</span>
+                      <StatusBadge label={(row.approvalStatus || "PENDING_REVIEW").replaceAll("_", " ")} variant={row.approvalStatus === "APPROVED" ? "success" : "warning"} />
+                    </div>
+                  ))}
+                </div>
+              </div>
+              <aside className="rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <div className="grid grid-cols-2 gap-2 text-center">
+                  {[
+                    ["Baris", participantImportPreview.totalRows],
+                    ["Siap", participantImportPreview.validCount],
+                    ["Sudah ada", participantImportPreview.alreadyImportedCount],
+                    ["Invalid", participantImportPreview.invalidCount],
+                    ["Duplikat", participantImportPreview.duplicateCount],
+                  ].map(([label, value]) => (
+                    <div key={String(label)} className="rounded-lg bg-white p-3">
+                      <p className="text-lg font-black tabular-nums text-slate-950">{value}</p>
+                      <p className="text-[10px] font-black uppercase tracking-wide text-slate-500">{label}</p>
+                    </div>
+                  ))}
+                </div>
+                {(participantImportPreview.errorReport.length > 0 || participantImportPreview.duplicateReport.length > 0) && (
+                  <div className="mt-3 max-h-44 overflow-y-auto rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-950">
+                    <div className="mb-2 flex items-center gap-2 font-bold">
+                      <AlertTriangle className="h-4 w-4" />
+                      Perlu diperbaiki
+                    </div>
+                    {[...participantImportPreview.errorReport, ...participantImportPreview.duplicateReport.map((item) => ({ line: item.line, field: item.key, error: item.reason }))].slice(0, 8).map((item) => (
+                      <p key={`${item.line}-${item.field}-${item.error}`} className="mt-1">
+                        Baris {item.line}: {item.error}
+                      </p>
+                    ))}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void commitParticipantImport()}
+                  disabled={participantImportBusy === "commit" || participantImportPreview.validCount === 0 || participantImportPreview.invalidCount > 0 || participantImportPreview.duplicateCount > 0}
+                  className="mt-3 inline-flex min-h-[44px] w-full items-center justify-center gap-2 rounded-lg bg-slate-950 px-3 text-sm font-black text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {participantImportBusy === "commit" ? <Loader2 className="h-4 w-4 animate-spin" /> : <CheckCircle2 className="h-4 w-4" />}
+                  Impor peserta
+                </button>
+              </aside>
+            </div>
+          )}
         </section>
         <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_13rem]">
           <label className="relative block"><span className="sr-only">Cari peserta</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama, kode peserta, atau lembaga" className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-xs" /></label>
@@ -514,8 +849,8 @@ export const EventRegistrationsPage: React.FC = () => {
                     className="h-4 w-4 accent-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                   <span className="font-mono font-bold text-emerald-800">{participant.participantCode}</span>
-                  <div className="min-w-0"><p className="truncate font-black text-slate-900">{participant.ustadzName}</p><p className="mt-1 truncate text-sm text-slate-600">{participant.ustadzWhatsapp || participant.ustadzPhone || participant.ustadzEmail || "Kontak belum diisi"}</p></div>
-                  <span className="truncate text-slate-500">{participant.institutionName || "Individu"}</span>
+                  <div className="min-w-0"><p className="truncate font-black text-slate-900">{participant.ustadzName}</p><p className="mt-1 truncate text-sm text-slate-600">{participant.ustadzWhatsapp || participant.ustadzPhone || participant.ustadzEmail || "Kontak belum diisi"}</p>{participant.publicGroupId && <p className="mt-1 text-xs font-bold text-emerald-800">{participant.isDelegationLead ? "Kepala rombongan reguler" : "Anggota rombongan reguler"}</p>}</div>
+                  <span className="truncate text-slate-500">{participant.institutionName || (participant.publicGroupId ? `Rombongan ${participant.publicGroupId.slice(0, 8)}` : "Individu")}</span>
                   <div className="flex items-start gap-2 text-slate-700">
                     <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
                     <div>
