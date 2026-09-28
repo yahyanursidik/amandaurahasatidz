@@ -13,8 +13,7 @@ export const PORTAL_ROLE_ACCESS: Record<PortalAccess, string[]> = {
 };
 
 export const portalForPath = (pathname: string): PortalAccess =>
-  pathname.startsWith("/committee") || pathname === "/gate" || pathname.startsWith("/gate/") || pathname === "/check-in" || pathname.startsWith("/check-in/")
-    ? "committee" : pathname.startsWith("/portal") ? "ustadz" : "admin";
+  pathname.startsWith("/committee") ? "committee" : pathname.startsWith("/portal") ? "ustadz" : "admin";
 
 export const canAccessPortal = (assignments: AuthIdentity["assignments"], portal: PortalAccess) =>
   assignments.some((assignment) => PORTAL_ROLE_ACCESS[portal].includes(assignment.roleCode));

@@ -2,17 +2,18 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { Camera, CameraOff, CheckCircle2, RefreshCw, ScanLine, Search } from "lucide-react";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
-import { committeeApi, type CommitteeAssignment } from "@/lib/committeeApi";
+import { eventApi } from "@/lib/eventApi";
 
 type Unit = { id: string; type: "DAY" | "SESSION"; dayId: string; sessionId: string | null;
   title: string; date: string; isOpen: boolean; openAt: string; closeAt: string };
 type Candidate = { id: string; participantCode: string; ustadzName: string; institutionName: string | null;
   approvalStatus: string; confirmationStatus: string };
+type GateEvent = { slug: string; code: string; name: string; status: string };
 
 export const CheckInPublicPage: React.FC = () => {
   const { eventSlug } = useParams<{ eventSlug: string }>();
-  const [assignments, setAssignments] = useState<CommitteeAssignment[]>([]);
-  const [eventId, setEventId] = useState("");
+  const [gateEvents, setGateEvents] = useState<GateEvent[]>([]);
+  const [selectedSlug, setSelectedSlug] = useState("");
   const [units, setUnits] = useState<Unit[]>([]);
   const [unitId, setUnitId] = useState("");
   const [input, setInput] = useState("");
@@ -23,40 +24,42 @@ export const CheckInPublicPage: React.FC = () => {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const codeInputRef = useRef<HTMLInputElement | null>(null);
   const [cameraActive, setCameraActive] = useState(false);
   const selectedUnit = units.find((unit) => unit.id === unitId);
 
   useEffect(() => {
-    void committeeApi<{ assignments: CommitteeAssignment[] }>("/committee/context")
-      .then((context) => {
-        const allowed = context.assignments.filter((item) => item.effectivePermissions?.includes("attendance.record"));
-        setAssignments(allowed);
-        setEventId((allowed.find((item) => item.eventSlug === eventSlug) || allowed[0])?.eventId || "");
-        if (!allowed.length) setError("Akun ini belum mendapat penugasan check-in. Hubungi admin event.");
-        else if (eventSlug && !allowed.some((item) => item.eventSlug === eventSlug)) setError("Anda tidak ditugaskan pada event dari tautan ini. Pilih event penugasan yang tersedia.");
-      }).catch((reason) => setError(reason instanceof Error ? reason.message : "Penugasan gate gagal dimuat."));
+    void eventApi<GateEvent[]>("/gate/events")
+      .then((items) => {
+        setGateEvents(items);
+        setSelectedSlug((items.find((item) => item.slug === eventSlug) || items[0])?.slug || "");
+        setError("");
+        if (!items.length) setError("Belum ada program yang tersedia untuk gate.");
+        else if (eventSlug && !items.some((item) => item.slug === eventSlug)) setError("Event pada tautan tidak ditemukan. Pilih program yang tersedia.");
+      }).catch((reason) => setError(reason instanceof Error ? reason.message : "Daftar program gate gagal dimuat."));
   }, [eventSlug]);
 
   const refresh = async () => {
-    if (!eventId) return;
+    if (!selectedSlug) return;
     try {
-      const result = await committeeApi<{ units: Unit[] }>(`/events/${eventId}/sessions/active`);
+      const result = await eventApi<{ units: Unit[] }>(`/gate/events/${selectedSlug}/units`);
+      setError("");
       setUnits(result.units);
       setUnitId((previous) => result.units.find((item) => item.id === previous)?.id || result.units.find((item) => item.isOpen)?.id || result.units[0]?.id || "");
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Jadwal check-in gagal dimuat."); }
   };
-  useEffect(() => { void refresh(); }, [eventId]);
+  useEffect(() => { void refresh(); }, [selectedSlug]);
 
   useEffect(() => {
-    if (query.trim().length < 2 || !eventId) { setCandidates([]); return; }
+    if (query.trim().length < 2 || !selectedSlug) { setCandidates([]); return; }
     let active = true;
     const timer = window.setTimeout(() => {
-      void committeeApi<Candidate[]>(`/events/${eventId}/checkin/search?q=${encodeURIComponent(query.trim())}`)
+      void eventApi<Candidate[]>(`/gate/events/${selectedSlug}/search?q=${encodeURIComponent(query.trim())}`)
         .then((result) => { if (active) setCandidates(result); })
         .catch((reason) => { if (active) setError(reason instanceof Error ? reason.message : "Pencarian peserta gagal."); });
     }, 250);
     return () => { active = false; window.clearTimeout(timer); };
-  }, [query, eventId]);
+  }, [query, selectedSlug]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -92,29 +95,30 @@ export const CheckInPublicPage: React.FC = () => {
     if (!input.trim()) return;
     setBusy(true);
     try {
-      const latest = await committeeApi<{ units: Unit[] }>(`/events/${eventId}/sessions/active`);
+      const latest = await eventApi<{ units: Unit[] }>(`/gate/events/${selectedSlug}/units`);
       if (!latest.units.find((unit) => unit.id === unitId)?.isOpen) { setUnits(latest.units); throw new Error("Jendela check-in telah berubah. Pilih unit yang masih dibuka."); }
-      const result = await committeeApi<{ participant: { ustadzName: string; participantCode: string }; attendanceUnit: Unit }>(`/events/${eventId}/checkin`, {
+      const result = await eventApi<{ participant: { ustadzName: string; participantCode: string }; attendanceUnit: Unit }>(`/gate/events/${selectedSlug}/checkin`, {
         method: "POST", body: JSON.stringify({ qrTokenOrCode: input.trim(), method: selected ? "SEARCH_SELECT" : input.trim().startsWith("pqr_") ? "QR_SCAN" : "MANUAL_CODE",
           sessionId: selectedUnit.sessionId, dayId: selectedUnit.type === "DAY" ? selectedUnit.dayId : null }),
       });
       setMessage(`${result.participant.ustadzName} (${result.participant.participantCode}) tercatat di ${result.attendanceUnit.title}.`);
       setInput(""); setQuery(""); setCandidates([]); setSelected(null);
+      codeInputRef.current?.focus();
     } catch (reason) { setError(reason instanceof Error ? reason.message : "Check-in gagal."); }
     finally { setBusy(false); }
   };
 
   return <PublicLayout wide><div className="mx-auto max-w-4xl space-y-5 pb-8">
-    <header className="rounded-xl bg-slate-950 p-5 text-white sm:p-7"><p className="text-xs font-black uppercase tracking-widest text-emerald-300">Gate panitia · akses petugas</p><h1 className="mt-2 text-2xl font-black">Check-in cepat peserta</h1><p className="mt-2 text-sm text-slate-300">Pindai QR pribadi, ketik kode peserta, atau cari nama. Kehadiran dicatat hanya sesudah petugas memilih identitas dan unit yang benar.</p></header>
-    <div className="flex flex-wrap items-center justify-between gap-2 text-sm"><Link to="/committee" className="font-bold text-emerald-800 underline">Portal panitia</Link><button type="button" onClick={() => void refresh()} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3"><RefreshCw className="h-4 w-4" /> Perbarui jadwal</button></div>
+    <header className="rounded-xl bg-slate-950 p-5 text-white sm:p-7"><p className="text-xs font-black uppercase tracking-widest text-emerald-300">Gate publik · tanpa login</p><h1 className="mt-2 text-2xl font-black">Check-in cepat peserta</h1><p className="mt-2 text-sm text-slate-300">Pindai QR pribadi, ketik kode peserta, atau cari nama. Pilih identitas dan unit kehadiran yang benar sebelum mencatat.</p></header>
+    <div className="flex flex-wrap items-center justify-between gap-2 text-sm"><Link to="/programs" className="font-bold text-emerald-800 underline">Daftar program</Link><button type="button" onClick={() => void refresh()} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3"><RefreshCw className="h-4 w-4" /> Perbarui jadwal</button></div>
     {error && <div role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-900">{error}</div>}
     {message && <div role="status" className="flex items-start gap-2 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm font-bold text-emerald-950"><CheckCircle2 className="h-5 w-5 shrink-0" />{message}</div>}
     <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <form onSubmit={(event) => void submit(event)} className="space-y-4 rounded-xl border border-slate-200 bg-white p-5">
-        <label className="block text-sm font-bold">Event penugasan<select value={eventId} onChange={(change) => { setCameraActive(false); setEventId(change.target.value); setUnits([]); setUnitId(""); setInput(""); setQuery(""); setCandidates([]); setSelected(null); }} className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3">{assignments.length ? assignments.map((item) => <option key={item.eventId} value={item.eventId}>{item.eventCode} · {item.eventName}</option>) : <option value="">Belum ada penugasan</option>}</select></label>
+        <label className="block text-sm font-bold">Program daurah<select value={selectedSlug} onChange={(change) => { setCameraActive(false); setSelectedSlug(change.target.value); setUnits([]); setUnitId(""); setInput(""); setQuery(""); setCandidates([]); setSelected(null); }} className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3">{gateEvents.length ? gateEvents.map((item) => <option key={item.slug} value={item.slug}>{item.code} · {item.name} ({item.status.replaceAll("_", " ")})</option>) : <option value="">Belum ada program</option>}</select></label>
         <label className="block text-sm font-bold">Hari / sesi kehadiran<select value={unitId} onChange={(change) => setUnitId(change.target.value)} className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3">{units.length ? units.map((unit) => <option key={unit.id} value={unit.id}>{unit.type === "DAY" ? "Harian" : "Sesi"} · {unit.title} · {unit.isOpen ? "DIBUKA" : "DITUTUP"}</option>) : <option value="">Belum ada unit check-in</option>}</select></label>
         <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs text-slate-700">{selectedUnit ? `${selectedUnit.date} · ${selectedUnit.title} · ${selectedUnit.isOpen ? "Bisa check-in" : "Belum dibuka / sudah ditutup"}` : "Pilih unit kehadiran terlebih dahulu."}</div>
-        <label className="block text-sm font-bold">Token QR / kode peserta<input value={input} onChange={(change) => { setInput(change.target.value); setSelected(null); }} autoComplete="off" placeholder="Pindai QR atau ketik kode P-…" className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3 font-mono text-base" /></label>
+        <label className="block text-sm font-bold">Token QR / kode peserta<input ref={codeInputRef} autoFocus value={input} onChange={(change) => { setInput(change.target.value); setSelected(null); }} autoComplete="off" placeholder="Pindai QR atau ketik kode P-…" className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3 font-mono text-base" /></label>
         {selected && <p className="text-sm text-emerald-900">Dipilih: <strong>{selected.ustadzName} · {selected.participantCode}</strong></p>}
         <button type="submit" disabled={busy || !selectedUnit?.isOpen || !input.trim()} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-lg bg-emerald-700 px-5 font-black text-white disabled:opacity-50"><ScanLine className="h-5 w-5" />{busy ? "Mencatat…" : "Catat kehadiran"}</button>
         <p className="text-xs text-slate-600">Pencatatan ganda pada hari/sesi yang sama ditolak otomatis. Status persetujuan dan jendela check-in diverifikasi server.</p>

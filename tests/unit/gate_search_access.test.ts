@@ -1,12 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { portalForPath } from "../../src/components/common/ProtectedRoute";
 import { searchCheckinParticipantSchema, processCheckinSchema } from "../../netlify/functions/lib/validations/attendanceValidation";
 import { signParticipantQrToken, verifyParticipantQrToken } from "../../netlify/functions/lib/utils/token";
 
 describe("gate panitia dan identitas peserta", () => {
-  it("mengarahkan rute gate ke login panitia, bukan akses tulis publik", () => {
-    expect(portalForPath("/gate/daurah-2026")).toBe("committee");
-    expect(portalForPath("/check-in/daurah-2026")).toBe("committee");
+  it("membatasi panjang pencarian di gate publik", () => {
     expect(searchCheckinParticipantSchema.safeParse({ q: "a" }).success).toBe(false);
     expect(searchCheckinParticipantSchema.parse({ q: "Ahmad" }).q).toBe("Ahmad");
   });
