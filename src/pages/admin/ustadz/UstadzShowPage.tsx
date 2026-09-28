@@ -14,6 +14,7 @@ import {
   MessageCircle,
   Phone,
   Plus,
+  RotateCcw,
   Save,
   ShieldCheck,
   UserRoundCheck,
@@ -191,14 +192,10 @@ export const UstadzShowPage: React.FC = () => {
           actions={
             profile ? (
               <div className="ustadz-page-actions">
-                <Link to={`/admin/ustadz/merge?source=${profile.id}`} className="ustadz-button ustadz-button--warning">
-                  <GitMerge aria-hidden="true" />
-                  <span>Gabungkan</span>
-                </Link>
-                <Link to={`/admin/ustadz/${profile.id}/edit`} className="ustadz-button ustadz-button--primary">
-                  <Edit3 aria-hidden="true" />
-                  <span>Edit profil</span>
-                </Link>
+                {profile.deletedAt ? <button type="button" onClick={async () => { try { await ustadzApi.restore(profile.id); await loadProfile(); setActionMessage("Profil dipulihkan ke direktori."); } catch (cause) { setActionMessage(cause instanceof Error ? cause.message : "Profil gagal dipulihkan."); } }} className="ustadz-button ustadz-button--primary"><RotateCcw aria-hidden="true" /> Pulihkan profil</button> : <>
+                  <Link to={`/admin/ustadz/merge?source=${profile.id}`} className="ustadz-button ustadz-button--warning"><GitMerge aria-hidden="true" /><span>Gabungkan</span></Link>
+                  <Link to={`/admin/ustadz/${profile.id}/edit`} className="ustadz-button ustadz-button--primary"><Edit3 aria-hidden="true" /><span>Edit profil</span></Link>
+                </>}
               </div>
             ) : undefined
           }
@@ -225,6 +222,7 @@ export const UstadzShowPage: React.FC = () => {
                 <div><strong>Mode pratinjau aktif</strong><span>Interaksi dapat dicoba tanpa mengubah data produksi.</span></div>
               </div>
             )}
+            {profile.deletedAt && <div role="status" className="mb-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">Profil ini diarsipkan dari direktori aktif. Riwayat event dan presensi masih tersimpan; pulihkan bila profil perlu digunakan lagi.</div>}
             {actionMessage && (
               <div className="ustadz-form__message ustadz-form__message--success" role="status">
                 <CheckCircle2 aria-hidden="true" /> {actionMessage}

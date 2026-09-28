@@ -13,6 +13,10 @@ export const queryCheckinLogsSchema = z.object({
   limit: z.coerce.number().optional().default(20),
 });
 
+export const searchCheckinParticipantSchema = z.object({
+  q: z.string().trim().min(2, "Ketik minimal dua huruf nama atau kode peserta.").max(80),
+});
+
 export const manualMarkAttendanceSchema = z.object({
   participantId: z.string().uuid("ID Peserta tidak valid"),
   sessionId: z.string().uuid().optional().nullable(),

@@ -52,6 +52,10 @@ type Metrics = {
   pendingParticipantsCount: number;
   totalAttendedCount: number;
   failedEmailsCount: number;
+  asatidzProfilesCount?: number;
+  archivedProfilesCount?: number;
+  openRegistrationsCount?: number;
+  queuedEmailsCount?: number;
   recentEvents: RecentEvent[];
 };
 
@@ -153,7 +157,7 @@ export const AdminDashboardPage: React.FC = () => {
         ? {
             label: `${metrics.pendingParticipantsCount} peserta menunggu tinjauan`,
             description: "Periksa data dan tetapkan status persetujuan.",
-            href: eventBase ? `${eventBase}/registrations` : "/admin/events",
+             href: "/admin/events",
             tone: "warning" as StatusVariant,
           }
         : null,
@@ -178,10 +182,12 @@ export const AdminDashboardPage: React.FC = () => {
 
   const summaryItems = [
     { label: "Event aktif", value: metrics?.activeEventsCount, href: "/admin/events" },
-    { label: "Lembaga", value: metrics?.invitedInstitutionsCount, href: "/admin/institutions" },
-    { label: "Respons undangan", value: metrics?.totalResponsesCount, href: eventBase ? `${eventBase}/registrations` : "/admin/events" },
-    { label: "Peserta disetujui", value: metrics?.approvedParticipantsCount, href: eventBase ? `${eventBase}/registrations` : "/admin/events" },
-    { label: "Menunggu tinjauan", value: metrics?.pendingParticipantsCount, href: eventBase ? `${eventBase}/registrations` : "/admin/events" },
+    { label: "Pendaftaran dibuka", value: metrics?.openRegistrationsCount, href: "/admin/events?status=REGISTRATION_OPEN" },
+    { label: "Profil asatidz", value: metrics?.asatidzProfilesCount, href: "/admin/ustadz" },
+    { label: "Profil diarsipkan", value: metrics?.archivedProfilesCount, href: "/admin/ustadz?profileStatus=ARCHIVED" },
+    { label: "Menunggu persetujuan", value: metrics?.pendingParticipantsCount, href: "/admin/events" },
+    { label: "Email dalam antrean", value: metrics?.queuedEmailsCount, href: "/admin/email-jobs" },
+    { label: "Lembaga aktif", value: metrics?.invitedInstitutionsCount, href: "/admin/institutions" },
     { label: "Kehadiran tercatat", value: metrics?.totalAttendedCount, href: eventBase ? `${eventBase}/attendance` : "/admin/events" },
   ];
 
@@ -190,9 +196,9 @@ export const AdminDashboardPage: React.FC = () => {
       title: "Program & event",
       description: "Siapkan identitas, jadwal, panitia, dan status kegiatan.",
       items: [
-        { title: "Semua event", description: "Cari, filter, dan buka workspace event.", href: "/admin/events", icon: CalendarDays },
+         { title: "Semua event & status", description: "Cari, terbitkan, dan buka/tutup pendaftaran.", href: "/admin/events", icon: CalendarDays },
         { title: "Buat event", description: "Atur periode, lokasi, kapasitas, dan poster.", href: "/admin/events/create", icon: CalendarPlus },
-        { title: "Jadwal & sesi", description: "Susun agenda per hari dan jendela check-in.", href: eventBase ? `${eventBase}/schedule` : null, icon: Clock3 },
+         { title: "Jadwal & edit sesi", description: "Atur sesi, waktu dan jendela check-in.", href: eventBase ? `${eventBase}/schedule` : null, icon: Clock3 },
         { title: "Tim pelaksana", description: "Atur panitia, tugas, dan kewenangan event.", href: eventBase ? `${eventBase}/team` : null, icon: UsersRound },
       ],
     },
@@ -200,7 +206,8 @@ export const AdminDashboardPage: React.FC = () => {
       title: "Undangan & peserta",
       description: "Kelola respons lembaga sampai absensi individu.",
       items: [
-        { title: "Pendaftaran", description: "Lihat undangan, delegasi lembaga, dan persetujuan.", href: eventBase ? `${eventBase}/registrations` : null, icon: ClipboardCheck },
+         { title: "Undangan & impor CSV", description: "Buat tautan khusus dan impor peserta dengan progres.", href: eventBase ? `${eventBase}/registrations?view=invitations` : null, icon: ClipboardCheck },
+         { title: "Daftar peserta event", description: "Tinjau, hubungi, dan setujui peserta per event.", href: eventBase ? `${eventBase}/registrations?view=participants` : null, icon: UsersRound },
         { title: "Absensi harian", description: "Pantau QR, kode peserta, no-show, dan kehadiran per hari.", href: eventBase ? `${eventBase}/attendance` : null, icon: ListChecks },
         { title: "Komunikasi", description: "Hubungi peserta melalui WhatsApp, email, dan pengumuman.", href: eventBase ? `${eventBase}/communications` : null, icon: Megaphone },
         { title: "Laporan event", description: "Rekap peserta, lembaga, dan kehadiran untuk ekspor.", href: eventBase ? `${eventBase}/reports` : null, icon: BarChart3 },
@@ -211,16 +218,17 @@ export const AdminDashboardPage: React.FC = () => {
       description: "Jaga data lintas event tetap rapi dan dapat ditelusuri.",
       items: [
         { title: "Data lembaga", description: "Kontak, alamat, undangan, dan riwayat delegasi.", href: "/admin/institutions", icon: Building2 },
-        { title: "Data asatidz", description: "Profil, afiliasi, dan riwayat mengikuti daurah.", href: "/admin/ustadz", icon: Users },
+         { title: "Direktori & riwayat asatidz", description: "Profil, kontak, kehadiran lintas event, dan arsip aman.", href: "/admin/ustadz", icon: Users },
+         { title: "Profil diarsipkan", description: "Tinjau dan pulihkan profil yang dihapus dari daftar aktif.", href: "/admin/ustadz?profileStatus=ARCHIVED", icon: UserRoundCheck },
         { title: "Gabungkan duplikat", description: "Satukan profil tanpa menghilangkan histori event.", href: "/admin/ustadz/merge", icon: Combine },
         { title: "Panitia & akses", description: "Kelola akun, penugasan, dan batas konfirmasi.", href: "/admin/committee", icon: UserRoundCheck },
       ],
     },
     {
       title: "Komunikasi asatidz",
-      description: "Jaga hubungan lintas event melalui sapaan email berkala.",
+       description: "Jaga komunikasi asatidz dengan template dan jadwal email.",
       items: [
-        { title: "BC & kampanye email", description: "Tulis template, pratinjau, lalu jadwalkan sapaan asatidz.", href: "/admin/broadcast", icon: Megaphone },
+         { title: "BC, template & uji kirim", description: "Pratinjau pesan, uji Mailketing, dan batas kirim harian.", href: "/admin/broadcast", icon: Megaphone },
         { title: "Antrean & email gagal", description: "Periksa jadwal pengiriman, status dan percobaan ulang.", href: "/admin/email-jobs", icon: Mail },
       ],
     },
@@ -238,7 +246,7 @@ export const AdminDashboardPage: React.FC = () => {
       <div className="admin-dashboard">
         <PageHeader
           title="Kendali Operasional"
-          description="Buka pekerjaan yang perlu ditangani dan lanjutkan pengelolaan event tanpa mencari menu berulang kali."
+           description="Pantau pendaftaran, direktori, antrean email dan pekerjaan event dari satu ruang kerja."
           actions={
             <>
               <button
@@ -288,7 +296,7 @@ export const AdminDashboardPage: React.FC = () => {
               <header>
                 <div className="min-w-0">
                   <h2 id="current-event-heading">Event kendali</h2>
-                  <p>Event terbaru menjadi konteks pintasan operasional di dashboard dan submenu.</p>
+                   <p>Event berlangsung atau pendaftaran terbuka diprioritaskan sebagai konteks pintasan operasional.</p>
                 </div>
                 <Link to="/admin/events" className="admin-text-link">Ganti event <ArrowRight className="h-4 w-4" /></Link>
               </header>

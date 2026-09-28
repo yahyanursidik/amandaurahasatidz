@@ -7,6 +7,26 @@ import {
 import { verifyQrTokenForCheckinService } from "./participantQrService";
 import { NotFoundError, ValidationError } from "../utils/errors";
 import { AttendanceMode } from "./attendanceModel";
+import { getDbClient } from "../db/client";
+import { eventParticipants, institutions, ustadzProfiles } from "../db/schema";
+import { and, eq, ilike, or } from "drizzle-orm";
+
+export async function searchEventCheckinParticipantsService(eventId: string, query: string) {
+  const db = getDbClient();
+  const normalized = query.trim().replace(/[\\%_]/g, "\\$&");
+  const pattern = `%${normalized}%`;
+  return db.select({
+    id: eventParticipants.id, participantCode: eventParticipants.participantCode,
+    ustadzName: ustadzProfiles.fullName, institutionName: institutions.name,
+    approvalStatus: eventParticipants.approvalStatus,
+    confirmationStatus: eventParticipants.confirmationStatus,
+  }).from(eventParticipants).innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
+    .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
+    .where(and(eq(eventParticipants.eventId, eventId), or(
+      ilike(ustadzProfiles.fullName, pattern), ilike(eventParticipants.participantCode, pattern),
+    )))
+    .orderBy(ustadzProfiles.fullName).limit(12);
+}
 
 type CheckinUnit = {
   id: string;
@@ -134,25 +154,26 @@ export async function processOnSiteCheckinService(
   selection?: { sessionId?: string | null; dayId?: string | null },
 ) {
   const schedule = await getAttendanceCheckinUnitsService(eventId);
-   const requestedUnit = selection?.sessionId
+  const requestedUnit = selection?.sessionId
     ? schedule.units.find((unit) => unit.sessionId === selection.sessionId)
     : selection?.dayId
       ? schedule.units.find((unit) => unit.type === "DAY" && unit.dayId === selection.dayId)
       : null;
-   const unit = requestedUnit ||
-     (schedule.openUnits.length === 1 ? schedule.openUnits[0] : null);
+  const unit = requestedUnit ||
+    (schedule.openUnits.length === 1 ? schedule.openUnits[0] : null);
 
   if ((selection?.sessionId || selection?.dayId) && !requestedUnit) {
     throw new ValidationError("Unit kehadiran yang dipilih tidak termasuk dalam event ini.");
   }
-   if (!unit) throw new ValidationError(schedule.openUnits.length > 1
-     ? "Beberapa unit sedang dibuka. Pilih hari atau sesi kehadiran terlebih dahulu."
-     : "Belum ada unit kehadiran yang sedang membuka check-in.");
+  if (!unit) throw new ValidationError(schedule.openUnits.length > 1
+    ? "Beberapa unit sedang dibuka. Pilih hari atau sesi kehadiran terlebih dahulu."
+    : "Belum ada unit kehadiran yang sedang membuka check-in.");
+  const actualMethod = qrTokenOrCode.trim().startsWith("pqr_") ? "QR_SCAN" : method === "SEARCH_SELECT" ? "SEARCH_SELECT" : "MANUAL_CODE";
   if (!unit.isOpen) {
     await recordCheckinLogRepository({
       eventId,
       eventSessionId: unit.sessionId,
-      method,
+      method: actualMethod,
       result: "FAILED",
       failureReason: "Jendela check-in unit kehadiran belum dibuka atau telah ditutup.",
       scannedBy: actorUserId,
@@ -162,15 +183,14 @@ export async function processOnSiteCheckinService(
     throw new ValidationError(`Jendela check-in '${unit.title}' belum dibuka atau telah ditutup.`);
   }
 
-   const actualMethod = qrTokenOrCode.trim().startsWith("pqr_") ? "QR_SCAN" : "MANUAL_CODE";
-   let verified;
+  let verified;
   try {
     verified = await verifyQrTokenForCheckinService(eventId, qrTokenOrCode, actorUserId, requestId);
   } catch (error: any) {
     await recordCheckinLogRepository({
       eventId,
       eventSessionId: unit.sessionId,
-       method: actualMethod,
+      method: actualMethod,
       result: "FAILED",
       failureReason: error.message || "Token QR atau kode tidak valid",
       scannedBy: actorUserId,
@@ -187,7 +207,7 @@ export async function processOnSiteCheckinService(
       dayId: unit.dayId,
       sessionId: unit.sessionId,
       participantId: participant.id,
-       method: actualMethod,
+      method: actualMethod,
       actorUserId,
       requestId,
     });
@@ -209,7 +229,7 @@ export async function processOnSiteCheckinService(
       eventId,
       participantId: participant.id,
       eventSessionId: unit.sessionId,
-      method,
+      method: actualMethod,
       result: isDuplicate ? "DUPLICATE" : "FAILED",
       failureReason: error.message,
       scannedBy: actorUserId,

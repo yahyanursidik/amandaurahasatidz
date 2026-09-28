@@ -1411,7 +1411,7 @@
     overflow-x: auto;
   }
 
-  .institution-table {
+.institution-table {
     width: 100%;
     border-collapse: collapse;
     text-align: left;
@@ -2514,7 +2514,7 @@
 .ustadz-table {
   border-collapse: collapse;
   font-size: var(--text-ustadz-small);
-  min-width: 62rem;
+  min-width: 56rem;
   width: 100%;
 }
 
@@ -2552,6 +2552,7 @@
 .ustadz-affiliation strong {
   color: var(--color-ustadz-ink);
   font-weight: 750;
+  overflow-wrap: anywhere;
 }
 
 .ustadz-person > span,
@@ -2596,6 +2597,7 @@
   align-items: center;
   display: flex;
   gap: 0.35rem;
+  overflow-wrap: anywhere;
 }
 
 .ustadz-quality {
@@ -2646,10 +2648,17 @@
   color: color-mix(in oklch, var(--color-ustadz-warning) 70%, black);
 }
 
+.ustadz-status[data-status="ARCHIVED"] {
+  background: #fff1f2;
+  border-color: #fecdd3;
+  color: #9f1239;
+}
+
 .ustadz-row-actions {
   display: flex;
   gap: 0.25rem;
   justify-content: flex-end;
+  min-width: max-content;
 }
 
 .ustadz-row-actions a {
@@ -3623,7 +3632,8 @@
     padding-top: 0.75rem;
   }
 
-  .ustadz-card__actions a {
+  .ustadz-card__actions a,
+  .ustadz-card__actions button {
     align-items: center;
     border: 1px solid var(--color-ustadz-rule);
     border-radius: 0.45rem;
@@ -5955,12 +5965,11 @@
 }
 
 .admin-metric > span:last-child {
-  overflow: hidden;
+  overflow-wrap: anywhere;
   color: var(--color-admin-muted);
   font-size: var(--text-admin-small);
   font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  line-height: 1.3;
 }
 
 .admin-metric__skeleton,
@@ -6394,17 +6403,27 @@
   .admin-module-group:nth-child(2) { grid-column: span 5; }
   .admin-module-group:nth-child(3) { grid-column: span 8; }
   .admin-module-group:nth-child(4) { grid-column: span 4; }
+  .admin-module-group:nth-child(n + 5) { grid-column: span 6; }
 }
 
 @media (min-width: 60rem) {
   .admin-metric-strip {
-    grid-template-columns: repeat(6, minmax(0, 1fr));
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 
   .admin-metric {
     border-bottom: 0;
   }
 }
+
+.admin-workspace-type input:not([type="checkbox"]):not([type="radio"]),
+.admin-workspace-type select,
+.admin-workspace-type textarea,
+.institution-workspace input:not([type="checkbox"]):not([type="radio"]),
+.ustadz-workspace input:not([type="checkbox"]):not([type="radio"]) {
+  max-width: 100%;
+}
+
 
 @media (min-width: 80rem) {
   .admin-dashboard__layout {
@@ -6590,7 +6609,7 @@
 .public-register__consent { display: flex; align-items: flex-start; gap: var(--space-public-sm); line-height: 1.55; }
 .public-register__form .public-register__consent input { width: 1.2rem; min-height: 1.2rem; height: 1.2rem; flex: 0 0 auto; margin-top: 0.1rem; }
 .public-register__error { margin-block: var(--space-public-md); border: 1px solid var(--color-public-error); border-radius: var(--radius-public-control); background: var(--color-public-error-paper); color: var(--color-public-error); padding: var(--space-public-sm); font-size: var(--text-public-small); line-height: 1.5; }
-@media (min-width: 48rem) { .public-register__layout { grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.8fr); } }
+@media (min-width: 60rem) { .public-register__layout { grid-template-columns: minmax(0, 1.5fr) minmax(0, 0.8fr); } }
 
 .portal-first-step, .portal-status-guide { border: 1px solid var(--color-portal-rule); border-radius: var(--radius-portal-control); background: var(--color-portal-surface); padding: var(--space-portal-lg); color: var(--color-portal-ink); }
 .portal-first-step > svg, .portal-status-guide > svg { width: 1.5rem; height: 1.5rem; color: var(--color-portal-accent); }
@@ -6601,3 +6620,15 @@
 .portal-status-guide { display: flex; align-items: flex-start; gap: var(--space-portal-sm); margin-bottom: var(--space-portal-lg); background: var(--color-portal-warning-paper); }
 .portal-status-guide p { margin: 0; }
 @media (prefers-reduced-motion: reduce) { .public-register__primary { transition-duration: 150ms; transform: none !important; } }
+
+@media (max-width: 40rem) {
+  .institution-table,
+  .institution-table tbody,
+  .institution-table tr { display: block; width: 100%; }
+  .institution-table thead { display: none; }
+  .institution-table tbody tr { border-bottom: 1px solid var(--color-institution-rule); padding: 0.75rem; }
+  .institution-table td { display: block; min-width: 0; border: 0; padding: 0.35rem 0.5rem; overflow-wrap: anywhere; }
+  .institution-table td::before { content: attr(data-label); display: block; margin-bottom: 0.2rem; color: var(--color-institution-muted); font-size: 0.7rem; font-weight: 800; text-transform: uppercase; }
+  .institution-table__actions { flex-wrap: wrap; }
+  .institution-pagination { flex-wrap: wrap; justify-content: center; }
+}

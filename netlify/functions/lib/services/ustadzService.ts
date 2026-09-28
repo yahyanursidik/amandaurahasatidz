@@ -3,6 +3,7 @@ import {
   findUstadzByIdRepository,
   createUstadzRepository,
   updateUstadzRepository,
+  setUstadzArchivedRepository,
   findDuplicateCandidatesRepository,
   addAffiliationRepository,
   updateAffiliationRepository,
@@ -86,6 +87,7 @@ export async function createUstadzService(data: any, actorUserId: string, reques
 
 export async function updateUstadzService(id: string, data: any, actorUserId: string, requestId: string) {
   const existing = await getUstadzByIdService(id);
+  if (existing.deletedAt) throw new ConflictError("Profil diarsipkan. Pulihkan profil sebelum mengubahnya.");
 
   const {
     institutionId: _institutionId,
@@ -122,6 +124,24 @@ export async function updateUstadzService(id: string, data: any, actorUserId: st
   return updated;
 }
 
+export async function setUstadzArchiveService(id: string, archived: boolean, actorUserId: string, requestId: string) {
+  const existing = await getUstadzByIdService(id);
+  if (Boolean(existing.deletedAt) === archived) {
+    throw new ConflictError(archived ? "Profil sudah diarsipkan." : "Profil belum diarsipkan.");
+  }
+  const updated = await setUstadzArchivedRepository(id, archived);
+  if (!updated) throw new ConflictError("Status profil berubah. Muat ulang direktori lalu coba lagi.");
+  await createAuditLog({ actorUserId, action: archived ? "USTADZ_PROFILE_ARCHIVED" : "USTADZ_PROFILE_RESTORED",
+    resourceType: "USTADZ_PROFILE", resourceId: id,
+    beforeData: { deletedAt: existing.deletedAt, profileStatus: existing.profileStatus },
+    afterData: { deletedAt: updated.deletedAt, profileStatus: updated.profileStatus },
+    reason: archived ? "Profil disembunyikan dari direktori aktif; riwayat peserta dipertahankan."
+      : "Profil dipulihkan ke direktori asatidz.", requestId });
+  return { id, archived: Boolean(updated.deletedAt), message: archived
+    ? "Profil diarsipkan. Riwayat event dan presensi tetap tersimpan."
+    : "Profil dipulihkan ke direktori asatidz." };
+}
+
 export async function updateUstadzSelfProfileService(id: string, data: any, actorUserId: string, requestId: string) {
   // Stripping any attempt to edit read-only fields
   const allowedData = {
@@ -134,6 +154,7 @@ export async function updateUstadzSelfProfileService(id: string, data: any, acto
 
   const existing = await findUstadzByIdRepository(id);
   if (!existing) throw new NotFoundError(`Profil Ustadz ID ${id} tidak ditemukan.`);
+  if (existing.deletedAt) throw new ConflictError("Profil diarsipkan. Hubungi admin untuk memulihkannya sebelum mengubah data.");
 
   const updated = await updateUstadzRepository(id, allowedData);
 

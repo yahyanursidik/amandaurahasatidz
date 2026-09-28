@@ -140,7 +140,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         </div>
 
         <AppFooter className="flex flex-col items-center justify-center gap-1 border-t border-slate-200 bg-white px-4 py-5 text-center text-xs text-slate-500 sm:flex-row sm:gap-2" />
-        <MobileNavigation items={navItems} />
+        <MobileNavigation items={navItems} onMenuOpen={() => setMobileMenuOpen(true)} />
       </div>
 
       {enableCommandMenu && (

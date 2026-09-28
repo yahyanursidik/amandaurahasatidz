@@ -1,21 +1,27 @@
 import { randomBytes, randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { withTransaction } from "../db/transaction";
-import { eventParticipants, roles, userRoleAssignments, users, ustadzProfiles } from "../db/schema";
+import { eventParticipants, roles, userRoleAssignments, users, ustadzProfiles, ustadzInstitutionAffiliations } from "../db/schema";
 import { findEventBySlugRepository } from "../repositories/eventRepository";
 import { countApprovedParticipantsBySourceRepository, countApprovedParticipantsForEventRepository } from "../repositories/participantRepository";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../utils/errors";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { enqueueEmailJob } from "./emailQueueService";
 import { createAuditLog } from "./auditService";
+import { resolveRegistrationInstitution } from "./registrationInstitutionService";
 
 type PublicRegistrationInput = {
   fullName: string;
   email: string;
   whatsapp: string;
   address?: string | null;
+  institutionName?: string | null;
+  city: string;
+  province: string;
+  cityCode?: string | null;
+  provinceCode?: string | null;
   consentConfirmed: true;
-  delegates?: Array<{ fullName: string; email: string; whatsapp: string; address?: string | null }>;
+  delegates?: Array<{ fullName: string; email: string; whatsapp: string; address?: string | null; city: string; province: string; cityCode?: string | null; provinceCode?: string | null }>;
 };
 
 export function normalizePublicRegistrationGroup(input: PublicRegistrationInput) {
@@ -24,13 +30,15 @@ export function normalizePublicRegistrationGroup(input: PublicRegistrationInput)
     email: normalizeEmail(person.email) || "",
     whatsapp: normalizePhone(person.whatsapp),
     address: person.address?.trim() || null,
+    cityCode: person.cityCode || person.city.trim(),
+    provinceCode: person.provinceCode || person.province.trim(),
   }));
   if (people.length > 20) throw new ValidationError("Maksimal 20 asatidz dalam satu rombongan.");
   if (new Set(people.map((person) => person.email)).size !== people.length) {
     throw new ValidationError("Setiap asatidz harus memakai email pribadi yang berbeda.");
   }
-  if (people.some((person) => !person.email || !person.fullName || !person.whatsapp || person.whatsapp.length < 9)) {
-    throw new ValidationError("Lengkapi nama, email, dan WhatsApp setiap asatidz.");
+  if (people.some((person) => !person.email || !person.fullName || !person.whatsapp || person.whatsapp.length < 9 || !person.cityCode || !person.provinceCode)) {
+    throw new ValidationError("Lengkapi nama, email, WhatsApp, kabupaten/kota, dan provinsi setiap asatidz.");
   }
   return people;
 }
@@ -70,6 +78,8 @@ async function getOpenEvent(slug: string) {
 export async function submitPublicRegistrationService(slug: string, input: PublicRegistrationInput, requestId: string) {
   const event = await getOpenEvent(slug);
   const people = normalizePublicRegistrationGroup(input);
+  const maxGroupSize = Math.min(20, event.defaultInstitutionQuota || 20, event.regularQuota || 20);
+  if (people.length > maxGroupSize) throw new ValidationError(`Maksimal ${maxGroupSize} peserta termasuk kepala rombongan untuk satu pendaftaran.`);
 
   const result = await withTransaction(async (tx) => {
     const role = (await tx.select().from(roles).where(eq(roles.code, "USTADZ")).limit(1))[0];
@@ -103,6 +113,7 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
       existing.push({ person, profile, user });
     }
     const publicGroupId = people.length > 1 ? randomUUID() : null;
+    const institutionId = await resolveRegistrationInstitution(tx, input.institutionName);
     const registered = [];
     for (const [index, entry] of existing.entries()) {
       const { person } = entry;
@@ -112,9 +123,22 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
         profile = (await tx.insert(ustadzProfiles).values({
           userId: user.id, fullName: person.fullName, normalizedName: normalizeName(person.fullName),
           email: person.email, whatsapp: person.whatsapp, address: person.address, profileStatus: "ACTIVE",
+          cityCode: person.cityCode, provinceCode: person.provinceCode,
         }).returning())[0];
-      } else if (!profile.userId) {
-        profile = (await tx.update(ustadzProfiles).set({ userId: user.id, updatedAt: new Date() }).where(eq(ustadzProfiles.id, profile.id)).returning())[0];
+      } else if (!profile.userId || !profile.cityCode || !profile.provinceCode) {
+        profile = (await tx.update(ustadzProfiles).set({ ...(!profile.userId && { userId: user.id }),
+          cityCode: profile.cityCode || person.cityCode, provinceCode: profile.provinceCode || person.provinceCode,
+          updatedAt: new Date() }).where(eq(ustadzProfiles.id, profile.id)).returning())[0];
+      }
+      if (institutionId) {
+        const [affiliation] = await tx.select({ id: ustadzInstitutionAffiliations.id })
+          .from(ustadzInstitutionAffiliations).where(and(
+            eq(ustadzInstitutionAffiliations.ustadzId, profile.id),
+            eq(ustadzInstitutionAffiliations.institutionId, institutionId),
+          )).limit(1);
+        if (!affiliation) await tx.insert(ustadzInstitutionAffiliations).values({
+          ustadzId: profile.id, institutionId, isPrimary: false, status: "ACTIVE",
+        });
       }
       const roleExists = (await tx.select({ id: userRoleAssignments.id }).from(userRoleAssignments)
         .where(and(eq(userRoleAssignments.userId, user.id), eq(userRoleAssignments.roleId, role.id), eq(userRoleAssignments.eventId, event.id))).limit(1))[0];
@@ -122,6 +146,7 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
       const participantCode = `P-${randomBytes(4).toString("hex").toUpperCase()}`;
       const participant = (await tx.insert(eventParticipants).values({
         eventId: event.id, ustadzId: profile.id, registrationSource: "DIRECT_PUBLIC",
+        institutionId,
         publicGroupId, isDelegationLead: Boolean(publicGroupId && index === 0), participantCode,
         confirmationStatus: "CONFIRMED", approvalStatus: "PENDING_REVIEW", confirmedAt: new Date(),
       }).returning())[0];

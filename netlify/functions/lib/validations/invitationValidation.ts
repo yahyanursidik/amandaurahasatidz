@@ -27,7 +27,8 @@ export const createInvitationSchema = z.object({
 
 export const submitResponseSchema = z.object({
   captchaToken: z.string().optional(),
-  verificationToken: z.string().min(20, "Bukti verifikasi undangan tidak valid"),
+  institutionName: z.string().trim().max(180).refine((value) => value.length === 0 || value.length >= 3,
+    "Nama lembaga/komunitas minimal 3 karakter jika diisi").optional().nullable(),
   responseStatus: z.enum(["ACCEPTED", "DECLINED"]),
   notes: z.string().max(1000, "Catatan maksimal 1000 karakter").optional().nullable(),
   isFinal: z.boolean().default(false),
@@ -40,6 +41,10 @@ export const submitResponseSchema = z.object({
         phone: z.string().min(8, "Nomor telepon minimal 8 digit").optional().nullable(),
         whatsapp: z.string().min(8, "Nomor WhatsApp minimal 8 digit").optional().nullable(),
         address: z.string().max(500, "Alamat delegasi maksimal 500 karakter").optional().nullable(),
+        city: z.string().trim().min(2, "Kabupaten/kota wajib diisi").max(120),
+        province: z.string().trim().min(2, "Provinsi wajib diisi").max(120),
+        cityCode: z.string().trim().max(30).optional().nullable(),
+        provinceCode: z.string().trim().max(30).optional().nullable(),
         isLead: z.boolean().default(false),
       })
     )
@@ -69,6 +74,10 @@ export const submitResponseSchema = z.object({
     });
   }
 });
+
+export const submitIndividualInvitationSchema = submitResponseSchema.innerType().omit({ isFinal: true })
+  .refine((value) => value.responseStatus !== "ACCEPTED" || value.delegates?.length === 1,
+    "Undangan individu hanya untuk satu peserta.");
 
 export const requestInvitationOtpSchema = z.object({
   email: z.string().trim().email("Format email perwakilan tidak valid"),

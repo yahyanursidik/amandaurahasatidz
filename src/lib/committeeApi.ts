@@ -12,6 +12,7 @@ export type CommitteeAssignment = {
   eventId: string;
   eventName: string;
   eventCode: string;
+  eventSlug?: string;
   eventStatus: string;
   committeeRole: CommitteeRole;
   permissions?: string[] | null;

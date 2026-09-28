@@ -97,8 +97,10 @@ export const App: React.FC = () => {
           <Route path="/invitation/institution/:institutionSlug/:token" element={<InvitationRegistrationPage />} />
           <Route path="/invitation/institution/:token" element={<InvitationRegistrationPage />} />
           <Route path="/invitation/individual/:token" element={<InvitationRegistrationPage />} />
-          <Route path="/check-in/:eventSlug" element={<CheckInPublicPage />} />
-          <Route path="/check-in" element={<CheckInPublicPage />} />
+          <Route path="/check-in/:eventSlug" element={<ProtectedRoute><CheckInPublicPage /></ProtectedRoute>} />
+          <Route path="/check-in" element={<ProtectedRoute><CheckInPublicPage /></ProtectedRoute>} />
+          <Route path="/gate" element={<ProtectedRoute><CheckInPublicPage /></ProtectedRoute>} />
+          <Route path="/gate/:eventSlug" element={<ProtectedRoute><CheckInPublicPage /></ProtectedRoute>} />
 
           {/* Portal 1: Super Admin & Panitia (Protected) */}
           <Route

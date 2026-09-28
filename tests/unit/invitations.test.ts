@@ -64,8 +64,8 @@ describe("Undangan Lembaga, Token Security & Delegation Form Unit Tests", () => 
       notes: "Delegasi insyaAllah hadir tepat waktu",
       isFinal: true,
       delegates: [
-        { fullName: "Ustadz Abdullah, Lc.", email: "abdullah@lembaga.or.id", phone: "081299990000", isLead: true },
-        { fullName: "Ustadz Hasan Basri", email: "hasan@lembaga.or.id", phone: "081288881111" },
+        { fullName: "Ustadz Abdullah, Lc.", email: "abdullah@lembaga.or.id", phone: "081299990000", city: "KOTA BANDUNG", province: "JAWA BARAT", isLead: true },
+        { fullName: "Ustadz Hasan Basri", email: "hasan@lembaga.or.id", phone: "081288881111", city: "KOTA BANDUNG", province: "JAWA BARAT" },
       ],
     };
 
@@ -94,13 +94,13 @@ describe("Undangan Lembaga, Token Security & Delegation Form Unit Tests", () => 
     expect(duplicateEmail.success).toBe(false);
   });
 
-  it("should reject public delegation submission without verification proof", () => {
+  it("accepts a complete invitation form without extra OTP proof", () => {
     const parsed = submitResponseSchema.safeParse({
-      responseStatus: "ACCEPTED",
-      isFinal: true,
-      delegates: [{ fullName: "Ustadz Abdullah", whatsapp: "081299990000", isLead: true }],
+      responseStatus: "ACCEPTED", isFinal: true,
+      delegates: [{ fullName: "Ustadz Abdullah", email: "abdullah@lembaga.or.id", whatsapp: "081299990000",
+        city: "KOTA BANDUNG", province: "JAWA BARAT", isLead: true }],
     });
-    expect(parsed.success).toBe(false);
+    expect(parsed.success).toBe(true);
   });
 
   it("should create invitation-bound OTP and a short-lived verification proof", () => {

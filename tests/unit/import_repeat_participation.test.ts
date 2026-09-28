@@ -5,7 +5,8 @@ import { submitPublicRegistrationSchema } from "../../netlify/functions/lib/vali
 describe("pendaftaran langsung dan riwayat impor", () => {
   it("menerima formulir reguler lengkap tanpa OTP dan menolak kontak ganda", () => {
     const input = { fullName: "Ustadz Ahmad", email: "ahmad@example.org", whatsapp: "081234567890",
-      consentConfirmed: true, delegates: [{ fullName: "Ustadz Hasan", email: "hasan@example.org", whatsapp: "081234567891" }] };
+      city: "KOTA BANDUNG", province: "JAWA BARAT",
+      consentConfirmed: true, delegates: [{ fullName: "Ustadz Hasan", email: "hasan@example.org", whatsapp: "081234567891", city: "KOTA BANDUNG", province: "JAWA BARAT" }] };
     expect(submitPublicRegistrationSchema.parse(input)).not.toHaveProperty("challengeToken");
     expect(submitPublicRegistrationSchema.safeParse({ ...input, delegates: [{ ...input.delegates[0], email: input.email }] }).success).toBe(false);
     expect(submitPublicRegistrationSchema.safeParse({ ...input, consentConfirmed: false }).success).toBe(false);

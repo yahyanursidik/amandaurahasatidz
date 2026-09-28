@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useGetIdentity } from "@refinedev/core";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -12,6 +13,8 @@ import {
   Phone,
   Plus,
   Search,
+  Trash2,
+  RotateCcw,
   UserCheck,
   UsersRound,
 } from "lucide-react";
@@ -20,6 +23,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { EmptyState } from "@/components/common/EmptyState";
 import { UstadzWorkspaceNav } from "@/components/admin/ustadz/UstadzWorkspaceNav";
 import { UstadzProfile, UstadzSummary, ustadzApi } from "@/lib/ustadzApi";
+import { AuthIdentity } from "@/lib/refine/authProvider";
 import { ustadzPreviewProfiles } from "@/lib/ustadzPreview";
 import { updateUstadzDirectoryQuery } from "@/lib/ustadzDirectoryQuery";
 import { ParticipantCommunicationPanel } from "@/components/communications/ParticipantCommunicationPanel";
@@ -33,6 +37,8 @@ const escapeCsv = (value: string | number | null | undefined) =>
   `"${String(value ?? "").replace(/"/g, '""')}"`;
 
 export const UstadzListPage: React.FC = () => {
+  const { data: identity } = useGetIdentity<AuthIdentity>();
+  const canManage = identity?.assignments.some((assignment) => ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD"].includes(assignment.roleCode)) || false;
   const [searchParams, setSearchParams] = useSearchParams();
   const [search, setSearch] = useState(searchParams.get("search") || "");
   const [profiles, setProfiles] = useState<UstadzProfile[]>([]);
@@ -49,6 +55,22 @@ export const UstadzListPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(false);
   const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [busyId, setBusyId] = useState("");
+  const [reload, setReload] = useState(0);
+
+  const toggleArchive = async (profile: UstadzProfile) => {
+    const archived = Boolean(profile.deletedAt);
+    if (!archived && !window.confirm(`Hapus ${profile.fullName} dari direktori aktif? Profil akan diarsipkan; riwayat keikutsertaan dan kehadiran tetap ada dan bisa dipulihkan.`)) return;
+    setBusyId(profile.id); setError(""); setNotice("");
+    try {
+      const result = archived ? await ustadzApi.restore(profile.id) : await ustadzApi.archive(profile.id);
+      setNotice(result.message);
+      if (profiles.length === 1 && page > 1) updateFilter("page", String(page - 1));
+      else setReload((value) => value + 1);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Status profil gagal diubah."); }
+    finally { setBusyId(""); }
+  };
 
   const requestedPage = Number(searchParams.get("page") || 1);
   const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
@@ -136,7 +158,7 @@ export const UstadzListPage: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [page, profileStatus, committedSearch]);
+  }, [page, profileStatus, committedSearch, reload]);
 
   const visibleProfiles = useMemo(
     () =>
@@ -158,10 +180,10 @@ export const UstadzListPage: React.FC = () => {
       icon: AlertTriangle,
     },
     {
-      label: "Potensi duplikat",
-      value: summary.duplicateCandidates,
-      hint: "Perlu ditinjau admin",
-      icon: Search,
+      label: "Arsip profil",
+      value: summary.archived || 0,
+      hint: "Bisa dipulihkan dari filter status",
+      icon: RotateCcw,
     },
   ];
 
@@ -206,10 +228,10 @@ export const UstadzListPage: React.FC = () => {
                 <Download aria-hidden="true" />
                 <span>Ekspor CSV</span>
               </button>
-              <Link to="/admin/ustadz/create" className="ustadz-button ustadz-button--primary">
-                <Plus aria-hidden="true" />
-                <span>Tambah profil</span>
-              </Link>
+                {canManage && <Link to="/admin/ustadz/create" className="ustadz-button ustadz-button--primary">
+                  <Plus aria-hidden="true" />
+                  <span>Tambah profil</span>
+                </Link>}
             </div>
           }
         />
@@ -224,6 +246,8 @@ export const UstadzListPage: React.FC = () => {
             </div>
           </div>
         )}
+        {notice && <div role="status" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900">{notice}</div>}
+        {!preview && error && <div role="alert" className="mb-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-900">{error}</div>}
 
         <section className="ustadz-metrics" aria-label="Ringkasan direktori asatidz">
           {metrics.map((metric) => {
@@ -252,6 +276,8 @@ export const UstadzListPage: React.FC = () => {
                     ? "Profil dengan potensi duplikat"
                     : profileStatus === "INACTIVE"
                       ? "Profil nonaktif"
+                      : profileStatus === "ARCHIVED"
+                        ? "Profil diarsipkan"
                       : "Seluruh profil"}
               </h2>
             </div>
@@ -274,7 +300,8 @@ export const UstadzListPage: React.FC = () => {
                 <option value="ALL">Semua status</option>
                 <option value="ACTIVE">Aktif</option>
                 <option value="INACTIVE">Nonaktif</option>
-                <option value="MERGED">Digabungkan</option>
+                        <option value="MERGED">Digabungkan</option>
+                        <option value="ARCHIVED">Arsip (dihapus dari daftar aktif)</option>
               </select>
             </label>
           </div>
@@ -341,8 +368,8 @@ export const UstadzListPage: React.FC = () => {
                           </div>
                         </td>
                         <td>
-                          <span className="ustadz-status" data-status={profile.profileStatus}>
-                            {statusLabel(profile.profileStatus)}
+                          <span className="ustadz-status" data-status={profile.deletedAt ? "ARCHIVED" : profile.profileStatus}>
+                            {profile.deletedAt ? "Diarsipkan" : statusLabel(profile.profileStatus)}
                           </span>
                         </td>
                         <td>
@@ -351,9 +378,10 @@ export const UstadzListPage: React.FC = () => {
                             <Link to={`/admin/ustadz/${profile.id}`} aria-label={`Lihat ${profile.fullName}`}>
                               <Eye aria-hidden="true" />
                             </Link>
-                            <Link to={`/admin/ustadz/${profile.id}/edit`} aria-label={`Edit ${profile.fullName}`}>
+                            {canManage && !profile.deletedAt && <Link to={`/admin/ustadz/${profile.id}/edit`} aria-label={`Edit ${profile.fullName}`}>
                               <Edit3 aria-hidden="true" />
-                            </Link>
+                            </Link>}
+                            {canManage && <button type="button" onClick={() => void toggleArchive(profile)} disabled={preview || Boolean(busyId)} aria-label={`${profile.deletedAt ? "Pulihkan" : "Arsipkan"} profil ${profile.fullName}`} title={profile.deletedAt ? "Pulihkan ke direktori" : "Hapus dari direktori aktif (riwayat tersimpan)"} className="inline-flex h-11 w-11 items-center justify-center rounded-md border border-slate-200 text-rose-700 disabled:opacity-50">{profile.deletedAt ? <RotateCcw aria-hidden="true" /> : <Trash2 aria-hidden="true" />}</button>}
                           </div>
                         </td>
                       </tr>
@@ -370,8 +398,8 @@ export const UstadzListPage: React.FC = () => {
                         <strong>{profile.fullName}</strong>
                         <span>{profile.primaryInstitution?.institutionName || "Belum ada afiliasi utama"}</span>
                       </div>
-                      <span className="ustadz-status" data-status={profile.profileStatus}>
-                        {statusLabel(profile.profileStatus)}
+                      <span className="ustadz-status" data-status={profile.deletedAt ? "ARCHIVED" : profile.profileStatus}>
+                        {profile.deletedAt ? "Diarsipkan" : statusLabel(profile.profileStatus)}
                       </span>
                     </div>
                     <div className="ustadz-quality">
@@ -390,7 +418,8 @@ export const UstadzListPage: React.FC = () => {
                     <div className="ustadz-card__actions">
                       <ParticipantCommunicationPanel disabled={preview} senderRole="admin" initialTemplate="PROFILE_GREETING" participant={{ id: profile.id, name: profile.fullName, email: profile.email, phone: profile.phone, whatsapp: profile.whatsapp, address: profile.address, institutionName: profile.primaryInstitution?.institutionName }} />
                       <Link to={`/admin/ustadz/${profile.id}`}>Lihat detail</Link>
-                      <Link to={`/admin/ustadz/${profile.id}/edit`}>Edit profil</Link>
+                      {canManage && !profile.deletedAt && <Link to={`/admin/ustadz/${profile.id}/edit`}>Edit profil</Link>}
+                      {canManage && <button type="button" onClick={() => void toggleArchive(profile)} disabled={preview || Boolean(busyId)} className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-rose-200 px-3 text-sm font-bold text-rose-700 disabled:opacity-50">{profile.deletedAt ? <RotateCcw className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}{profile.deletedAt ? "Pulihkan" : "Hapus dari daftar"}</button>}
                     </div>
                   </article>
                 ))}

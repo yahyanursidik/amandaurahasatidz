@@ -12,7 +12,7 @@ import {
   eventSessions,
   participantStatusHistories,
 } from "../db/schema";
-import { eq, ilike, and, or, isNull, count, desc, inArray } from "drizzle-orm";
+import { eq, ilike, and, or, isNull, isNotNull, count, desc, inArray } from "drizzle-orm";
 import { normalizeName, normalizeEmail, normalizePhone } from "../utils/normalization";
 import {
   AttendanceMode,
@@ -35,7 +35,8 @@ export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
   const pageSize = params.pageSize || 25;
   const offset = (page - 1) * pageSize;
 
-  const conditions = [isNull(ustadzProfiles.deletedAt)];
+  const conditions = [params.profileStatus === "ARCHIVED"
+    ? isNotNull(ustadzProfiles.deletedAt) : isNull(ustadzProfiles.deletedAt)];
 
   if (params.search && params.search.trim() !== "") {
     const searchPattern = `%${params.search.trim()}%`;
@@ -58,7 +59,7 @@ export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
     conditions.push(eq(ustadzProfiles.provinceCode, params.provinceCode));
   }
 
-  if (params.profileStatus) {
+  if (params.profileStatus && params.profileStatus !== "ARCHIVED") {
     conditions.push(eq(ustadzProfiles.profileStatus, params.profileStatus));
   }
 
@@ -81,7 +82,7 @@ export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
   const total = countResult[0]?.total || 0;
   const pageCount = Math.ceil(total / pageSize);
   const profileIds = dataResult.map((profile) => profile.id);
-  const [affiliationRows, activeProfiles] = await Promise.all([
+  const [affiliationRows, activeProfiles, [archivedRow]] = await Promise.all([
     profileIds.length
       ? db
           .select({
@@ -114,6 +115,7 @@ export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
       })
       .from(ustadzProfiles)
       .where(isNull(ustadzProfiles.deletedAt)),
+    db.select({ total: count() }).from(ustadzProfiles).where(isNotNull(ustadzProfiles.deletedAt)),
   ]);
 
   const data = dataResult.map((profile) => {
@@ -170,6 +172,7 @@ export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
           ),
       ),
     ).length,
+    archived: archivedRow?.total || 0,
   };
 
   return {
@@ -189,7 +192,7 @@ export async function findUstadzByIdRepository(id: string) {
   const profile = await db
     .select()
     .from(ustadzProfiles)
-    .where(and(eq(ustadzProfiles.id, id), isNull(ustadzProfiles.deletedAt)))
+    .where(eq(ustadzProfiles.id, id))
     .limit(1);
 
   if (profile.length === 0) return null;
@@ -330,6 +333,15 @@ export async function updateUstadzRepository(id: string, data: Partial<typeof us
     .where(and(eq(ustadzProfiles.id, id), isNull(ustadzProfiles.deletedAt)))
     .returning();
   return updated[0] || null;
+}
+
+export async function setUstadzArchivedRepository(id: string, archived: boolean) {
+  const db = getDbClient();
+  const [updated] = await db.update(ustadzProfiles)
+    .set({ deletedAt: archived ? new Date() : null, updatedAt: new Date() })
+    .where(and(eq(ustadzProfiles.id, id), archived ? isNull(ustadzProfiles.deletedAt) : isNotNull(ustadzProfiles.deletedAt)))
+    .returning();
+  return updated || null;
 }
 
 export async function findDuplicateCandidatesRepository(fullName: string, email?: string | null, phone?: string | null) {
