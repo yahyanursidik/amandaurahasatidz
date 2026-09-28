@@ -204,6 +204,7 @@ import {
 import { processCheckinSchema, queryCheckinLogsSchema, searchCheckinParticipantSchema } from "./lib/validations/attendanceValidation";
 import {
   getActiveSessionService,
+  getAttendanceCheckinUnitsService,
   processOnSiteCheckinService,
   getRecentCheckinLogsService,
   searchEventCheckinParticipantsService,
@@ -1492,6 +1493,38 @@ export const handler: Handler = async (event, _context) => {
       requirePermission(session, "attendance.record", validated.eventId);
       const result = await verifyQrTokenForCheckinService(validated.eventId, validated.qrTokenOrCode, session.userId, requestId);
       return buildSuccessResponse(result, requestId);
+    }
+
+    // Public gate: no account session required. Event scope, open window, approval,
+    // unique attendance and per-device rate limits remain enforced on the server.
+    if (path === "/gate/events" && method === "GET") {
+      const list = await getPublicEventsService();
+      return buildSuccessResponse(list.map((item) => ({ slug: item.slug, code: item.code, name: item.name, status: item.status }))
+        .sort((a, b) => Number(b.status === "ONGOING") - Number(a.status === "ONGOING") ||
+          Number(b.status === "REGISTRATION_OPEN") - Number(a.status === "REGISTRATION_OPEN")), requestId);
+    }
+    const publicGateMatch = path.match(/^\/gate\/events\/([a-z0-9-]+)\/(units|search|checkin)$/i);
+    if (publicGateMatch) {
+      const gateEvent = await getEventBySlugPublicService(publicGateMatch[1]);
+      const gateAction = publicGateMatch[2];
+      if (gateAction === "units" && method === "GET") {
+        return buildSuccessResponse(await getAttendanceCheckinUnitsService(gateEvent.id), requestId);
+      }
+      if (gateAction === "search" && method === "GET") {
+        const input = validateRequestData(searchCheckinParticipantSchema, event.queryStringParameters || {});
+        const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+        const limit = checkRateLimit(`public_gate_search_${gateEvent.id}_${clientIp}`, 120, 60_000);
+        if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak pencarian gate. Coba lagi sebentar.", requestId, 429);
+        return buildSuccessResponse(await searchEventCheckinParticipantsService(gateEvent.id, input.q), requestId);
+      }
+      if (gateAction === "checkin" && method === "POST") {
+        const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+        const limit = checkRateLimit(`public_gate_checkin_${gateEvent.id}_${clientIp}`, 60, 60_000);
+        if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak check-in dari perangkat ini. Coba lagi sebentar.", requestId, 429);
+        const input = validateRequestData(processCheckinSchema, event.body ? JSON.parse(event.body) : {});
+        return buildSuccessResponse(await processOnSiteCheckinService(gateEvent.id, input.qrTokenOrCode,
+          input.method || "MANUAL_CODE", undefined, requestId, { sessionId: input.sessionId, dayId: input.dayId }), requestId);
+      }
     }
 
     // On-Site Check-in Module Endpoints
