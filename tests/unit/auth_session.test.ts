@@ -16,6 +16,10 @@ describe("Authentication & Session Security Unit Tests", () => {
     expect(session).toBeNull();
   });
 
+  it("does not accept a direct email address as a development login token", async () => {
+    expect(await getUserSession("admin@yts.or.id", undefined)).toBeNull();
+  });
+
   it("should return valid user session context for active session cookie", async () => {
     const { sessionId } = createSessionToken(
       "ustadz.test@yts.or.id",

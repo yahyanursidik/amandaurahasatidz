@@ -3,8 +3,10 @@ import { Link, useParams } from "react-router-dom";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { StatusBadge, StatusVariant } from "@/components/common/StatusBadge";
 import { ENV } from "@/config/env";
-import { AlertCircle, ArrowRight, Calendar, Clock, ExternalLink, MapPin, RefreshCw, TicketCheck, Users } from "lucide-react";
+import { AlertCircle, Calendar, Clock, ExternalLink, MapPin, RefreshCw } from "lucide-react";
 import { DEFAULT_EVENT_POSTER, posterObjectPosition } from "@/lib/eventPoster";
+import { PublicEventRegistrationPage } from "./PublicEventRegistrationPage";
+import { getRegularRegistrationState } from "@/lib/regularRegistration";
 
 type EventDay = {
   id: string;
@@ -139,7 +141,7 @@ export const EventPublicPage: React.FC = () => {
       setEventData(result.data);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : "Informasi event tidak dapat dimuat.");
-      if (import.meta.env.DEV) {
+      if (import.meta.env.DEV && slug === "contoh-daurah-asatidz") {
         setEventData(previewEvent);
         setPreviewMode(true);
       } else {
@@ -163,10 +165,6 @@ export const EventPublicPage: React.FC = () => {
     [eventData]
   );
   const regularEnabled = Boolean(eventData && ["PUBLIC_OPEN", "MIXED"].includes(eventData.audienceMode));
-  const regularOpen = Boolean(eventData && regularEnabled && eventData.status === "REGISTRATION_OPEN" &&
-    (eventData.regularQuota == null || eventData.regularApproved < eventData.regularQuota) &&
-    (!eventData.registrationOpenAt || new Date(eventData.registrationOpenAt) <= new Date()) &&
-    (!eventData.registrationCloseAt || new Date(eventData.registrationCloseAt) >= new Date()));
 
   return (
     <PublicLayout>
@@ -247,27 +245,10 @@ export const EventPublicPage: React.FC = () => {
               </div>
             </header>
 
-            <section className="event-public-enrollment" aria-labelledby="event-enrollment-title">
-              <div>
-                <p className="event-public-enrollment__eyebrow">Cara mengikuti program</p>
-                <h2 id="event-enrollment-title">Pilih jalur yang sesuai</h2>
-                <p>Setiap pendaftaran ditinjau panitia. Kode peserta dan QR kehadiran berlaku atas nama masing-masing asatidz.</p>
-              </div>
-              <div className="event-public-enrollment__routes">
-                {regularEnabled && <article>
-                  <Users aria-hidden="true" />
-                  <h3>Reguler</h3>
-                  <p>Daftar mandiri memakai email pribadi. {eventData.regularQuota != null ? `Alokasi ${eventData.regularQuota} tempat; persetujuan mengikuti hasil verifikasi panitia.` : "Ketersediaan dikonfirmasi setelah peninjauan panitia."}</p>
-                  {regularOpen && !previewMode ? <Link to={`/events/${eventData.slug}/register`}>Daftar reguler <ArrowRight aria-hidden="true" /></Link> : <span>{previewMode ? "Form tersedia pada program aktif" : "Pendaftaran reguler belum tersedia"}</span>}
-                </article>}
-                {["INSTITUTION_INVITATION", "INDIVIDUAL_INVITATION", "MIXED"].includes(eventData.audienceMode) && <article>
-                  <TicketCheck aria-hidden="true" />
-                  <h3>Undangan</h3>
-                  <p>Gunakan tautan khusus dari panitia. Lembaga dapat mendaftarkan beberapa perwakilan sesuai kuota undangan mereka.</p>
-                  <span>Sudah menerima tautan? Buka langsung dari pesan panitia.</span>
-                </article>}
-              </div>
-            </section>
+             {regularEnabled && !previewMode && <section id="formulir-reguler" className="scroll-mt-24" aria-label="Pendaftaran reguler untuk program ini"><PublicEventRegistrationPage embeddedEvent={eventData} /></section>}
+
+             {regularEnabled && previewMode && <section className="rounded-xl border border-slate-200 bg-white p-5"><h2 className="font-black">Pendaftaran reguler</h2><p className="mt-2 text-sm text-slate-600">Formulir akan tersedia pada program yang terbit dan dibuka panitia.</p></section>}
+
 
             {(eventData.description || eventData.venueName || eventData.venueAddress) && (
               <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">

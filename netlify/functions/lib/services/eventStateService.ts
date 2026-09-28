@@ -21,7 +21,7 @@ export type TransitionAction =
 
 const TRANSITION_MAP: Record<TransitionAction, { from: EventStatus[]; to: EventStatus }> = {
   PUBLISH: { from: ["DRAFT"], to: "PUBLISHED" },
-  OPEN_REGISTRATION: { from: ["PUBLISHED"], to: "REGISTRATION_OPEN" },
+  OPEN_REGISTRATION: { from: ["PUBLISHED", "REGISTRATION_CLOSED"], to: "REGISTRATION_OPEN" },
   CLOSE_REGISTRATION: { from: ["REGISTRATION_OPEN"], to: "REGISTRATION_CLOSED" },
   START_EVENT: { from: ["REGISTRATION_CLOSED", "PUBLISHED"], to: "ONGOING" },
   COMPLETE_EVENT: { from: ["ONGOING"], to: "COMPLETED" },

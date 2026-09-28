@@ -34,12 +34,10 @@ export const Header: React.FC<HeaderProps> = ({
               {mobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
           )}
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-emerald-500 text-xs font-black tracking-tight text-emerald-950 shadow-sm">
-            ADA
-          </div>
+          <img src="/images/tarbiyah-sunnah-mark.svg" alt="Tarbiyah Sunnah" width="40" height="36" className="h-9 w-10 shrink-0 object-contain" />
           <div>
             <h1 className="text-sm font-semibold leading-none sm:text-lg">Aman Daurah Asatidz</h1>
-            <span className="text-xs text-emerald-300 font-medium">{portalName}</span>
+            <span className="text-xs text-emerald-300 font-medium">Tarbiyah Sunnah · {portalName}</span>
           </div>
         </div>
 

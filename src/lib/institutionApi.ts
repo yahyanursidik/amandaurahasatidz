@@ -124,24 +124,11 @@ interface ApiResponse<T> {
   error?: { message?: string };
 }
 
-const getDevelopmentIdentity = () => {
-  if (!import.meta.env.DEV) return "";
-  try {
-    const session = JSON.parse(localStorage.getItem("yts_dev_session") || "{}");
-    return typeof session.email === "string" ? session.email : "admin@yts.or.id";
-  } catch {
-    return "admin@yts.or.id";
-  }
-};
-
 async function request<T>(path: string, options?: RequestInit): Promise<ApiResponse<T>> {
-  const storedToken = localStorage.getItem("yts_auth_token") || "";
-  const authorization = import.meta.env.DEV ? getDevelopmentIdentity() : storedToken;
   const response = await fetch(`${ENV.API_BASE_URL}${path}`, {
     ...options,
     credentials: "include",
     headers: {
-      Authorization: authorization,
       "Content-Type": "application/json",
       ...(options?.headers || {}),
     },

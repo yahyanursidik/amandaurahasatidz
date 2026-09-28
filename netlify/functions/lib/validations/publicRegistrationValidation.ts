@@ -1,16 +1,10 @@
 import { z } from "zod";
 
-export const requestPublicRegistrationCodeSchema = z.object({
-  email: z.string().trim().email("Alamat email tidak valid"),
-});
-
 export const submitPublicRegistrationSchema = z.object({
   fullName: z.string().trim().min(3, "Nama lengkap minimal 3 karakter").max(150),
   email: z.string().trim().email("Alamat email tidak valid"),
   whatsapp: z.string().trim().min(9, "Nomor WhatsApp minimal 9 digit").max(20),
   address: z.string().trim().max(500).optional().nullable(),
-  code: z.string().regex(/^\d{6}$/, "Kode verifikasi harus 6 digit"),
-  challengeToken: z.string().min(20, "Minta kode verifikasi baru"),
   consentConfirmed: z.literal(true, { message: "Persetujuan pengiriman data rombongan wajib diberikan" }),
   delegates: z.array(z.object({
     fullName: z.string().trim().min(3, "Nama peserta minimal 3 karakter").max(150),

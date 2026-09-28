@@ -1,0 +1,6 @@
+# Logo Tarbiyah Sunnah dan login portal
+
+- Identitas visual aplikasi menggunakan `public/images/tarbiyah-sunnah-mark.svg` pada favicon/header gelap dan `public/images/tarbiyah-sunnah-logo.svg` pada header terang, kartu peserta, rapor cetak, dan pratinjau BC. Raster untuk email tersedia di `public/images/tarbiyah-sunnah-logo.png` dan dapat dibuat ulang dengan `scripts/generate-brand-logo-png.ps1`.
+- Ketiga portal login meminta email/password akun yang benar-benar tersimpan dan sesi server. Form tidak lagi menampilkan atau mengisi akun demo; email tanpa sesi bertanda tangan tidak diterima sebagai token API. Aktivasi akun mengirim OTP melalui antrean email tanpa mengembalikan kode preview login.
+- Atur `APP_URL` di server ke URL **publik HTTPS** aplikasi agar gambar `/images/tarbiyah-sunnah-logo.png` termuat pada email. Klien email sering memblokir SVG serta gambar eksternal sampai penerima mengizinkan gambar, sehingga raster PNG dan teks alternatif dipakai. Tanpa URL publik, template menggunakan teks merek sebagai fallback.
+- Seeding baru tidak lagi memberi password demo bersama secara otomatis. Bila lingkungan sebelumnya pernah di-seed dengan password demo, akun yang sudah ada tidak dihapus oleh perubahan kode; lakukan penggantian password akun terkait melalui alur aktivasi/reset sebelum dipakai kembali.

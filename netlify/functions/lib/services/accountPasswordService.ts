@@ -1,4 +1,4 @@
-import { createHmac, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { getDbClient } from "../db/client";
 import { roles, userRoleAssignments, users } from "../db/schema";
@@ -34,13 +34,15 @@ function isProductionRuntime() {
   return process.env.APP_ENV === "production" || process.env.CONTEXT === "production";
 }
 
+const localSetupSecret = randomBytes(32).toString("hex");
+
 function getSecret() {
   const secret = process.env.SESSION_SECRET || process.env.JWT_SECRET || process.env.AUTH_SECRET;
   if (secret) return secret;
   if (isProductionRuntime()) {
     throw new AppError("Konfigurasi aktivasi akun belum lengkap.", 503, "AUTH_CONFIGURATION_ERROR");
   }
-  return "fallback_aman_daurah_password_setup_dev_2026";
+  return localSetupSecret;
 }
 
 function sign(data: string) {
@@ -123,7 +125,6 @@ export async function requestPasswordSetupService(
   return {
     challengeToken,
     expiresAt: new Date(payload.expiresAt),
-    ...(isProductionRuntime() ? {} : { previewCode: code }),
   };
 }
 

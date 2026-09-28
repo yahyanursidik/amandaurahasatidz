@@ -70,9 +70,11 @@ type Participant = {
   eventVenueName?: string | null;
   eventVenueAddress?: string | null;
   participantCode: string;
+  eventParticipationCount?: number;
   isDelegationLead: boolean;
   confirmationStatus: string;
   approvalStatus: string;
+  statusReason?: string | null;
   institutionName: string | null;
   registrationSource: string | null;
   registeredAt: string | null;
@@ -117,10 +119,13 @@ type ParticipantImportPreview = {
     line: number;
     resolvedInstitutionName: string | null;
     finalParticipantCode: string;
+    matchedUstadzId?: string | null;
+    previousApprovedEvents?: number;
   }>;
 };
 type EventDeadline = {
   name?: string;
+  slug?: string;
   startDate?: string | null;
   endDate?: string | null;
   venueName?: string | null;
@@ -207,12 +212,11 @@ const demoParticipants: Participant[] = [
 
 const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   const token = localStorage.getItem("yts_auth_token") || "";
-  const developmentIdentity = import.meta.env.DEV ? "admin@yts.or.id" : "";
   const response = await fetch(`${ENV.API_BASE_URL}${path}`, {
     ...options,
     credentials: "include",
     headers: {
-      Authorization: token || developmentIdentity,
+      ...(token ? { Authorization: token } : {}),
       "Content-Type": "application/json",
       ...(options?.headers || {}),
     },
@@ -297,6 +301,7 @@ export const EventRegistrationsPage: React.FC = () => {
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("ALL");
+  const [participantPage, setParticipantPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -308,6 +313,7 @@ export const EventRegistrationsPage: React.FC = () => {
   const [participantImportMessage, setParticipantImportMessage] = useState("");
   const [participantImportFailures, setParticipantImportFailures] = useState<{ line: number; participantCode: string; error: string }[]>([]);
   const [participantImportBusy, setParticipantImportBusy] = useState<"preview" | "commit" | "">("");
+  const [participantImportProgress, setParticipantImportProgress] = useState<{ processed: number; total: number } | null>(null);
   const [copied, setCopied] = useState("");
   const [createdLink, setCreatedLink] = useState("");
   const [createdAccessCode, setCreatedAccessCode] = useState("");
@@ -389,6 +395,11 @@ export const EventRegistrationsPage: React.FC = () => {
       }),
     [participants, search, statusFilter]
   );
+  const participantPageCount = Math.max(1, Math.ceil(filteredParticipants.length / 25));
+  const visibleParticipantPage = Math.min(participantPage, participantPageCount);
+  const pagedParticipants = filteredParticipants.slice((visibleParticipantPage - 1) * 25, visibleParticipantPage * 25);
+
+  useEffect(() => { setParticipantPage(1); }, [id, search, statusFilter]);
 
   const acceptedCount = invitations.filter((item) => item.status === "ACCEPTED").length;
   const awaitingCount = invitations.filter((item) => ["DRAFT", "SENT", "OPENED"].includes(item.status)).length;
@@ -563,6 +574,7 @@ export const EventRegistrationsPage: React.FC = () => {
   };
 
   const handleParticipantImportFile = async (file: File | null) => {
+    setParticipantImportProgress(null);
     setParticipantImportMessage("");
     setParticipantImportFailures([]);
     setParticipantImportPreview(null);
@@ -655,20 +667,40 @@ export const EventRegistrationsPage: React.FC = () => {
     }
     setParticipantImportBusy("commit");
     setError("");
+    const rowsToSave = participantImportPreview.previewData.map((row) => ({
+      ...participantImportRows[row.line - 2], participantCode: row.finalParticipantCode,
+      sourceLine: row.line,
+    }));
+    const total = participantImportRows.length;
+    let processed = participantImportPreview.alreadyImportedCount;
+    let importedCount = 0;
+    let reusedCount = 0;
+    const failures: typeof participantImportFailures = [];
+    setParticipantImportProgress({ processed, total });
     try {
-      const result = await api<{ status: "SUCCESS" | "PARTIAL"; importedCount: number; failedCount: number; message: string; failureReport: { line: number; participantCode: string; error: string }[] }>(`/events/${id}/participants/import/commit`, {
-        method: "POST",
-        body: JSON.stringify({ rows: participantImportRows, approved: true }),
-      });
-      setParticipantImportMessage(result.message || `Berhasil mengimpor ${result.importedCount} peserta.`);
-      setParticipantImportFailures(result.failureReport || []);
-      if (result.status === "SUCCESS") {
+      for (let offset = 0; offset < rowsToSave.length; offset += 20) {
+        const batch = rowsToSave.slice(offset, offset + 20);
+        const result = await api<{ status: "SUCCESS" | "PARTIAL"; importedCount: number; skippedCount: number; reusedProfileCount: number; failureReport: { line: number; participantCode: string; error: string }[] }>(`/events/${id}/participants/import/commit`, {
+          method: "POST", body: JSON.stringify({ rows: batch.map(({ sourceLine: _line, ...row }) => row), approved: true }),
+        });
+        importedCount += result.importedCount;
+        reusedCount += result.reusedProfileCount || 0;
+        failures.push(...(result.failureReport || []).map((failure) => ({ ...failure,
+          line: batch[failure.line - 2]?.sourceLine || failure.line })));
+        processed += batch.length;
+        setParticipantImportProgress({ processed, total });
+        setParticipantImportMessage(`${processed}/${total} baris diproses (${Math.round(processed / total * 100)}%). ${importedCount} peserta tersimpan.`);
+      }
+      setParticipantImportFailures(failures);
+      setParticipantImportMessage(`${importedCount} peserta berhasil diimpor; ${reusedCount} profil asatidz lama tertaut ke event ini${participantImportPreview.alreadyImportedCount ? `, ${participantImportPreview.alreadyImportedCount} sudah ada` : ""}${failures.length ? `, ${failures.length} gagal` : ""}.`);
+      if (!failures.length) {
         setParticipantImportPreview(null);
         setParticipantImportRows([]);
       }
       await loadData();
     } catch (commitError) {
-      setError(commitError instanceof Error ? commitError.message : "Import peserta gagal disimpan.");
+      await loadData();
+      setError(`${commitError instanceof Error ? commitError.message : "Impor peserta terhenti."} ${importedCount} peserta sudah tersimpan; ulangi impor file yang sama untuk melewati yang sudah ada.`);
     } finally {
       setParticipantImportBusy("");
     }
@@ -745,6 +777,8 @@ export const EventRegistrationsPage: React.FC = () => {
             </div>
           )}
 
+          {participantImportProgress && <div className="mt-3 rounded-lg border border-emerald-200 bg-white p-3" role="status" aria-live="polite"><div className="flex items-center justify-between text-xs font-bold text-emerald-900"><span>Progres impor peserta</span><span>{Math.round(participantImportProgress.processed / Math.max(1, participantImportProgress.total) * 100)}% · {participantImportProgress.processed}/{participantImportProgress.total}</span></div><progress className="mt-2 h-3 w-full accent-emerald-700" max={participantImportProgress.total} value={participantImportProgress.processed} /></div>}
+
           {participantImportFailures.length > 0 && (
             <div role="alert" className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-950">
               <p className="font-black">{participantImportFailures.length} baris gagal. Perbaiki datanya atau tekan Impor peserta untuk mencoba ulang file yang sama.</p>
@@ -770,7 +804,8 @@ export const EventRegistrationsPage: React.FC = () => {
                       <span className="font-mono text-slate-500">{row.line}</span>
                       <div className="min-w-0">
                         <p className="truncate font-bold text-slate-950">{row.fullName}</p>
-                        <p className="truncate text-xs text-slate-500">{row.email || row.whatsapp || row.phone || "Kontak belum diisi"}</p>
+                         <p className="truncate text-xs text-slate-500">{row.email || row.whatsapp || row.phone || "Kontak belum diisi"}</p>
+                         {row.matchedUstadzId && <p className="text-xs font-bold text-emerald-800">Profil sudah ada · {row.previousApprovedEvents || 0} event sebelumnya disetujui{row.approvalStatus === "APPROVED" ? " · jika impor berhasil akan bertambah 1" : ""}</p>}
                       </div>
                       <span className="truncate text-slate-600">{row.resolvedInstitutionName || row.institutionName || "Individu"}</span>
                       <span className="truncate font-mono text-xs font-bold text-emerald-800">{row.finalParticipantCode}</span>
@@ -836,7 +871,7 @@ export const EventRegistrationsPage: React.FC = () => {
           </div>
           {loading ? <div className="h-64 animate-pulse bg-slate-100" /> : filteredParticipants.length ? (
             <ul className="divide-y divide-slate-100">
-              {filteredParticipants.map((participant) => {
+               {pagedParticipants.map((participant) => {
                 const registrationTime = formatRegisteredAt(participant.registeredAt);
                 return (
                 <li key={participant.id} className="grid gap-3 px-4 py-4 text-sm lg:min-w-[82rem] lg:grid-cols-[2rem_9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_10rem_9rem_9rem_18rem] lg:items-center lg:gap-3">
@@ -849,7 +884,7 @@ export const EventRegistrationsPage: React.FC = () => {
                     className="h-4 w-4 accent-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                   />
                   <span className="font-mono font-bold text-emerald-800">{participant.participantCode}</span>
-                  <div className="min-w-0"><p className="truncate font-black text-slate-900">{participant.ustadzName}</p><p className="mt-1 truncate text-sm text-slate-600">{participant.ustadzWhatsapp || participant.ustadzPhone || participant.ustadzEmail || "Kontak belum diisi"}</p>{participant.publicGroupId && <p className="mt-1 text-xs font-bold text-emerald-800">{participant.isDelegationLead ? "Kepala rombongan reguler" : "Anggota rombongan reguler"}</p>}</div>
+                   <div className="min-w-0"><p className="truncate font-black text-slate-900">{participant.ustadzName}</p><p className="mt-1 truncate text-sm text-slate-600">{participant.ustadzWhatsapp || participant.ustadzPhone || participant.ustadzEmail || "Kontak belum diisi"}</p>{(participant.eventParticipationCount || 0) > 1 && <Link to={`/admin/ustadz/${participant.ustadzId}`} className="mt-1 inline-block text-xs font-bold text-emerald-800 underline">Terdaftar di {participant.eventParticipationCount} event · lihat riwayat</Link>}{participant.publicGroupId && <p className="mt-1 text-xs font-bold text-emerald-800">{participant.isDelegationLead ? "Kepala rombongan reguler" : "Anggota rombongan reguler"}</p>}</div>
                   <span className="truncate text-slate-500">{participant.institutionName || (participant.publicGroupId ? `Rombongan ${participant.publicGroupId.slice(0, 8)}` : "Individu")}</span>
                   <div className="flex items-start gap-2 text-slate-700">
                     <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
@@ -859,7 +894,7 @@ export const EventRegistrationsPage: React.FC = () => {
                     </div>
                   </div>
                   <StatusBadge label={participant.confirmationStatus.replaceAll("_", " ")} variant={participant.confirmationStatus === "CONFIRMED" ? "success" : "neutral"} />
-                  <StatusBadge label={participant.approvalStatus.replaceAll("_", " ")} variant={participant.approvalStatus === "APPROVED" ? "success" : participant.approvalStatus === "PENDING_REVIEW" ? "warning" : "neutral"} />
+                   <div><StatusBadge label={participant.approvalStatus.replaceAll("_", " ")} variant={participant.approvalStatus === "APPROVED" ? "success" : participant.approvalStatus === "PENDING_REVIEW" ? "warning" : "neutral"} />{["REJECTED", "DECLINED", "WAITLISTED", "PENDING_REVIEW"].includes(participant.approvalStatus) && <p className="mt-1 text-xs text-amber-900">{participant.statusReason ? `Alasan: ${participant.statusReason}` : "Alasan belum dicatat"}</p>}</div>
                   <div className="flex flex-wrap gap-2">
                     <ParticipantProfileDialog
                       participant={{
@@ -881,6 +916,7 @@ export const EventRegistrationsPage: React.FC = () => {
                       masterProfileHref={`/admin/ustadz/${participant.ustadzId}`}
                     />
                     <ParticipantCommunicationPanel
+                      disabled={demoMode}
                       participant={{
                         id: participant.id,
                         name: participant.ustadzName,
@@ -894,12 +930,14 @@ export const EventRegistrationsPage: React.FC = () => {
                         confirmationStatus: participant.confirmationStatus,
                       }}
                       senderRole="admin"
+                      initialTemplate={participant.invitationId ? "EVENT_INVITATION" : "REGULAR_REGISTRATION"}
                       event={{
                         name: participant.eventName,
                         startDate: participant.eventStartDate,
                         endDate: participant.eventEndDate,
                         venueName: participant.eventVenueName,
                         venueAddress: participant.eventVenueAddress,
+                        publicUrl: eventDeadline?.slug ? `${window.location.origin}/events/${encodeURIComponent(eventDeadline.slug)}` : undefined,
                       }}
                     />
                     <ParticipantPortalAccessAction
@@ -928,8 +966,9 @@ export const EventRegistrationsPage: React.FC = () => {
                 );
               })}
             </ul>
-          ) : <div className="p-10 text-center text-xs text-slate-500">Tidak ada peserta yang cocok.</div>}
-        </div>
+           ) : <div className="p-10 text-center text-xs text-slate-500">Tidak ada peserta yang cocok.</div>}
+         </div>
+         {filteredParticipants.length > 0 && <nav aria-label="Halaman peserta event" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm"><span>Menampilkan {(visibleParticipantPage - 1) * 25 + 1}–{Math.min(visibleParticipantPage * 25, filteredParticipants.length)} dari {filteredParticipants.length} peserta</span><div className="flex items-center gap-2"><button type="button" disabled={visibleParticipantPage <= 1} onClick={() => setParticipantPage(visibleParticipantPage - 1)} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Sebelumnya</button><span>Halaman {visibleParticipantPage}/{participantPageCount}</span><button type="button" disabled={visibleParticipantPage >= participantPageCount} onClick={() => setParticipantPage(visibleParticipantPage + 1)} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Berikutnya</button></div></nav>}
       </AdminLayout>
     );
   }

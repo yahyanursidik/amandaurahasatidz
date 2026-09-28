@@ -1,5 +1,5 @@
 import { ValidationError } from "../utils/errors";
-import { renderHtmlByTemplateCode } from "./emailHtmlTemplates";
+import { renderBrandedTextEmailHtml, renderHtmlByTemplateCode } from "./emailHtmlTemplates";
 
 export interface TemplateDefinition {
   code: string;
@@ -143,7 +143,7 @@ export function renderHtmlEmailTemplate(
   const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] || character);
   const safeVariables = Object.fromEntries(Object.entries(variables).map(([key, value]) => [key, escapeHtml(String(value ?? ""))]));
   const htmlBody = ["ANNOUNCEMENT", "REGISTRATION_RECEIVED", "EVENT_CONTINUATION_REMINDER"].includes(templateCode)
-    ? `<div style="font-family:Arial,sans-serif;max-width:620px;margin:auto;color:#16372e;line-height:1.7"><h1 style="font-size:22px">Aman Daurah Asatidz</h1><p style="white-space:pre-line">${escapeHtml(textBody)}</p></div>`
+    ? renderBrandedTextEmailHtml(textBody)
     : renderHtmlByTemplateCode(templateCode, safeVariables);
 
   return { subject, htmlBody, textBody };

@@ -1,4 +1,5 @@
 import { getDbClient } from "../db/client";
+import { randomBytes } from "node:crypto";
 import {
   invitations,
   invitationLinks,
@@ -210,9 +211,7 @@ export async function saveInstitutionDelegationRepository(
           }
         }
 
-        const code: string = `YTS-${invitation.id.slice(0, 6).toUpperCase()}-${ustadzId
-          .slice(0, 6)
-          .toUpperCase()}`;
+        const code: string = `P-${randomBytes(4).toString("hex").toUpperCase()}`;
         const createdParticipant: Array<typeof eventParticipants.$inferSelect> = await tx
           .insert(eventParticipants)
           .values({

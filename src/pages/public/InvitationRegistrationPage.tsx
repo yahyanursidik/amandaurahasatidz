@@ -170,7 +170,7 @@ export const InvitationRegistrationPage: React.FC = () => {
         if (invitationType === "individual") setVerificationToken("individual-link-verified");
       } catch (error) {
         if (!controller.signal.aborted) {
-          if (import.meta.env.DEV) {
+           if (import.meta.env.DEV && /^(preview|demo)/i.test(token)) {
             setData(PREVIEW_INVITATION);
             setIsPreview(true);
           } else {

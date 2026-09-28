@@ -7,6 +7,7 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock3,
+  PencilLine,
   ExternalLink,
   MapPin,
   Plus,
@@ -149,7 +150,7 @@ const transitionOptions: Record<string, Array<{ action: string; label: string; d
   DRAFT: [{ action: "PUBLISH", label: "Publikasikan" }, { action: "CANCEL", label: "Batalkan", danger: true }],
   PUBLISHED: [{ action: "OPEN_REGISTRATION", label: "Buka pendaftaran" }, { action: "START_EVENT", label: "Mulai event" }, { action: "CANCEL", label: "Batalkan", danger: true }],
   REGISTRATION_OPEN: [{ action: "CLOSE_REGISTRATION", label: "Tutup pendaftaran" }, { action: "CANCEL", label: "Batalkan", danger: true }],
-  REGISTRATION_CLOSED: [{ action: "START_EVENT", label: "Mulai event" }, { action: "CANCEL", label: "Batalkan", danger: true }],
+   REGISTRATION_CLOSED: [{ action: "OPEN_REGISTRATION", label: "Buka kembali pendaftaran" }, { action: "START_EVENT", label: "Mulai event" }, { action: "CANCEL", label: "Batalkan", danger: true }],
   ONGOING: [{ action: "COMPLETE_EVENT", label: "Selesaikan event" }],
   COMPLETED: [{ action: "ARCHIVE", label: "Arsipkan" }],
   CANCELLED: [{ action: "ARCHIVE", label: "Arsipkan" }],
@@ -173,6 +174,7 @@ export const EventShowPage: React.FC = () => {
   const [notice, setNotice] = useState("");
   const [showDayForm, setShowDayForm] = useState(false);
   const [showSessionForm, setShowSessionForm] = useState(false);
+  const [editingSession, setEditingSession] = useState<EventSession | null>(null);
   const [showTeamForm, setShowTeamForm] = useState(false);
   const [committeeDirectory, setCommitteeDirectory] = useState<DirectoryMember[]>([]);
 
@@ -263,29 +265,37 @@ export const EventShowPage: React.FC = () => {
     const form = new FormData(event.currentTarget);
     setBusy("session");
     try {
-      await eventApi(`/events/${id}/sessions`, {
-        method: "POST",
+      await eventApi(`/events/${id}/sessions${editingSession ? `/${editingSession.id}` : ""}`, {
+        method: editingSession ? "PATCH" : "POST",
         body: JSON.stringify({
-          eventDayId: form.get("eventDayId"),
+          ...(!editingSession && { eventDayId: form.get("eventDayId") }),
           title: form.get("title"),
           sessionType: form.get("sessionType"),
-          startAt: form.get("startAt"),
-          endAt: form.get("endAt"),
+          startAt: `${form.get("startAt")}:00+07:00`,
+          endAt: `${form.get("endAt")}:00+07:00`,
           room: form.get("room") || null,
           attendanceRequired: form.get("attendanceRequired") === "on",
           checkinRequired: form.get("checkinRequired") === "on",
-          checkinOpenAt: form.get("checkinOpenAt") || null,
-          checkinCloseAt: form.get("checkinCloseAt") || null,
+          checkinOpenAt: form.get("checkinOpenAt") ? `${form.get("checkinOpenAt")}:00+07:00` : null,
+          checkinCloseAt: form.get("checkinCloseAt") ? `${form.get("checkinCloseAt")}:00+07:00` : null,
         }),
       });
       setShowSessionForm(false);
-      setNotice("Sesi berhasil ditambahkan.");
+      setEditingSession(null);
       await loadEvent();
+      setNotice(editingSession ? "Sesi berhasil diperbarui." : "Sesi berhasil ditambahkan.");
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Sesi gagal ditambahkan.");
     } finally {
       setBusy("");
     }
+  };
+  const toLocalInput = (value?: string | null) => {
+    if (!value) return "";
+    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit",
+      day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(value));
+    const part = (name: string) => parts.find((item) => item.type === name)?.value || "00";
+    return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
   };
 
   const submitTeam = async (event: React.FormEvent<HTMLFormElement>) => {
@@ -425,7 +435,8 @@ export const EventShowPage: React.FC = () => {
               </ul>
             </section>
             <section className="border-t-2 border-emerald-700 bg-emerald-50 p-4">
-              <h2 className="text-xs font-black text-emerald-950">Ubah status</h2>
+               <h2 className="text-sm font-black text-emerald-950">Publikasi & pendaftaran event</h2>
+               <p className="mt-2 text-xs leading-5 text-emerald-900">Terbitkan event agar halaman publik tersedia. Buka pendaftaran agar formulir reguler aktif; tutup atau buka kembali sesuai kebutuhan. Jalur undangan memakai tautan unik dari menu Undangan.</p>
               <div className="mt-3 space-y-2">
                 {(transitionOptions[data.status] || []).map((option) => (
                   <button
@@ -451,7 +462,7 @@ export const EventShowPage: React.FC = () => {
             <div><h2 className="text-base font-black text-slate-900">Jadwal dan sesi</h2><p className="mt-1 text-xs text-slate-500">Susun hari, waktu sesi, ruangan, dan kebutuhan check-in.</p></div>
             <div className="flex gap-2">
               <button type="button" onClick={() => setShowDayForm((value) => !value)} disabled={previewMode} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold disabled:opacity-50"><Plus className="h-4 w-4" /> Tambah hari</button>
-              <button type="button" onClick={() => setShowSessionForm((value) => !value)} disabled={previewMode || data.days.length === 0} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white disabled:opacity-50"><Plus className="h-4 w-4" /> Tambah sesi</button>
+               <button type="button" onClick={() => { setEditingSession(null); setShowSessionForm((value) => !value); }} disabled={previewMode || data.days.length === 0} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white disabled:opacity-50"><Plus className="h-4 w-4" /> Tambah sesi</button>
             </div>
           </div>
 
@@ -467,24 +478,25 @@ export const EventShowPage: React.FC = () => {
           )}
 
           {showSessionForm && (
-            <form onSubmit={submitSession} className="grid gap-3 border-t-2 border-emerald-700 bg-white p-4 sm:grid-cols-2 lg:grid-cols-3">
-              <select name="eventDayId" required className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs">
+             <form key={editingSession?.id || "new-session"} onSubmit={submitSession} className="grid gap-3 border-t-2 border-emerald-700 bg-white p-4 sm:grid-cols-2 lg:grid-cols-3">
+               <h3 className="sm:col-span-2 lg:col-span-3 text-sm font-black">{editingSession ? `Ubah sesi: ${editingSession.title}` : "Tambah sesi"} · waktu WIB</h3>
+               <select name="eventDayId" defaultValue={editingSession?.eventDayId} disabled={Boolean(editingSession)} required className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs">
                 {data.days.map((day) => <option key={day.id} value={day.id}>Hari {day.dayNumber} · {day.title || day.date}</option>)}
               </select>
-              <input name="title" required placeholder="Judul sesi" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-              <select name="sessionType" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs">
+               <input name="title" defaultValue={editingSession?.title} required placeholder="Judul sesi" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
+               <select name="sessionType" defaultValue={editingSession?.sessionType} className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs">
                 {["MATERIAL", "BREAK", "OPENING", "CLOSING"].map((type) => <option key={type}>{type}</option>)}
               </select>
-              <input name="startAt" type="datetime-local" required className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-              <input name="endAt" type="datetime-local" required className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-              <input name="room" placeholder="Ruangan" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-              <input name="checkinOpenAt" type="datetime-local" aria-label="Check-in sesi dibuka" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-              <input name="checkinCloseAt" type="datetime-local" aria-label="Check-in sesi ditutup" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
+               <input name="startAt" type="datetime-local" defaultValue={toLocalInput(editingSession?.startAt)} required className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
+               <input name="endAt" type="datetime-local" defaultValue={toLocalInput(editingSession?.endAt)} required className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
+               <input name="room" defaultValue={editingSession?.room || ""} placeholder="Ruangan" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
+               <input name="checkinOpenAt" type="datetime-local" defaultValue={toLocalInput(editingSession?.checkinOpenAt)} aria-label="Check-in sesi dibuka" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
+               <input name="checkinCloseAt" type="datetime-local" defaultValue={toLocalInput(editingSession?.checkinCloseAt)} aria-label="Check-in sesi ditutup" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
               <div className="flex flex-wrap items-center gap-4 rounded-lg bg-slate-50 px-3 text-xs font-bold text-slate-700">
-                <label className="flex items-center gap-2"><input name="attendanceRequired" type="checkbox" defaultChecked /> Wajib hadir</label>
-                <label className="flex items-center gap-2"><input name="checkinRequired" type="checkbox" defaultChecked /> Wajib check-in</label>
+                 <label className="flex items-center gap-2"><input name="attendanceRequired" type="checkbox" defaultChecked={editingSession?.attendanceRequired ?? true} /> Wajib hadir</label>
+                 <label className="flex items-center gap-2"><input name="checkinRequired" type="checkbox" defaultChecked={editingSession?.checkinRequired ?? true} /> Wajib check-in</label>
               </div>
-              <button disabled={busy === "session"} className="min-h-[44px] rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white lg:col-start-3">Simpan sesi</button>
+               <div className="flex gap-2 lg:col-start-3"><button disabled={busy === "session"} className="min-h-[44px] flex-1 rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white">{editingSession ? "Simpan perubahan" : "Simpan sesi"}</button><button type="button" onClick={() => { setEditingSession(null); setShowSessionForm(false); }} className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs font-bold">Batal</button></div>
             </form>
           )}
 
@@ -499,10 +511,11 @@ export const EventShowPage: React.FC = () => {
               {day.sessions.length === 0 ? <p className="p-5 text-xs text-slate-500">Belum ada sesi.</p> : (
                 <ol className="divide-y divide-slate-100">
                   {day.sessions.map((session) => (
-                    <li key={session.id} className="grid gap-2 p-4 sm:grid-cols-[8rem_minmax(0,1fr)_10rem] sm:items-center">
+                     <li key={session.id} className="grid gap-2 p-4 sm:grid-cols-[8rem_minmax(0,1fr)_10rem_auto] sm:items-center">
                       <span className="font-mono text-xs font-black text-emerald-800"><Clock3 className="mr-1 inline h-3.5 w-3.5" />{formatTime(session.startAt)}–{formatTime(session.endAt)}</span>
                       <div><h4 className="text-xs font-black text-slate-900">{session.title}</h4><p className="mt-1 text-[10px] text-slate-500">{session.sessionType.replaceAll("_", " ")} · {session.attendanceRequired ? "wajib hadir" : "opsional"} · {session.checkinRequired ? "check-in aktif" : "tanpa check-in"}</p></div>
                       <span className="text-[11px] font-bold text-slate-600">{session.room || "Ruang belum diisi"}</span>
+                      <button type="button" disabled={previewMode} onClick={() => { setEditingSession(session); setShowSessionForm(true); window.requestAnimationFrame(() => document.querySelector('input[name="title"]')?.scrollIntoView({ behavior: "smooth", block: "center" })); }} className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-slate-300 px-3 text-xs font-bold disabled:opacity-50"><PencilLine className="h-4 w-4" /> Edit</button>
                     </li>
                   ))}
                 </ol>

@@ -6,7 +6,7 @@ type Props = {
 
 export const AppFooter: React.FC<Props> = ({ className = "" }) => (
   <footer className={className}>
-    <span>© 2026 Aman Daurah Asatidz</span>
+    <span className="inline-flex items-center gap-2"><img src="/images/tarbiyah-sunnah-mark.svg" alt="" width="22" height="20" className="h-5 w-auto" />© {new Date().getFullYear()} Tarbiyah Sunnah · Aman Daurah Asatidz</span>
     <span>
       Disusun dan dikembangkan oleh{" "}
       <a

@@ -10,6 +10,7 @@ import {
   auditLogs,
   eventDays,
   eventSessions,
+  participantStatusHistories,
 } from "../db/schema";
 import { eq, ilike, and, or, isNull, count, desc, inArray } from "drizzle-orm";
 import { normalizeName, normalizeEmail, normalizePhone } from "../utils/normalization";
@@ -235,7 +236,7 @@ export async function findUstadzByIdRepository(id: string) {
     .orderBy(desc(events.startDate));
 
   const eventIds = [...new Set(eventHistory.map((item) => item.eventId))];
-  const [attendanceRows, eventDayRows, eventSessionRows] = eventHistory.length
+  const [attendanceRows, eventDayRows, eventSessionRows, statusRows] = eventHistory.length
     ? await Promise.all([
         db.select({
           participantId: attendanceRecords.participantId,
@@ -254,8 +255,13 @@ export async function findUstadzByIdRepository(id: string) {
           attendanceRequired: eventSessions.attendanceRequired,
           checkinCloseAt: eventSessions.checkinCloseAt,
         }).from(eventSessions).innerJoin(eventDays, eq(eventSessions.eventDayId, eventDays.id)).where(inArray(eventDays.eventId, eventIds)),
+        db.select({ participantId: participantStatusHistories.participantId, statusType: participantStatusHistories.statusType,
+          toStatus: participantStatusHistories.toStatus, reason: participantStatusHistories.reason,
+          changedAt: participantStatusHistories.changedAt }).from(participantStatusHistories)
+          .where(inArray(participantStatusHistories.participantId, eventHistory.map((item) => item.participantId)))
+          .orderBy(desc(participantStatusHistories.changedAt)),
       ])
-    : [[], [], []];
+    : [[], [], [], []];
 
   const activeAffiliations = affiliations.filter((affiliation) => affiliation.status === "ACTIVE");
   const primaryInstitution =
@@ -280,6 +286,13 @@ export async function findUstadzByIdRepository(id: string) {
         completenessFields.length) *
         100,
     ),
+    participationStats: {
+      totalEvents: eventHistory.length,
+      approved: eventHistory.filter((item) => item.approvalStatus === "APPROVED").length,
+      attended: new Set(attendanceRows.filter((row) => ["PRESENT", "LATE"].includes(row.attendanceStatus)).map((row) => row.participantId)).size,
+      rejected: eventHistory.filter((item) => ["REJECTED", "DECLINED"].includes(item.approvalStatus)).length,
+      flagged: eventHistory.filter((item) => ["WAITLISTED", "PENDING_REVIEW"].includes(item.approvalStatus)).length,
+    },
     eventHistory: eventHistory.map((item) => {
       const units = buildRequiredAttendanceUnits(
         item.attendanceMode as AttendanceMode,
@@ -291,6 +304,8 @@ export async function findUstadzByIdRepository(id: string) {
       const summary = summarizeParticipantAttendance(units, participantAttendance);
       return {
         ...item,
+        statusReason: statusRows.find((history) => history.participantId === item.participantId &&
+          history.toStatus === item.approvalStatus && history.statusType === "APPROVAL_STATUS")?.reason || null,
         attendanceCount: participantAttendance.length,
         attendedUnits: summary.attended,
         requiredUnits: summary.required,

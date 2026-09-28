@@ -44,4 +44,12 @@ describe("admin navigation information architecture", () => {
     expect(commandItems.some((item) => item.label === "Gabungkan duplikat")).toBe(true);
     expect(commandItems.some((item) => item.keywords.includes("keamanan"))).toBe(true);
   });
+
+  it("exposes BC as a primary menu instead of hiding it under audit", () => {
+    const items = getAdminNavItems("/admin/broadcast");
+    const broadcast = items.find((item) => item.href === "/admin/broadcast");
+    expect(broadcast?.mobilePrimary).toBe(true);
+    expect(broadcast?.children?.some((item) => item.href === "/admin/email-jobs")).toBe(true);
+    expect(isNavigationItemActive("/admin/broadcast", broadcast!)).toBe(true);
+  });
 });

@@ -21,6 +21,8 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { UstadzWorkspaceNav } from "@/components/admin/ustadz/UstadzWorkspaceNav";
 import { UstadzProfile, UstadzSummary, ustadzApi } from "@/lib/ustadzApi";
 import { ustadzPreviewProfiles } from "@/lib/ustadzPreview";
+import { updateUstadzDirectoryQuery } from "@/lib/ustadzDirectoryQuery";
+import { ParticipantCommunicationPanel } from "@/components/communications/ParticipantCommunicationPanel";
 
 const PAGE_SIZE = 25;
 
@@ -43,25 +45,31 @@ export const UstadzListPage: React.FC = () => {
     duplicateCandidates: 0,
   });
   const [pageCount, setPageCount] = useState(1);
+  const [resultTotal, setResultTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [preview, setPreview] = useState(false);
   const [error, setError] = useState("");
 
-  const page = Math.max(1, Number(searchParams.get("page") || 1));
+  const requestedPage = Number(searchParams.get("page") || 1);
+  const page = Number.isFinite(requestedPage) ? Math.max(1, Math.floor(requestedPage)) : 1;
   const profileStatus = searchParams.get("profileStatus") || "ALL";
   const incompleteOnly = searchParams.get("quality") === "incomplete";
   const duplicateOnly = searchParams.get("duplicate") === "true";
+  const committedSearch = searchParams.get("search") || "";
 
   useEffect(() => {
+    // Changing page must not be interpreted as a new search.
+    if (search.trim() === committedSearch) return;
     const timer = window.setTimeout(() => {
-      const next = new URLSearchParams(searchParams);
-      if (search.trim()) next.set("search", search.trim());
-      else next.delete("search");
-      next.delete("page");
-      if (next.toString() !== searchParams.toString()) setSearchParams(next, { replace: true });
+      setSearchParams((previous) => {
+        if (search.trim() === (previous.get("search") || "")) return previous;
+        return updateUstadzDirectoryQuery(previous, "search", search.trim());
+      }, { replace: true });
     }, 350);
     return () => window.clearTimeout(timer);
-  }, [search, searchParams, setSearchParams]);
+  }, [search, committedSearch, setSearchParams]);
+
+  useEffect(() => { setSearch(committedSearch); }, [committedSearch]);
 
   useEffect(() => {
     let active = true;
@@ -69,7 +77,7 @@ export const UstadzListPage: React.FC = () => {
       page: String(page),
       pageSize: String(PAGE_SIZE),
     });
-    const query = searchParams.get("search");
+    const query = committedSearch;
     if (query) params.set("search", query);
     if (profileStatus !== "ALL") params.set("profileStatus", profileStatus);
 
@@ -91,6 +99,7 @@ export const UstadzListPage: React.FC = () => {
           },
         );
         setPageCount(response.meta?.pageCount || 1);
+        setResultTotal(response.meta?.total ?? response.data.length);
         setPreview(false);
       })
       .catch((loadError) => {
@@ -119,6 +128,7 @@ export const UstadzListPage: React.FC = () => {
           setSummary({ total: 0, active: 0, inactive: 0, merged: 0, incomplete: 0, duplicateCandidates: 0 });
         }
         setPageCount(1);
+        setResultTotal(0);
         setPreview(import.meta.env.DEV);
         setError(loadError instanceof Error ? loadError.message : "Koneksi database belum tersedia.");
       })
@@ -126,7 +136,7 @@ export const UstadzListPage: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [page, profileStatus, searchParams]);
+  }, [page, profileStatus, committedSearch]);
 
   const visibleProfiles = useMemo(
     () =>
@@ -156,11 +166,7 @@ export const UstadzListPage: React.FC = () => {
   ];
 
   const updateFilter = (key: string, value: string) => {
-    const next = new URLSearchParams(searchParams);
-    if (!value || value === "ALL") next.delete(key);
-    else next.set(key, value);
-    next.delete("page");
-    setSearchParams(next);
+    setSearchParams((current) => updateUstadzDirectoryQuery(current, key, value));
   };
 
   const exportCsv = () => {
@@ -341,6 +347,7 @@ export const UstadzListPage: React.FC = () => {
                         </td>
                         <td>
                           <div className="ustadz-row-actions">
+                            <ParticipantCommunicationPanel compact disabled={preview} senderRole="admin" initialTemplate="PROFILE_GREETING" participant={{ id: profile.id, name: profile.fullName, email: profile.email, phone: profile.phone, whatsapp: profile.whatsapp, address: profile.address, institutionName: profile.primaryInstitution?.institutionName }} />
                             <Link to={`/admin/ustadz/${profile.id}`} aria-label={`Lihat ${profile.fullName}`}>
                               <Eye aria-hidden="true" />
                             </Link>
@@ -381,6 +388,7 @@ export const UstadzListPage: React.FC = () => {
                       </Link>
                     )}
                     <div className="ustadz-card__actions">
+                      <ParticipantCommunicationPanel disabled={preview} senderRole="admin" initialTemplate="PROFILE_GREETING" participant={{ id: profile.id, name: profile.fullName, email: profile.email, phone: profile.phone, whatsapp: profile.whatsapp, address: profile.address, institutionName: profile.primaryInstitution?.institutionName }} />
                       <Link to={`/admin/ustadz/${profile.id}`}>Lihat detail</Link>
                       <Link to={`/admin/ustadz/${profile.id}/edit`}>Edit profil</Link>
                     </div>
@@ -399,7 +407,7 @@ export const UstadzListPage: React.FC = () => {
               >
                 <ArrowLeft aria-hidden="true" /> Sebelumnya
               </button>
-              <span>Halaman {page} dari {pageCount}</span>
+              <span>Halaman {page} dari {pageCount} · {resultTotal.toLocaleString("id-ID")} profil sesuai filter</span>
               <button
                 type="button"
                 disabled={page >= pageCount}

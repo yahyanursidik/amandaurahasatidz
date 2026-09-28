@@ -69,6 +69,7 @@ export const AttendanceReportPage: React.FC = () => {
       {error ? <div role="alert" className="border-y border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-900">{error}</div> : !report ? <div className="h-96 animate-pulse bg-slate-100" /> : (
         <article className="attendance-report mx-auto max-w-5xl border border-slate-200 bg-white">
           <header className="border-b-4 border-emerald-700 p-6 sm:p-8">
+            <img src="/images/tarbiyah-sunnah-logo.svg" alt="Tarbiyah Sunnah" width="170" height="48" className="mb-4 h-auto w-[150px] object-contain sm:w-[170px]" />
             <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Aman Daurah Asatidz · {report.event.code}</p>
             <h1 className="mt-3 text-2xl font-black text-slate-950">{report.event.name}</h1>
             <p className="mt-2 text-sm text-slate-600">{new Date(`${report.event.startDate}T00:00:00`).toLocaleDateString("id-ID", { dateStyle: "long" })}–{new Date(`${report.event.endDate}T00:00:00`).toLocaleDateString("id-ID", { dateStyle: "long" })} · {report.event.venueName || "Lokasi belum dicatat"}</p>

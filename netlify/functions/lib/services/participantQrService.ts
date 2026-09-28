@@ -1,6 +1,6 @@
 import { getDbClient } from "../db/client";
 import { eventParticipants, ustadzProfiles, events } from "../db/schema";
-import { eq, and } from "drizzle-orm";
+import { eq, and, ilike } from "drizzle-orm";
 import { signParticipantQrToken, verifyParticipantQrToken } from "../utils/token";
 import { NotFoundError, ValidationError, ForbiddenError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
@@ -103,7 +103,7 @@ export async function verifyQrTokenForCheckinService(
     .where(
       and(
         eq(eventParticipants.eventId, currentEventId),
-        eq(eventParticipants.participantCode, normalizedInput),
+        ilike(eventParticipants.participantCode, normalizedInput),
       ),
     )
     .limit(1);

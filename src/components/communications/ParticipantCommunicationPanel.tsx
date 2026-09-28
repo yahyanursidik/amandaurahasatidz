@@ -34,9 +34,13 @@ type ParticipantCommunicationPanelProps = {
   disabled?: boolean;
   loading?: boolean;
   compact?: boolean;
+  initialTemplate?: CommunicationTemplateId;
 };
 
 const templateSubject: Record<CommunicationTemplateId, string> = {
+  PROFILE_GREETING: "Sapaan untuk asatidz",
+  EVENT_INVITATION: "Undangan program daurah",
+  REGULAR_REGISTRATION: "Informasi pendaftaran reguler",
   REGISTRATION_CONFIRMATION: "Konfirmasi pendaftaran peserta",
   COMPLETE_DATA: "Permintaan kelengkapan data peserta",
   ATTENDANCE_CONFIRMATION: "Konfirmasi kehadiran peserta",
@@ -56,17 +60,18 @@ export const ParticipantCommunicationPanel: React.FC<ParticipantCommunicationPan
   disabled = false,
   loading = false,
   compact = false,
+  initialTemplate = "REGISTRATION_CONFIRMATION",
 }) => {
   const dialogRef = useRef<HTMLDialogElement>(null);
   const templateSelectRef = useRef<HTMLSelectElement>(null);
-  const [templateId, setTemplateId] = useState<CommunicationTemplateId>("REGISTRATION_CONFIRMATION");
+  const [templateId, setTemplateId] = useState<CommunicationTemplateId>(initialTemplate);
   const [message, setMessage] = useState("");
   const [copied, setCopied] = useState(false);
   const [actionError, setActionError] = useState("");
   const whatsappNumber = getParticipantWhatsAppNumber(participant);
   const hasEmail = Boolean(participant.email?.trim());
   const hasAnyContact = Boolean(whatsappNumber || hasEmail);
-  const eventName = event?.name || "event daurah";
+  const eventName = event?.name || "Tarbiyah Sunnah";
 
   const generatedMessage = useMemo(
     () => buildParticipantMessage(templateId, { participant, senderRole, senderName, event }),
@@ -80,6 +85,7 @@ export const ParticipantCommunicationPanel: React.FC<ParticipantCommunicationPan
   }, [generatedMessage]);
 
   const openDialog = () => {
+    setTemplateId(initialTemplate);
     setActionError("");
     dialogRef.current?.showModal();
     window.setTimeout(() => templateSelectRef.current?.focus(), 0);

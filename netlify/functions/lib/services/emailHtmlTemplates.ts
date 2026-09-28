@@ -13,6 +13,19 @@ const BRAND_ACCENT = "#d4a017";       // Emas / kuning khas Islamic
 const BRAND_LIGHT = "#f0f7f4";        // Latar hijau muda
 const BRAND_TEXT = "#2c3e2d";         // Teks gelap
 
+function emailLogo(): string {
+  const baseUrl = process.env.APP_URL || process.env.URL;
+  if (!baseUrl) return '<strong style="font-size:18px;color:#4E6940;">Tarbiyah Sunnah</strong>';
+  try {
+    const base = new URL(baseUrl);
+    if (!/^https?:$/.test(base.protocol)) throw new Error("Invalid app URL");
+    const src = new URL("/images/tarbiyah-sunnah-logo.png", base).toString().replace(/&/g, "&amp;").replace(/"/g, "&quot;");
+    return `<img src="${src}" alt="Tarbiyah Sunnah" width="190" height="54" style="display:block;width:190px;max-width:100%;height:auto;border:0;margin:0 auto;" />`;
+  } catch {
+    return '<strong style="font-size:18px;color:#4E6940;">Tarbiyah Sunnah</strong>';
+  }
+}
+
 function wrapHtmlLayout(title: string, bodyContent: string): string {
   return `<!DOCTYPE html>
 <html lang="id">
@@ -33,6 +46,7 @@ function wrapHtmlLayout(title: string, bodyContent: string): string {
           <!-- Header -->
           <tr>
             <td style="background:linear-gradient(135deg,${BRAND_PRIMARY} 0%,${BRAND_SECONDARY} 100%);padding:32px 40px;text-align:center;">
+              <div style="display:inline-block;max-width:100%;background:#ffffff;border-radius:10px;padding:10px 16px;margin:0 auto 16px;">${emailLogo()}</div>
               <p style="margin:0 0 8px 0;font-size:11px;letter-spacing:3px;color:#a8d5b5;text-transform:uppercase;font-weight:600;">بسم الله الرحمن الرحيم</p>
               <h1 style="margin:0 0 4px 0;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">Daurah Asatidz</h1>
               <p style="margin:0;font-size:13px;color:#a8d5b5;font-weight:400;">Yayasan Tarbiyah Sunnah</p>
@@ -63,6 +77,13 @@ function wrapHtmlLayout(title: string, bodyContent: string): string {
   </table>
 </body>
 </html>`;
+}
+
+export function renderBrandedTextEmailHtml(text: string, title = "Aman Daurah Asatidz") {
+  const safeText = text.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[character] || character);
+  return wrapHtmlLayout(title, `<tr><td style="padding:28px 36px;color:${BRAND_TEXT};font-size:15px;line-height:1.7;"><div style="white-space:pre-wrap;overflow-wrap:break-word;">${safeText}</div></td></tr>`);
 }
 
 // ─── Utility: Info Badge ──────────────────────────────────────────────────────

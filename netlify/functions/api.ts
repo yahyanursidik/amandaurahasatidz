@@ -16,13 +16,14 @@ import {
 import { createAuditLog, getAuditLogsService } from "./lib/services/auditService";
 import { getDbClient } from "./lib/db/client";
 import { logInfo, logError } from "./lib/utils/logger";
+import { classifyDatabaseError } from "./lib/utils/databaseError";
 import { AppError, ValidationError, UnauthorizedError } from "./lib/utils/errors";
 import { checkRateLimit } from "./lib/utils/rateLimiter";
 import { generateEmailOtp, verifyEmailOtp } from "./lib/services/otpService";
 import { serializeCookie, clearCookie, parseCookies } from "./lib/utils/cookie";
 import { validateRequestData } from "./lib/utils/validator";
-import { requestPublicRegistrationCodeSchema, submitPublicRegistrationSchema } from "./lib/validations/publicRegistrationValidation";
-import { requestPublicRegistrationCodeService, submitPublicRegistrationService } from "./lib/services/publicRegistrationService";
+import { submitPublicRegistrationSchema } from "./lib/validations/publicRegistrationValidation";
+import { submitPublicRegistrationService } from "./lib/services/publicRegistrationService";
 
 import {
   createInstitutionSchema,
@@ -66,15 +67,19 @@ import {
 
 import {
   createEventSchema,
+  eventCatalogQuerySchema,
   updateEventSchema,
   transitionEventSchema,
   createEventDaySchema,
   createEventSessionSchema,
+  updateEventSessionSchema,
   assignCommitteeSchema,
   updateCommitteeAssignmentSchema,
 } from "./lib/validations/eventValidation";
 import {
   getEventsService,
+  getEventCatalogService,
+  removeEventFromCatalogService,
   getPublicEventsService,
   getEventByIdService,
   getEventBySlugPublicService,
@@ -83,6 +88,7 @@ import {
   transitionEventStatusService,
   addEventDayService,
   addEventSessionService,
+  updateEventSessionService,
 } from "./lib/services/eventService";
 import {
   createCommitteeMemberSchema,
@@ -164,6 +170,8 @@ import {
   enqueueEmailJob,
 } from "./lib/services/emailQueueService";
 import { processWebhookIdempotentService } from "./lib/services/webhookService";
+import { cancelBroadcastCampaign, getBroadcastAudienceSummary, getBroadcastCampaignJobs, getBroadcastTransportStatus, listBroadcastCampaigns, listBroadcastTemplates, saveBroadcastTemplate, scheduleBroadcast, sendBroadcastTest } from "./lib/services/broadcastService";
+import { broadcastJobsQuerySchema, broadcastTemplateSchema, scheduleBroadcastSchema, testBroadcastSchema } from "./lib/validations/broadcastValidation";
 import { processScheduledReminderService } from "./lib/services/reminderService";
 
 import { createAnnouncementSchema, publishAnnouncementSchema } from "./lib/validations/announcementValidation";
@@ -611,6 +619,14 @@ export const handler: Handler = async (event, _context) => {
     }
 
     // Event workspace CRUD and command endpoints
+    if (path === "/events/catalog" && method === "GET") {
+      requirePermission(userSession, "events.read");
+      const input = validateRequestData(eventCatalogQuerySchema, event.queryStringParameters || {});
+      return buildSuccessResponse(await getEventCatalogService({
+        page: input.page || 1, pageSize: input.pageSize || 20,
+        search: input.search || "", status: input.status || "ALL",
+      }), requestId);
+    }
     if (path === "/events" && method === "POST") {
       const session = requireAuth(userSession);
       requirePermission(session, "events.create");
@@ -621,6 +637,11 @@ export const handler: Handler = async (event, _context) => {
     }
 
     const eventDetailMatch = path.match(/^\/events\/([a-f0-9-]+)$/i);
+    if (eventDetailMatch && method === "DELETE") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "events.archive", eventDetailMatch[1]);
+      return buildSuccessResponse(await removeEventFromCatalogService(eventDetailMatch[1], session.userId, requestId), requestId);
+    }
     if (eventDetailMatch && method === "GET") {
       const eventId = eventDetailMatch[1];
       requirePermission(userSession, "events.read", eventId);
@@ -767,15 +788,6 @@ export const handler: Handler = async (event, _context) => {
     if (portalPublicGroupMatch && method === "GET") {
       const session = requireAuth(userSession);
       return buildSuccessResponse(await getPortalPublicGroupService(session.userId, session.email, portalPublicGroupMatch[1]), requestId);
-    }
-
-    const publicRegistrationCodeMatch = path.match(/^\/events\/public\/([a-z0-9-]+)\/registration\/code$/i);
-    if (publicRegistrationCodeMatch && method === "POST") {
-      const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
-      const rateLimit = checkRateLimit(`public_registration_code_${publicRegistrationCodeMatch[1]}_${clientIp}`, 3, 600000);
-      if (!rateLimit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak permintaan kode. Coba lagi beberapa menit lagi.", requestId, 429);
-      const input = validateRequestData(requestPublicRegistrationCodeSchema, event.body ? JSON.parse(event.body) : {});
-      return buildSuccessResponse(await requestPublicRegistrationCodeService(publicRegistrationCodeMatch[1], input.email), requestId);
     }
 
     const publicRegistrationMatch = path.match(/^\/events\/public\/([a-z0-9-]+)\/registration$/i);
@@ -1248,6 +1260,65 @@ export const handler: Handler = async (event, _context) => {
     }
 
     // Email Engine & Queue Endpoints
+    if (path === "/email/broadcast/templates" && method === "GET") {
+      requirePermission(userSession, "email.read");
+      return buildSuccessResponse(await listBroadcastTemplates(), requestId);
+    }
+    const editSessionMatch = path.match(/^\/events\/([a-f0-9-]+)\/sessions\/([a-f0-9-]+)$/i);
+    if (editSessionMatch && method === "PATCH") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "schedule.manage", editSessionMatch[1]);
+      const validated = validateRequestData(updateEventSessionSchema, event.body ? JSON.parse(event.body) : {});
+      return buildSuccessResponse(await updateEventSessionService(editSessionMatch[1], editSessionMatch[2], validated, session.userId, requestId), requestId);
+    }
+    if (path === "/email/broadcast/audience" && method === "GET") {
+      requirePermission(userSession, "email.read");
+      return buildSuccessResponse(await getBroadcastAudienceSummary(), requestId);
+    }
+    if (path === "/email/broadcast/readiness" && method === "GET") {
+      requirePermission(userSession, "email.read");
+      return buildSuccessResponse(await getBroadcastTransportStatus(), requestId);
+    }
+    if (path === "/email/broadcast/campaigns" && method === "GET") {
+      requirePermission(userSession, "email.read");
+      return buildSuccessResponse(await listBroadcastCampaigns(), requestId);
+    }
+    const campaignJobsMatch = path.match(/^\/email\/broadcast\/campaigns\/([a-f0-9-]+)\/jobs$/i);
+    if (campaignJobsMatch && method === "GET") {
+      requirePermission(userSession, "email.read");
+      const query = validateRequestData(broadcastJobsQuerySchema, event.queryStringParameters || {});
+      return buildSuccessResponse(await getBroadcastCampaignJobs(campaignJobsMatch[1], query.page || 1, query.status || "ALL"), requestId);
+    }
+    const cancelBroadcastMatch = path.match(/^\/email\/broadcast\/campaigns\/([a-f0-9-]+)\/cancel$/i);
+    if (cancelBroadcastMatch && method === "POST") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "email.send");
+      return buildSuccessResponse(await cancelBroadcastCampaign(cancelBroadcastMatch[1], session.userId, requestId), requestId);
+    }
+    if (path === "/email/broadcast/templates" && method === "POST") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "email.manage_templates");
+      const input = validateRequestData(broadcastTemplateSchema, event.body ? JSON.parse(event.body) : {});
+      return buildSuccessResponse(await saveBroadcastTemplate(input), requestId, null, 201);
+    }
+    const testBroadcastMatch = path.match(/^\/email\/broadcast\/(templates|campaigns)\/([a-f0-9-]+)\/test$/i);
+    if (testBroadcastMatch && method === "POST") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "email.send");
+      const input = validateRequestData(testBroadcastSchema, event.body ? JSON.parse(event.body) : {});
+      const limit = checkRateLimit(`bc_test_${session.userId}`, 5, 600000);
+      if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", `Batas uji kirim tercapai. Coba lagi dalam ${limit.retryAfterSeconds} detik.`, requestId, 429);
+      return buildSuccessResponse(await sendBroadcastTest({
+        ...input, ...(testBroadcastMatch[1] === "templates"
+          ? { templateId: testBroadcastMatch[2] } : { campaignId: testBroadcastMatch[2] }),
+      }, session.userId, requestId), requestId);
+    }
+    if (path === "/email/broadcast/schedule" && method === "POST") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "email.send");
+      const input = validateRequestData(scheduleBroadcastSchema, event.body ? JSON.parse(event.body) : {});
+      return buildSuccessResponse(await scheduleBroadcast(input, session.userId, requestId), requestId, null, 201);
+    }
     if (path === "/email/jobs" && method === "GET") {
       requirePermission(userSession, "email.read");
       const jobs = await getEmailJobsDashboardService();
@@ -1597,6 +1668,10 @@ export const handler: Handler = async (event, _context) => {
       return buildErrorResponse(error.code, error.message, requestId, error.statusCode, error.details);
     }
     logError(requestId, "Unhandled Exception", error);
+    const databaseError = classifyDatabaseError(error);
+    if (databaseError) {
+      return buildErrorResponse(databaseError.code, databaseError.message, requestId, databaseError.status);
+    }
     return buildErrorResponse("INTERNAL_SERVER_ERROR", "Terjadi kesalahan internal pada server.", requestId, 500);
   }
 };

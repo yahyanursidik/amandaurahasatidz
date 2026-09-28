@@ -1,5 +1,6 @@
 import {
   findEventsRepository,
+  findEventCatalogRepository,
   findPublicEventsRepository,
   findEventByIdRepository,
   findEventBySlugRepository,
@@ -16,9 +17,30 @@ import { createAuditLog } from "./auditService";
 import { validateEventDeadlines } from "./deadlineService";
 import { assertValidQuotaAllocation } from "./eventQuota";
 import { countApprovedParticipantsBySourceRepository } from "../repositories/participantRepository";
+import { getDbClient } from "../db/client";
+import { eventSessions, events } from "../db/schema";
+import { and, eq, isNull } from "drizzle-orm";
 
 export async function getEventsService(search?: string, status?: string) {
   return await findEventsRepository(search, status);
+}
+
+export async function getEventCatalogService(query: { page: number; pageSize: number; search: string; status: string }) {
+  return findEventCatalogRepository(query);
+}
+
+export async function removeEventFromCatalogService(id: string, actorUserId: string, requestId: string) {
+  const existing = await getEventByIdService(id);
+  if (existing.archivedAt) throw new ConflictError("Event ini sudah diarsipkan.");
+  // Preserve participants, invitations and attendance rather than cascading their deletion.
+  const db = getDbClient();
+  const [archived] = await db.update(events).set({ archivedAt: new Date(), status: "ARCHIVED", updatedAt: new Date() })
+    .where(and(eq(events.id, id), isNull(events.archivedAt))).returning();
+  if (!archived) throw new ConflictError("Status event berubah. Segarkan halaman lalu coba lagi.");
+  await createAuditLog({ actorUserId, action: "EVENT_REMOVED_FROM_CATALOG", resourceType: "EVENT",
+    resourceId: id, eventId: id, beforeData: { status: existing.status }, afterData: { status: "ARCHIVED" },
+    reason: "Event dihapus dari katalog aktif; riwayat peserta dan presensi dipertahankan.", requestId });
+  return { id, status: archived.status, message: "Event diarsipkan dari katalog aktif. Riwayat peserta tetap tersimpan." };
 }
 
 export async function getEventByIdService(id: string) {
@@ -149,6 +171,9 @@ export async function transitionEventStatusService(
   const currentStatus = existing.status as EventStatus;
 
   const nextStatus = getNextEventStatus(currentStatus, action);
+  if (action === "OPEN_REGISTRATION" && existing.registrationCloseAt && existing.registrationCloseAt <= new Date()) {
+    throw new ValidationError("Batas pendaftaran sudah lewat. Perbarui tanggal penutupan di pengaturan event sebelum membuka kembali.");
+  }
   const updated = await updateEventStatusRepository(id, nextStatus);
 
   await createAuditLog({
@@ -212,8 +237,10 @@ export async function addEventSessionService(eventId: string, data: any, actorUs
     throw new ValidationError("Hari yang dipilih tidak termasuk dalam event ini.");
   }
 
-  const startDateKey = String(data.startAt).slice(0, 10);
-  const endDateKey = String(data.endAt).slice(0, 10);
+  const localDateKey = (value: string) => new Intl.DateTimeFormat("en-CA", { timeZone: event.timezone,
+    year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
+  const startDateKey = localDateKey(data.startAt);
+  const endDateKey = localDateKey(data.endAt);
   if (startDateKey !== selectedDay.date || endDateKey !== selectedDay.date) {
     throw new ValidationError("Tanggal mulai dan selesai sesi harus sama dengan tanggal hari kegiatan.");
   }
@@ -247,6 +274,40 @@ export async function addEventSessionService(eventId: string, data: any, actorUs
   });
 
   return created;
+}
+
+export async function updateEventSessionService(eventId: string, sessionId: string, input: Record<string, unknown>, actorUserId: string, requestId: string) {
+  const event = await getEventByIdService(eventId);
+  const existing = event.sessions.find((session) => session.id === sessionId);
+  if (!existing) throw new NotFoundError("Sesi tidak ditemukan pada event ini.");
+  const day = event.days.find((item) => item.id === existing.eventDayId);
+  if (!day) throw new NotFoundError("Hari kegiatan sesi tidak ditemukan.");
+  const updated = { ...existing, ...input };
+  const start = new Date(String(updated.startAt));
+  const end = new Date(String(updated.endAt));
+  const dayKey = (value: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: event.timezone,
+    year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || dayKey(start) !== day.date || dayKey(end) !== day.date || start >= end) {
+    throw new ValidationError("Jam sesi harus valid, berurutan, dan berada pada hari kegiatan yang sama.");
+  }
+  const checkinOpen = updated.checkinOpenAt ? new Date(String(updated.checkinOpenAt)) : null;
+  const checkinClose = updated.checkinCloseAt ? new Date(String(updated.checkinCloseAt)) : null;
+  if ((checkinOpen && Number.isNaN(checkinOpen.getTime())) || (checkinClose && Number.isNaN(checkinClose.getTime())) ||
+    (checkinOpen && checkinClose && checkinOpen >= checkinClose)) {
+    throw new ValidationError("Pembukaan check-in sesi harus lebih awal daripada penutupannya.");
+  }
+  const db = getDbClient();
+  const rows = await db.update(eventSessions).set({
+    ...input,
+    ...(input.startAt !== undefined && { startAt: start }),
+    ...(input.endAt !== undefined && { endAt: end }),
+    ...(input.checkinOpenAt !== undefined && { checkinOpenAt: input.checkinOpenAt ? new Date(String(input.checkinOpenAt)) : null }),
+    ...(input.checkinCloseAt !== undefined && { checkinCloseAt: input.checkinCloseAt ? new Date(String(input.checkinCloseAt)) : null }),
+    updatedAt: new Date(),
+  }).where(eq(eventSessions.id, sessionId)).returning();
+  await createAuditLog({ actorUserId, action: "EVENT_SESSION_UPDATED", resourceType: "EVENT_SESSION",
+    resourceId: sessionId, eventId, beforeData: existing as any, afterData: rows[0] as any, requestId });
+  return rows[0];
 }
 
 export async function assignEventCommitteeService(

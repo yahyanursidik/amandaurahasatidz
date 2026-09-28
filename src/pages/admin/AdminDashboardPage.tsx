@@ -217,11 +217,18 @@ export const AdminDashboardPage: React.FC = () => {
       ],
     },
     {
+      title: "Komunikasi asatidz",
+      description: "Jaga hubungan lintas event melalui sapaan email berkala.",
+      items: [
+        { title: "BC & kampanye email", description: "Tulis template, pratinjau, lalu jadwalkan sapaan asatidz.", href: "/admin/broadcast", icon: Megaphone },
+        { title: "Antrean & email gagal", description: "Periksa jadwal pengiriman, status dan percobaan ulang.", href: "/admin/email-jobs", icon: Mail },
+      ],
+    },
+    {
       title: "Pengawasan sistem",
       description: "Telusuri aktivitas dan gangguan operasional.",
       items: [
         { title: "Audit aktivitas", description: "Lihat pelaku, perubahan, waktu, dan request ID.", href: "/admin/audit-logs", icon: ShieldCheck },
-        { title: "Antrean email", description: "Temukan pengiriman gagal dan jalankan penanganan.", href: "/admin/email-jobs", icon: Mail },
       ],
     },
   ];

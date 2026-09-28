@@ -1,32 +1,8 @@
 import { AuthProvider } from "@refinedev/core";
 import { ENV } from "@/config/env";
 
-const DEV_ACCOUNTS: Record<string, { password: string; portal: string; name: string }> = {
-  "admin@yts.or.id": {
-    password: "DemoAsatidz2026!",
-    portal: "admin",
-    name: "Super Admin Aman Daurah",
-  },
-  "panitia@yts.or.id": {
-    password: "DemoAsatidz2026!",
-    portal: "committee",
-    name: "Panitia Aman Daurah",
-  },
-  "ustadz.demo@yts.or.id": {
-    password: "DemoAsatidz2026!",
-    portal: "ustadz",
-    name: "Ustadz Peserta Demo",
-  },
-};
-
 const destinationForPortal = (portal: string) =>
   portal === "committee" ? "/committee" : portal === "ustadz" ? "/portal" : "/admin";
-
-const DEVELOPMENT_PORTAL_ROLES: Record<string, string> = {
-  admin: "SUPER_ADMIN",
-  committee: "COMMITTEE_LEAD",
-  ustadz: "USTADZ",
-};
 
 export interface AuthIdentity {
   id?: string;
@@ -34,26 +10,6 @@ export interface AuthIdentity {
   email: string;
   assignments: Array<{ roleCode: string; eventId?: string | null; institutionId?: string | null }>;
 }
-
-const saveDevelopmentIdentity = (email: string, portal: string) => {
-  if (!import.meta.env.DEV) return;
-  const normalizedEmail = String(email || "").trim().toLowerCase();
-  const account = DEV_ACCOUNTS[normalizedEmail];
-  if (!account || account.portal !== portal) return;
-  localStorage.setItem(
-    "yts_dev_session",
-    JSON.stringify({ email: normalizedEmail, name: account.name, portal })
-  );
-};
-
-const tryDevelopmentFallback = (email: string, password: string, portal: string) => {
-  if (!import.meta.env.DEV) return null;
-  const normalizedEmail = String(email || "").trim().toLowerCase();
-  const account = DEV_ACCOUNTS[normalizedEmail];
-  if (!account || account.password !== password || account.portal !== portal) return null;
-  saveDevelopmentIdentity(normalizedEmail, portal);
-  return account;
-};
 
 export async function verifyPersistedSession(
   request: typeof fetch = fetch,
@@ -90,23 +46,12 @@ export const authProvider: AuthProvider = {
             },
           };
         }
-        // Keep the local identity only as a display fallback. Authentication still
-        // goes through the API first so the HttpOnly session cookie is created.
-        saveDevelopmentIdentity(email, portal);
         return {
           success: true,
           redirectTo: destinationForPortal(portal),
         };
       }
 
-      // Offline development is still usable when the local API is genuinely
-      // unavailable, but invalid credentials or portal-role mismatches are never bypassed.
-      if (response.status >= 500 && tryDevelopmentFallback(email, password, portal)) {
-        return {
-          success: true,
-          redirectTo: destinationForPortal(portal),
-        };
-      }
       return {
         success: false,
         error: {
@@ -115,12 +60,6 @@ export const authProvider: AuthProvider = {
         },
       };
     } catch (_err) {
-      if (tryDevelopmentFallback(email, password, portal)) {
-        return {
-          success: true,
-          redirectTo: destinationForPortal(portal),
-        };
-      }
       return {
         success: false,
         error: {
@@ -149,9 +88,6 @@ export const authProvider: AuthProvider = {
   },
 
   check: async () => {
-    if (import.meta.env.DEV && localStorage.getItem("yts_dev_session")) {
-      return { authenticated: true };
-    }
     try {
       const response = await fetch(`${ENV.API_BASE_URL}/auth/session`, {
         method: "GET",
@@ -177,18 +113,6 @@ export const authProvider: AuthProvider = {
   },
 
   getIdentity: async () => {
-    if (import.meta.env.DEV) {
-      const stored = localStorage.getItem("yts_dev_session");
-      if (stored) {
-        const devIdentity = JSON.parse(stored);
-        return {
-          id: devIdentity.email,
-          name: devIdentity.name,
-          email: devIdentity.email,
-          assignments: [{ roleCode: DEVELOPMENT_PORTAL_ROLES[devIdentity.portal] || "USTADZ" }],
-        } satisfies AuthIdentity;
-      }
-    }
     try {
       const response = await fetch(`${ENV.API_BASE_URL}/auth/session`, {
         method: "GET",
@@ -199,14 +123,14 @@ export const authProvider: AuthProvider = {
         return {
           id: res.data?.userId,
           name: res.data?.name || "Pengguna Daurah",
-          email: res.data?.email || "admin@yts.or.id",
+          email: res.data?.email || "",
           assignments: res.data?.assignments || [],
         } satisfies AuthIdentity;
       }
     } catch (_err) {
       // Fallback identity
     }
-    return { name: "Pengguna Daurah", email: "admin@yts.or.id", assignments: [] } satisfies AuthIdentity;
+    return { name: "Pengguna Daurah", email: "", assignments: [] } satisfies AuthIdentity;
   },
 
   getPermissions: async () => {
