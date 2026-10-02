@@ -1,4 +1,28 @@
 import { z } from "zod";
+import { normalizeName, normalizePhone } from "../utils/normalization";
+
+// Local to manual entry: accept Indonesian mobile numbers beginning with 8,
+// 08, 62 or +62 without changing the shared normalization helper.
+const manualPhoneSchema = z.string().trim().max(30)
+  .regex(/^\+?[\d\s().-]+$/, "Nomor telepon tidak valid")
+  .transform((value) => {
+    const digits = value.replace(/\D/g, "");
+    return normalizePhone(digits.startsWith("8") ? `62${digits}` : digits) || "";
+  })
+  .refine((value) => /^628\d{7,11}$/.test(value), "Gunakan nomor seluler Indonesia yang valid");
+
+export const manualParticipantSchema = z.object({
+  fullName: z.string().trim().min(3, "Nama lengkap wajib diisi").max(160)
+    .refine((value) => Boolean(normalizeName(value)), "Nama lengkap tidak valid"),
+  email: z.string().trim().email("Email tidak valid").max(254).transform((value) => value.toLowerCase()),
+  whatsapp: manualPhoneSchema,
+  phone: manualPhoneSchema.optional().nullable(),
+  institutionName: z.string().trim().max(180).optional().nullable()
+    .refine((value) => !value || value.replace(/\s+/g, " ").length >= 3, "Nama lembaga minimal 3 karakter"),
+  address: z.string().trim().max(500).optional().nullable(),
+  notes: z.string().trim().max(2000).optional().nullable(),
+  attendanceConfirmed: z.boolean().optional(),
+});
 
 export const createParticipantSchema = z.object({
   ustadzId: z.string().uuid("ID Ustadz tidak valid"),

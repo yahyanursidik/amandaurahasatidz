@@ -25,6 +25,9 @@ import { validateRequestData } from "./lib/utils/validator";
 import { submitPublicRegistrationSchema } from "./lib/validations/publicRegistrationValidation";
 import { submitPublicRegistrationService } from "./lib/services/publicRegistrationService";
 import { getPublicParticipantCardService } from "./lib/services/participantCardService";
+import { getParticipantShareService } from "./lib/services/participantShareService";
+import { createManualParticipantService } from "./lib/services/manualParticipantService";
+import { manualParticipantSchema } from "./lib/validations/participantValidation";
 
 import {
   createInstitutionSchema,
@@ -818,6 +821,31 @@ export const handler: Handler = async (event, _context) => {
         "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
       };
       return { statusCode: response.statusCode, body: response.body, headers };
+    }
+
+    const participantShareMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/([a-f0-9-]+)\/share$/i);
+    if (participantShareMatch && method === "GET") {
+      const session = requireAuth(userSession);
+      const eventId = participantShareMatch[1];
+      // These are admin workspace actions, not institution self-service endpoints.
+      const staffSession = { ...session, assignments: session.assignments.filter((assignment) =>
+        assignment.roleCode !== "INSTITUTION_REPRESENTATIVE" && assignment.roleCode !== "USTADZ") };
+      requirePermission(staffSession, "participants.read", eventId);
+      const data = await getParticipantShareService(eventId, participantShareMatch[2]);
+      const response = buildSuccessResponse(data, requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
+    }
+
+    const manualParticipantMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/manual$/i);
+    if (manualParticipantMatch && method === "POST") {
+      const session = requireAuth(userSession);
+      const eventId = manualParticipantMatch[1];
+      const staffSession = { ...session, assignments: session.assignments.filter((assignment) =>
+        assignment.roleCode !== "INSTITUTION_REPRESENTATIVE" && assignment.roleCode !== "USTADZ") };
+      requirePermission(staffSession, "participants.create", eventId);
+      const input = validateRequestData(manualParticipantSchema, event.body ? JSON.parse(event.body) : {});
+      const result = await createManualParticipantService(eventId, input, session.userId, requestId);
+      return buildSuccessResponse(result, requestId, null, 201);
     }
 
     const partImportPreviewMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/import\/preview$/i);

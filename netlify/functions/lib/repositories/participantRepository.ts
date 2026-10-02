@@ -609,7 +609,7 @@ export async function countApprovedParticipantsForEventRepository(eventId: strin
 
 export async function countApprovedParticipantsBySourceRepository(eventId: string, regular: boolean): Promise<number> {
   const db = getDbClient();
-  const sources = regular ? ["DIRECT_PUBLIC", "DIRECT_ADMIN_UPLOAD"] : ["INSTITUTION_DELEGATION", "INDIVIDUAL_INVITATION"];
+  const sources = regular ? ["DIRECT_PUBLIC", "DIRECT_ADMIN_UPLOAD", "ADMIN_ENTRY"] : ["INSTITUTION_DELEGATION", "INDIVIDUAL_INVITATION"];
   const result = await db
     .select({ total: count() })
     .from(eventParticipants)

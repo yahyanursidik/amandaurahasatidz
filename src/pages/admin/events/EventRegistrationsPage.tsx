@@ -2,7 +2,7 @@
  * Hallmark · genre: editorial · tone: utilitarian · macrostructure: Workbench
  * audience: event administrators · use: manage institution invitations and individual attendance readiness
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
@@ -37,6 +37,8 @@ import { ParticipantCommunicationPanel } from "@/components/communications/Parti
 import { ParticipantProfileDialog } from "@/components/participants/ParticipantProfileDialog";
 import { InvitationShareActions } from "@/components/invitations/InvitationShareActions";
 import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
+import { ParticipantShareDialog } from "@/components/participants/ParticipantShareDialog";
+import { ManualParticipantDialog } from "@/components/participants/ManualParticipantDialog";
 import { buildInstitutionInvitationPath } from "@/lib/invitationUrl";
 import { parseParticipantCsv } from "@/lib/participantImportCsv";
 
@@ -297,6 +299,10 @@ export const EventRegistrationsPage: React.FC = () => {
   const [searchParams] = useSearchParams();
   const participantView = searchParams.get("view") === "participants";
   const demoMode = import.meta.env.DEV && !isUuid(id);
+  const activeEventId = useRef(id);
+  activeEventId.current = id;
+  const loadGeneration = useRef(0);
+  const mounted = useRef(true);
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
@@ -331,6 +337,9 @@ export const EventRegistrationsPage: React.FC = () => {
   });
 
   const loadData = async () => {
+    if (!mounted.current || activeEventId.current !== id) return false;
+    const generation = ++loadGeneration.current;
+    const isCurrent = () => mounted.current && activeEventId.current === id && generation === loadGeneration.current;
     setLoading(true);
     setError("");
     if (demoMode) {
@@ -348,7 +357,7 @@ export const EventRegistrationsPage: React.FC = () => {
         lateConfirmationPolicy: "BLOCK",
       });
       setLoading(false);
-      return;
+      return true;
     }
     try {
       const [invitationData, participantData, institutionData, deadlineData] = await Promise.all([
@@ -357,6 +366,7 @@ export const EventRegistrationsPage: React.FC = () => {
         api<Institution[] | { data: Institution[] }>("/institutions?pageSize=100"),
         api<EventDeadline>(`/events/${id}`),
       ]);
+      if (!isCurrent()) return false;
       setInvitations(invitationData || []);
       setParticipants(participantData || []);
       setInstitutions(Array.isArray(institutionData) ? institutionData : institutionData.data || []);
@@ -365,15 +375,19 @@ export const EventRegistrationsPage: React.FC = () => {
         ...current,
         responseDeadline: current.responseDeadline || (deadlineData.invitationResponseDeadline ? deadlineData.invitationResponseDeadline.slice(0, 10) : ""),
       }));
+      return true;
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Data registrasi gagal dimuat.");
+      if (isCurrent()) setError(loadError instanceof Error ? loadError.message : "Data registrasi gagal dimuat.");
+      return false;
     } finally {
-      setLoading(false);
+      if (isCurrent()) setLoading(false);
     }
   };
 
   useEffect(() => {
+    mounted.current = true;
     void loadData();
+    return () => { mounted.current = false; loadGeneration.current += 1; };
   }, [id]);
 
   const filtered = useMemo(
@@ -740,13 +754,14 @@ export const EventRegistrationsPage: React.FC = () => {
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <FileSpreadsheet className="h-5 w-5 text-emerald-700" />
-                <h2 className="text-sm font-black text-slate-950">Upload peserta event</h2>
+                <h2 className="text-sm font-black text-slate-950">Tambah peserta event</h2>
               </div>
               <p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">
                 Gunakan CSV untuk menambahkan peserta massal. Kolom lembaga boleh memakai kode lembaga yang sudah ada; kosongkan bila peserta individu.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <ManualParticipantDialog key={id} eventId={id} eventName={eventDeadline?.name} demoMode={demoMode} onCreated={async () => { if (!await loadData()) throw new Error("Daftar peserta belum diperbarui."); }} />
               <button
                 type="button"
                 onClick={downloadParticipantTemplate}
@@ -942,6 +957,7 @@ export const EventRegistrationsPage: React.FC = () => {
                         publicUrl: eventDeadline?.slug ? `${window.location.origin}/events/${encodeURIComponent(eventDeadline.slug)}` : undefined,
                       }}
                     />
+                    <ParticipantShareDialog eventId={id} participantId={participant.id} participantName={participant.ustadzName} demoMode={demoMode} />
                     <ParticipantPortalAccessAction
                       eventId={id}
                       participant={{

@@ -7,7 +7,7 @@ export type QuotaEvent = {
 };
 
 export function isRegularRegistrationSource(source: string) {
-  return source === "DIRECT_PUBLIC" || source === "DIRECT_ADMIN_UPLOAD";
+  return source === "DIRECT_PUBLIC" || source === "DIRECT_ADMIN_UPLOAD" || source === "ADMIN_ENTRY";
 }
 
 export function assertValidQuotaAllocation(event: QuotaEvent) {
