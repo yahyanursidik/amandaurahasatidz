@@ -350,7 +350,7 @@ export function RuangAsatidzPage() {
     default: content = detailMatch ? <ThreadConversation threadId={detailMatch[1]} /> : <section className={card}><h2 className="font-bold">Halaman tidak ditemukan</h2><Link className={`${button} mt-4`} to={ROOT}>Kembali ke Ruang Asatidz</Link></section>;
   }
   return <PortalLayout>
-    <PageHeader title="Ruang Asatidz" description="Disapa. Didengar. Terhubung." actions={<Link to="/portal" className={button}>Beranda Portal</Link>} />
+    <PageHeader title="Ruang Asatidz" description="Disapa. Didengar. Terhubung." actions={<div className="flex flex-wrap gap-2"><Link to="/ruang-asatidz" className={button}>Halaman publik</Link><Link to="/portal" className={button}>Beranda Portal</Link></div>} />
     <nav aria-label="Navigasi Ruang Asatidz" className="mb-5 flex flex-wrap gap-2">
       {tabs.map((tab) => {
         const active = subpath === tab.path || (tab.path === "/pesan" && Boolean(detailMatch));

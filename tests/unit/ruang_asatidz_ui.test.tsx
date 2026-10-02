@@ -1,7 +1,7 @@
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { StaticRouter } from "react-router-dom/server";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { readFileSync } from "node:fs";
 import { ruangApi, categoryLabels, statusLabels, publicationLabels } from "../../src/lib/ruangAsatidz";
 import { RuangAsatidzPage } from "../../src/pages/portal/RuangAsatidzPage";
@@ -13,12 +13,21 @@ vi.mock("@refinedev/core", () => ({ useGetIdentity: () => ({ data: { id: "admin"
 
 vi.mock("../../src/components/common/AppShell", () => ({ AppShell: ({ children }: { children: React.ReactNode }) => <main>{children}</main> }));
 
-afterEach(() => { vi.unstubAllGlobals(); auth.assignments = [{ roleCode: "SUPER_ADMIN", eventId: null, institutionId: null }]; });
+let consoleError: ReturnType<typeof vi.spyOn>;
+beforeEach(() => { consoleError = vi.spyOn(console, "error"); });
+afterEach(() => {
+  try { expect(consoleError).not.toHaveBeenCalled(); }
+  finally {
+    consoleError.mockRestore();
+    vi.unstubAllGlobals();
+    auth.assignments = [{ roleCode: "SUPER_ADMIN", eventId: null, institutionId: null }];
+  }
+});
 function renderPortal(path: string) {
-  return renderToStaticMarkup(<MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RuangAsatidzPage /></MemoryRouter>);
+  return renderToStaticMarkup(<StaticRouter location={path}><RuangAsatidzPage /></StaticRouter>);
 }
 function renderAdmin(path: string) {
-  return renderToStaticMarkup(<MemoryRouter initialEntries={[path]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}><RuangAsatidzAdminPage /></MemoryRouter>);
+  return renderToStaticMarkup(<StaticRouter location={path}><RuangAsatidzAdminPage /></StaticRouter>);
 }
 
 describe("Ruang Asatidz layar pengelola", () => {

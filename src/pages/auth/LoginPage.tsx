@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { AppFooter } from "@/components/common/AppFooter";
 import { ENV } from "@/config/env";
+import { ruangAsatidzLoginReturnPath } from "@/lib/ruangAsatidzLogin";
 
 type PortalCode = "admin" | "committee" | "ustadz";
 
@@ -177,6 +178,7 @@ export const LoginPage: React.FC = () => {
       const result = await authProvider.login!({ email, password, portal });
       if (result.success) {
         const destination =
+          ruangAsatidzLoginReturnPath(portal, location.state?.from) ||
           result.redirectTo ||
           (portal === "committee" ? "/committee" : portal === "ustadz" ? "/portal" : "/admin");
         // A hard replace starts the protected workspace with a fresh Refine

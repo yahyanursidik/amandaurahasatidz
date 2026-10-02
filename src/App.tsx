@@ -1,55 +1,60 @@
-import React from "react";
+import React, { lazy } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Refine } from "@refinedev/core";
 import { authProvider } from "./lib/refine/authProvider";
 import { dataProvider } from "./lib/refine/dataProvider";
 import { accessControlProvider } from "./lib/refine/accessControlProvider";
 
-import { LoginPage } from "./pages/auth/LoginPage";
-import { AdminDashboardPage } from "./pages/admin/AdminDashboardPage";
-import { AdminAuditPage } from "./pages/admin/AdminAuditPage";
-import { AdminEmailJobsPage } from "./pages/admin/AdminEmailJobsPage";
-
-import { InstitutionDirectoryPage } from "./pages/admin/institutions/InstitutionDirectoryPage";
-import { InstitutionCreateRealPage } from "./pages/admin/institutions/InstitutionCreateRealPage";
-import { InstitutionEditRealPage } from "./pages/admin/institutions/InstitutionEditRealPage";
-import { InstitutionDetailPage } from "./pages/admin/institutions/InstitutionDetailPage";
-
-import { UstadzListPage } from "./pages/admin/ustadz/UstadzListPage";
-import { UstadzCreatePage } from "./pages/admin/ustadz/UstadzCreatePage";
-import { UstadzEditPage } from "./pages/admin/ustadz/UstadzEditPage";
-import { UstadzShowPage } from "./pages/admin/ustadz/UstadzShowPage";
-import { UstadzMergePage } from "./pages/admin/ustadz/UstadzMergePage";
-
-import { EventListPage } from "./pages/admin/events/EventListPage";
-import { EventCreatePage } from "./pages/admin/events/EventCreatePage";
-import { EventEditPage } from "./pages/admin/events/EventEditPage";
-import { EventShowPage } from "./pages/admin/events/EventShowPage";
-import { EventRegistrationsPage } from "./pages/admin/events/EventRegistrationsPage";
-import { EventOperationsPage } from "./pages/admin/events/EventOperationsPage";
-import { AttendanceReportPage } from "./pages/admin/events/AttendanceReportPage";
-import { CommitteeDirectoryPage } from "./pages/admin/committee/CommitteeDirectoryPage";
-import { CommitteeCreatePage } from "./pages/admin/committee/CommitteeCreatePage";
-import { CommitteeDetailPage } from "./pages/admin/committee/CommitteeDetailPage";
-
-import { CommitteeDashboardPage } from "./pages/committee/CommitteeDashboardPage";
-import { OnSiteCheckinPage } from "./pages/committee/OnSiteCheckinPage";
-import { CommitteeQrDisplayPage } from "./pages/committee/CommitteeQrDisplayPage";
-import { CommitteeOperationsPage } from "./pages/committee/CommitteeOperationsPage";
-import { CommitteeParticipantsPage } from "./pages/committee/CommitteeParticipantsPage";
-import { CommitteeAssignmentsPage } from "./pages/committee/CommitteeAssignmentsPage";
-import { ParticipantPortalPage } from "./pages/portal/ParticipantPortalPage";
-import { RuangAsatidzPage } from "./pages/portal/RuangAsatidzPage";
-import { RuangAsatidzAdminPage } from "./pages/admin/RuangAsatidzAdminPage";
-import { EventPublicPage } from "./pages/public/EventPublicPage";
-import { PublicProgramsPage } from "./pages/public/PublicProgramsPage";
-import { PublicEventRegistrationPage } from "./pages/public/PublicEventRegistrationPage";
-import { InvitationRegistrationPage } from "./pages/public/InvitationRegistrationPage";
-import { CheckInPublicPage } from "./pages/public/CheckInPublicPage";
-import { ParticipantCardPage } from "./pages/public/ParticipantCardPage";
 import { ProtectedRoute } from "./components/common/ProtectedRoute";
-import { CommitteeLayout } from "./components/layouts/CommitteeLayout";
-import { NotFoundPage } from "./pages/NotFoundPage";
+import { RouteLoadingBoundary } from "./components/common/RouteLoadingBoundary";
+
+// Keep loaders at module scope: React caches each page, and Vite can split the
+// literal dynamic imports without eagerly loading other portals or their UI.
+const LoginPage = lazy(() => import("./pages/auth/LoginPage").then((module) => ({ default: module.LoginPage })));
+const AdminDashboardPage = lazy(() => import("./pages/admin/AdminDashboardPage").then((module) => ({ default: module.AdminDashboardPage })));
+const AdminAuditPage = lazy(() => import("./pages/admin/AdminAuditPage").then((module) => ({ default: module.AdminAuditPage })));
+const AdminEmailJobsPage = lazy(() => import("./pages/admin/AdminEmailJobsPage").then((module) => ({ default: module.AdminEmailJobsPage })));
+
+const InstitutionDirectoryPage = lazy(() => import("./pages/admin/institutions/InstitutionDirectoryPage").then((module) => ({ default: module.InstitutionDirectoryPage })));
+const InstitutionCreateRealPage = lazy(() => import("./pages/admin/institutions/InstitutionCreateRealPage").then((module) => ({ default: module.InstitutionCreateRealPage })));
+const InstitutionEditRealPage = lazy(() => import("./pages/admin/institutions/InstitutionEditRealPage").then((module) => ({ default: module.InstitutionEditRealPage })));
+const InstitutionDetailPage = lazy(() => import("./pages/admin/institutions/InstitutionDetailPage").then((module) => ({ default: module.InstitutionDetailPage })));
+
+const UstadzListPage = lazy(() => import("./pages/admin/ustadz/UstadzListPage").then((module) => ({ default: module.UstadzListPage })));
+const UstadzCreatePage = lazy(() => import("./pages/admin/ustadz/UstadzCreatePage").then((module) => ({ default: module.UstadzCreatePage })));
+const UstadzEditPage = lazy(() => import("./pages/admin/ustadz/UstadzEditPage").then((module) => ({ default: module.UstadzEditPage })));
+const UstadzShowPage = lazy(() => import("./pages/admin/ustadz/UstadzShowPage").then((module) => ({ default: module.UstadzShowPage })));
+const UstadzMergePage = lazy(() => import("./pages/admin/ustadz/UstadzMergePage").then((module) => ({ default: module.UstadzMergePage })));
+
+const EventListPage = lazy(() => import("./pages/admin/events/EventListPage").then((module) => ({ default: module.EventListPage })));
+const EventCreatePage = lazy(() => import("./pages/admin/events/EventCreatePage").then((module) => ({ default: module.EventCreatePage })));
+const EventEditPage = lazy(() => import("./pages/admin/events/EventEditPage").then((module) => ({ default: module.EventEditPage })));
+const EventShowPage = lazy(() => import("./pages/admin/events/EventShowPage").then((module) => ({ default: module.EventShowPage })));
+const EventRegistrationsPage = lazy(() => import("./pages/admin/events/EventRegistrationsPage").then((module) => ({ default: module.EventRegistrationsPage })));
+const EventOperationsPage = lazy(() => import("./pages/admin/events/EventOperationsPage").then((module) => ({ default: module.EventOperationsPage })));
+const AttendanceReportPage = lazy(() => import("./pages/admin/events/AttendanceReportPage").then((module) => ({ default: module.AttendanceReportPage })));
+const CommitteeDirectoryPage = lazy(() => import("./pages/admin/committee/CommitteeDirectoryPage").then((module) => ({ default: module.CommitteeDirectoryPage })));
+const CommitteeCreatePage = lazy(() => import("./pages/admin/committee/CommitteeCreatePage").then((module) => ({ default: module.CommitteeCreatePage })));
+const CommitteeDetailPage = lazy(() => import("./pages/admin/committee/CommitteeDetailPage").then((module) => ({ default: module.CommitteeDetailPage })));
+
+const CommitteeDashboardPage = lazy(() => import("./pages/committee/CommitteeDashboardPage").then((module) => ({ default: module.CommitteeDashboardPage })));
+const OnSiteCheckinPage = lazy(() => import("./pages/committee/OnSiteCheckinPage").then((module) => ({ default: module.OnSiteCheckinPage })));
+const CommitteeQrDisplayPage = lazy(() => import("./pages/committee/CommitteeQrDisplayPage").then((module) => ({ default: module.CommitteeQrDisplayPage })));
+const CommitteeOperationsPage = lazy(() => import("./pages/committee/CommitteeOperationsPage").then((module) => ({ default: module.CommitteeOperationsPage })));
+const CommitteeParticipantsPage = lazy(() => import("./pages/committee/CommitteeParticipantsPage").then((module) => ({ default: module.CommitteeParticipantsPage })));
+const CommitteeAssignmentsPage = lazy(() => import("./pages/committee/CommitteeAssignmentsPage").then((module) => ({ default: module.CommitteeAssignmentsPage })));
+const ParticipantPortalPage = lazy(() => import("./pages/portal/ParticipantPortalPage").then((module) => ({ default: module.ParticipantPortalPage })));
+const RuangAsatidzPage = lazy(() => import("./pages/portal/RuangAsatidzPage").then((module) => ({ default: module.RuangAsatidzPage })));
+const RuangAsatidzAdminPage = lazy(() => import("./pages/admin/RuangAsatidzAdminPage").then((module) => ({ default: module.RuangAsatidzAdminPage })));
+const EventPublicPage = lazy(() => import("./pages/public/EventPublicPage").then((module) => ({ default: module.EventPublicPage })));
+const PublicProgramsPage = lazy(() => import("./pages/public/PublicProgramsPage").then((module) => ({ default: module.PublicProgramsPage })));
+const RuangAsatidzPublicPage = lazy(() => import("./pages/public/RuangAsatidzPublicPage").then((module) => ({ default: module.RuangAsatidzPublicPage })));
+const PublicEventRegistrationPage = lazy(() => import("./pages/public/PublicEventRegistrationPage").then((module) => ({ default: module.PublicEventRegistrationPage })));
+const InvitationRegistrationPage = lazy(() => import("./pages/public/InvitationRegistrationPage").then((module) => ({ default: module.InvitationRegistrationPage })));
+const CheckInPublicPage = lazy(() => import("./pages/public/CheckInPublicPage").then((module) => ({ default: module.CheckInPublicPage })));
+const ParticipantCardPage = lazy(() => import("./pages/public/ParticipantCardPage").then((module) => ({ default: module.ParticipantCardPage })));
+const NotFoundPage = lazy(() => import("./pages/NotFoundPage").then((module) => ({ default: module.NotFoundPage })));
+const CommitteeLayout = lazy(() => import("./components/layouts/CommitteeLayout").then((module) => ({ default: module.CommitteeLayout })));
 
 export const App: React.FC = () => {
   return (
@@ -84,10 +89,12 @@ export const App: React.FC = () => {
           { name: "committee", list: "/admin/committee", create: "/admin/committee/create", show: "/admin/committee/:id" },
         ]}
       >
+        <RouteLoadingBoundary>
         <Routes>
           {/* Root Redirect */}
           <Route path="/" element={<PublicProgramsPage />} />
           <Route path="/programs" element={<PublicProgramsPage />} />
+          <Route path="/ruang-asatidz" element={<RuangAsatidzPublicPage />} />
 
           {/* Public Unprotected Routes */}
           <Route path="/login" element={<Navigate to="/login/admin" replace />} />
@@ -386,6 +393,7 @@ export const App: React.FC = () => {
           {/* Fallback Catch-All */}
           <Route path="*" element={<NotFoundPage />} />
         </Routes>
+        </RouteLoadingBoundary>
       </Refine>
     </BrowserRouter>
   );
