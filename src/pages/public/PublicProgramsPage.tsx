@@ -118,6 +118,13 @@ export const PublicProgramsPage: React.FC = () => {
         </div>
       </section>
 
+      <section aria-labelledby="ruang-asatidz-title" className="rounded-3xl border border-emerald-100 bg-white p-6 sm:p-9">
+        <p className="text-sm font-bold text-emerald-800">Disapa. Didengar. Terhubung.</p>
+        <h2 id="ruang-asatidz-title" className="mt-3 text-2xl font-black">Ruang Asatidz, melampaui satu kegiatan</h2>
+        <p className="mt-3 max-w-2xl text-sm leading-7 text-slate-600">Kenali ruang komunikasi dengan YTS untuk menyampaikan saran, berbagi pengalaman, dan mengajukan kebutuhan. Halaman pengenalan terbuka untuk umum; percakapan pribadi tersedia melalui akun asatidz.</p>
+        <Link to="/ruang-asatidz" className="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-xl bg-emerald-800 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">Kenali Ruang Asatidz <ArrowRight className="h-4 w-4" aria-hidden="true" /></Link>
+      </section>
+
       <section className="flex flex-col gap-5 rounded-3xl bg-slate-900 p-6 text-white sm:flex-row sm:items-center sm:justify-between sm:p-9">
         <div><h2 className="text-xl font-black">Sudah menjadi peserta?</h2><p className="mt-2 max-w-xl text-sm leading-6 text-slate-300">Masuk untuk memeriksa status, jadwal, dan QR pribadi yang tersedia setelah persetujuan panitia.</p></div>
         <Link to="/login/ustadz" className="inline-flex min-h-11 shrink-0 items-center gap-2 self-start rounded-xl bg-emerald-500 px-5 font-black text-slate-950 hover:bg-emerald-400">Buka portal <ArrowRight className="h-4 w-4" aria-hidden="true" /></Link>
