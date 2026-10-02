@@ -28,6 +28,7 @@ import { getPublicParticipantCardService } from "./lib/services/participantCardS
 import { getParticipantShareService } from "./lib/services/participantShareService";
 import { createManualParticipantService } from "./lib/services/manualParticipantService";
 import { manualParticipantSchema } from "./lib/validations/participantValidation";
+import { handleRuangAsatidzRoute } from "./lib/routes/ruangAsatidzRoutes";
 
 import {
   createInstitutionSchema,
@@ -543,6 +544,8 @@ export const handler: Handler = async (event, _context) => {
       event.headers.authorization || event.headers.Authorization,
       event.headers.cookie || event.headers.Cookie
     );
+    const ruangResponse = await handleRuangAsatidzRoute(event, path, method, userSession, requestId);
+    if (ruangResponse) return ruangResponse;
 
     if (path === "/auth/session" && method === "GET") {
       requireAuth(userSession);
@@ -919,7 +922,7 @@ export const handler: Handler = async (event, _context) => {
       requirePermission(session, "participants.approve", eventId);
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(approveParticipantSchema, body);
-      const result = await approveParticipantService(participantId, session.userId, requestId, validated.notes || undefined);
+      const result = await approveParticipantService(participantId, session.userId, requestId, validated.notes || undefined, eventId);
       return buildSuccessResponse(result, requestId);
     }
 
@@ -966,7 +969,7 @@ export const handler: Handler = async (event, _context) => {
       requirePermission(session, "participants.approve", eventId);
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(bulkApproveSchema, body);
-      const result = await bulkApproveParticipantsService(validated.participantIds, session.userId, requestId);
+      const result = await bulkApproveParticipantsService(eventId, validated.participantIds, session.userId, requestId);
       return buildSuccessResponse(result, requestId);
     }
 

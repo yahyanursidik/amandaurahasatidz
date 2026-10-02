@@ -11,6 +11,8 @@ import {
   FileText,
   LayoutDashboard,
   ListChecks,
+  HeartHandshake,
+  MessageCircle,
   Mail,
   Megaphone,
   PencilLine,
@@ -107,6 +109,20 @@ export const getAdminNavItems = (pathname: string): SidebarNavItem[] => {
       children: [
         { label: "Buat & jadwalkan BC", href: "/admin/broadcast", icon: <Megaphone />, exact: true, keywords: ["sapaan", "template", "jadwal"] },
         { label: "Antrean & email gagal", href: "/admin/email-jobs", icon: <Mail />, exact: true, keywords: ["pengiriman", "retry"] },
+      ],
+    },
+    {
+      label: "Ruang Asatidz",
+      shortLabel: "Ruang",
+      href: "/admin/ruang-asatidz",
+      icon: <HeartHandshake />,
+      description: "Dengarkan asatidz, tanggapi kebutuhan, dan jaga hubungan dengan YTS.",
+      keywords: ["saran", "pengalaman", "kebutuhan", "sapaan", "tindak lanjut"],
+      children: [
+        { label: "Kotak masuk", href: "/admin/ruang-asatidz", icon: <MessageCircle />, exact: true },
+        { label: "Tindak lanjut", href: "/admin/ruang-asatidz/tindak-lanjut", icon: <ListChecks />, exact: true },
+        { label: "Moderasi pengalaman", href: "/admin/ruang-asatidz/moderasi", icon: <ShieldCheck />, exact: true },
+        { label: "Sapaan & kabar YTS", href: "/admin/ruang-asatidz/sapaan", icon: <Megaphone />, exact: true },
       ],
     },
     {

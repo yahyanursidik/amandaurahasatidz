@@ -33,6 +33,7 @@ import { ParticipantCommunicationPanel } from "@/components/communications/Parti
 import { ParticipantProfileDialog } from "@/components/participants/ParticipantProfileDialog";
 import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
 import { eventApi } from "@/lib/eventApi";
+import { canApproveParticipant, runParticipantBulkApproval, selectionAfterBulkApproval, type BulkApprovalResponse } from "@/lib/participantBulkApproval";
 import { getMissingParticipantContactFields } from "@/lib/participantCommunication";
 
 type EventSummary = {
@@ -249,6 +250,16 @@ export const CommitteeParticipantsPage: React.FC = () => {
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [previewMode, setPreviewMode] = useState(false);
+  const [requiresRefresh, setRequiresRefresh] = useState(false);
+  const mounted = useRef(true);
+  const activeEvent = useRef(selectedEventId);
+  const eventGeneration = useRef(0);
+  const loadGeneration = useRef(0);
+  const actionBusy = useRef(false);
+  if (activeEvent.current !== selectedEventId) {
+    activeEvent.current = selectedEventId;
+    eventGeneration.current += 1;
+  }
 
   const selectedEvent = events.find((item) => item.id === selectedEventId) || events[0];
 
@@ -276,25 +287,44 @@ export const CommitteeParticipantsPage: React.FC = () => {
     }
   };
 
-  useEffect(() => { void loadEvents(); }, []);
+  useEffect(() => { mounted.current = true; void loadEvents(); return () => { mounted.current = false; eventGeneration.current += 1; }; }, []);
+
+  const reloadParticipants = async () => {
+    const generation = ++loadGeneration.current;
+    const eventVersion = eventGeneration.current;
+    const isCurrent = () => mounted.current && activeEvent.current === selectedEventId
+      && eventGeneration.current === eventVersion && loadGeneration.current === generation;
+    if (!selectedEventId || !isCurrent()) return false;
+    if (previewMode) { setRequiresRefresh(false); return true; }
+    setLoading(true);
+    try {
+      const data = await eventApi<CommitteeParticipant[]>(`/events/${selectedEventId}/participants`);
+      if (!isCurrent()) return false;
+      const list = Array.isArray(data) ? data : [];
+      setParticipants(list);
+      setSelectedIds((current) => current.filter((id) => list.some((item) => item.id === id && canApproveParticipant(item))));
+      setRequiresRefresh(false);
+      return true;
+    } catch (loadError) {
+      if (isCurrent()) {
+        setRequiresRefresh(true);
+        setError(loadError instanceof Error ? loadError.message : "Data peserta tidak dapat dimuat.");
+      }
+      return false;
+    } finally {
+      if (isCurrent()) setLoading(false);
+    }
+  };
 
   useEffect(() => {
     setSelectedIds([]);
+    setDecisionRequest(null);
+    setBusy("");
+    actionBusy.current = false;
+    setRequiresRefresh(false);
     if (!selectedEventId || previewMode) return;
-    const loadParticipants = async () => {
-      setLoading(true);
-      setError("");
-      try {
-        const data = await eventApi<CommitteeParticipant[]>(`/events/${selectedEventId}/participants`);
-        setParticipants(Array.isArray(data) ? data : []);
-      } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Data peserta tidak dapat dimuat.");
-        setParticipants([]);
-      } finally {
-        setLoading(false);
-      }
-    };
-    void loadParticipants();
+    setParticipants([]);
+    void reloadParticipants();
   }, [previewMode, selectedEventId]);
 
   const participantWithContact = (participant: CommitteeParticipant) => ({
@@ -335,7 +365,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
       });
   }, [contactFilter, institutionFilter, participants, search, sort, statusFilter]);
 
-  const pendingIds = filteredParticipants.filter((item) => item.approvalStatus === "PENDING_REVIEW").map((item) => item.id);
+  const pendingIds = filteredParticipants.filter((item) => item.approvalStatus === "PENDING_REVIEW" && canApproveParticipant(item)).map((item) => item.id);
   const completeContacts = participants.filter((participant) => getMissingParticipantContactFields(participantWithContact(participant)).length === 0).length;
   const pendingCount = participants.filter((participant) => participant.approvalStatus === "PENDING_REVIEW").length;
   const portalReady = participants.filter((participant) => participant.portalPasswordConfigured).length;
@@ -353,7 +383,10 @@ export const CommitteeParticipantsPage: React.FC = () => {
   };
 
   const submitDecision = async (reason: string) => {
-    if (!decisionRequest) return;
+    if (!decisionRequest || actionBusy.current || loading || requiresRefresh) return;
+    const eventVersion = eventGeneration.current;
+    const isCurrent = () => mounted.current && eventGeneration.current === eventVersion;
+    actionBusy.current = true;
     const { participant, decision } = decisionRequest;
     const settings = decisionLabels[decision];
     setBusy(participant.id);
@@ -366,34 +399,56 @@ export const CommitteeParticipantsPage: React.FC = () => {
           body: JSON.stringify(decision === "approve" ? { notes: reason || undefined } : { reason }),
         });
       }
+      if (!isCurrent()) return;
       updateLocalStatus([participant.id], settings.nextStatus);
       setSelectedIds((current) => current.filter((id) => id !== participant.id));
       setSuccess(`${participant.ustadzName} berhasil diperbarui: ${approvalLabels[settings.nextStatus].toLocaleLowerCase("id-ID")}.`);
       setDecisionRequest(null);
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Keputusan peserta gagal disimpan.");
+      if (isCurrent()) {
+        setRequiresRefresh(true);
+        setError(actionError instanceof Error ? actionError.message : "Keputusan peserta gagal disimpan.");
+      }
     } finally {
-      setBusy("");
+      if (isCurrent()) { actionBusy.current = false; setBusy(""); }
     }
   };
 
   const bulkApprove = async () => {
-    const eligibleIds = selectedIds.filter((id) => participants.some((item) => item.id === id && item.approvalStatus === "PENDING_REVIEW"));
-    if (eligibleIds.length === 0) return;
+    const eligibleIds = selectedIds.filter((id) => participants.some((item) => item.id === id && item.approvalStatus === "PENDING_REVIEW" && canApproveParticipant(item)));
+    if (eligibleIds.length === 0 || actionBusy.current || loading || requiresRefresh) return;
+    const eventVersion = eventGeneration.current;
+    const isCurrent = () => mounted.current && eventGeneration.current === eventVersion;
+    actionBusy.current = true;
     setBusy("bulk");
     setError("");
     setSuccess("");
     try {
       if (!previewMode) {
-        await eventApi(`/events/${selectedEventId}/participants/bulk-approve`, { method: "POST", body: JSON.stringify({ participantIds: eligibleIds }) });
+        const result = await runParticipantBulkApproval(eligibleIds, (participantIds) =>
+          eventApi<BulkApprovalResponse>(`/events/${selectedEventId}/participants/bulk-approve`, {
+            method: "POST", body: JSON.stringify({ participantIds }),
+          }), () => undefined, isCurrent);
+        if (!isCurrent()) return;
+        const succeeded = result.filter((item) => item.status === "SUCCESS").map((item) => item.participantId);
+        updateLocalStatus(succeeded, "APPROVED");
+        setSelectedIds((current) => selectionAfterBulkApproval(current, eligibleIds, result));
+        setSuccess(`${succeeded.length} peserta berhasil disetujui; ${result.length - succeeded.length} perlu diperiksa.`);
+        const failures = result.filter((item) => item.status !== "SUCCESS");
+        if (failures.length) setError(failures.map((item) => `${participants.find((participant) => participant.id === item.participantId)?.ustadzName || item.participantId}: ${item.message}`).join("; "));
+        await reloadParticipants();
+        return;
       }
       updateLocalStatus(eligibleIds, "APPROVED");
       setSelectedIds([]);
       setSuccess(`${eligibleIds.length} peserta berhasil disetujui.`);
     } catch (actionError) {
-      setError(actionError instanceof Error ? actionError.message : "Persetujuan massal gagal diproses.");
+      if (isCurrent()) {
+        setRequiresRefresh(true);
+        setError(actionError instanceof Error ? actionError.message : "Persetujuan massal gagal diproses.");
+      }
     } finally {
-      setBusy("");
+      if (isCurrent()) { actionBusy.current = false; setBusy(""); }
     }
   };
 
@@ -412,7 +467,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
 
   return (
     <CommitteeLayout>
-      <PageHeader title="Operasional peserta" description="Tinjau pendaftaran, selesaikan data yang tertunda, dan hubungi asatidz dari satu meja kerja." breadcrumbs={[{ label: "Panitia", href: "/committee" }, { label: "Peserta" }]} actions={<button type="button" onClick={() => void loadEvents()} disabled={loading} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:cursor-not-allowed disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Muat ulang</button>} />
+      <PageHeader title="Operasional peserta" description="Tinjau pendaftaran, selesaikan data yang tertunda, dan hubungi asatidz dari satu meja kerja." breadcrumbs={[{ label: "Panitia", href: "/committee" }, { label: "Peserta" }]} actions={<button type="button" onClick={() => void (selectedEventId ? reloadParticipants() : loadEvents())} disabled={loading || Boolean(busy)} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:cursor-not-allowed disabled:opacity-50"><RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />Muat ulang</button>} />
 
       {previewMode && <div className="mb-5 border-l-4 border-amber-500 bg-amber-50 p-4 text-sm leading-6 text-amber-950"><strong>Mode pratinjau.</strong> Keputusan, filter, ekspor, komunikasi, dan akses portal dapat dicoba tanpa mengubah database.</div>}
       {error && <div role="alert" className="mb-5 flex items-start gap-2 border-l-4 border-rose-600 bg-rose-50 p-4 text-sm leading-6 text-rose-950"><AlertCircle className="mt-1 h-4 w-4 shrink-0" /><span>{error}</span></div>}
@@ -450,15 +505,15 @@ export const CommitteeParticipantsPage: React.FC = () => {
             <button type="button" onClick={exportCsv} disabled={filteredParticipants.length === 0} className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-4 w-4" />Ekspor CSV</button>
           </div>
 
-          {pendingIds.length > 0 && <div className="mt-4 flex flex-col gap-3 border-l-4 border-teal-700 bg-teal-50 p-4 sm:flex-row sm:items-center sm:justify-between"><label className="flex min-h-[44px] cursor-pointer items-center gap-3 text-sm font-bold text-teal-950"><input type="checkbox" checked={pendingIds.every((id) => selectedIds.includes(id))} onChange={(event) => setSelectedIds(event.target.checked ? Array.from(new Set([...selectedIds, ...pendingIds])) : selectedIds.filter((id) => !pendingIds.includes(id)))} className="h-5 w-5 accent-teal-800" />Pilih semua yang menunggu ({pendingIds.length})</label>{selectedIds.length > 0 && <button type="button" onClick={() => void bulkApprove()} disabled={Boolean(busy)} className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-teal-800 px-4 text-sm font-bold text-white hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:opacity-50"><ListChecks className="h-4 w-4" />{busy === "bulk" ? "Memproses…" : `Setujui ${selectedIds.length} peserta`}</button>}</div>}
+          {pendingIds.length > 0 && <div className="mt-4 flex flex-col gap-3 border-l-4 border-teal-700 bg-teal-50 p-4 sm:flex-row sm:items-center sm:justify-between"><label className="flex min-h-[44px] cursor-pointer items-center gap-3 text-sm font-bold text-teal-950"><input type="checkbox" disabled={Boolean(busy) || loading || requiresRefresh} checked={pendingIds.every((id) => selectedIds.includes(id))} onChange={(event) => setSelectedIds(event.target.checked ? Array.from(new Set([...selectedIds, ...pendingIds])) : selectedIds.filter((id) => !pendingIds.includes(id)))} className="h-5 w-5 accent-teal-800" />Pilih semua yang menunggu ({pendingIds.length})</label>{selectedIds.length > 0 && <button type="button" onClick={() => void bulkApprove()} disabled={Boolean(busy) || loading || requiresRefresh} className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-teal-800 px-4 text-sm font-bold text-white hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:opacity-50"><ListChecks className="h-4 w-4" />{busy === "bulk" ? "Memproses…" : `Setujui ${selectedIds.length} peserta`}</button>}</div>}
 
           {loading ? <div className="mt-4 space-y-3" aria-label="Memuat peserta">{[1, 2, 3].map((item) => <div key={item} className="h-44 animate-pulse bg-slate-100" />)}</div> : filteredParticipants.length === 0 ? <div className="mt-4 border border-dashed border-slate-300 bg-slate-50 p-10 text-center"><Users className="mx-auto h-8 w-8 text-slate-400" /><h3 className="mt-3 text-lg font-black text-slate-950">Belum ada peserta yang cocok</h3><p className="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-600">Ubah filter atau kata pencarian. Jika event baru dibuat, peserta akan muncul setelah formulir pendaftaran dikirim.</p><button type="button" onClick={resetFilters} className="mt-4 min-h-[44px] whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-100">Tampilkan semua</button></div> : <ul className="mt-4 divide-y divide-slate-200 border-y border-slate-200 bg-white">{filteredParticipants.map((participant) => {
             const contact = participantWithContact(participant);
             const missing = getMissingParticipantContactFields(contact);
-            const canSelect = participant.approvalStatus === "PENDING_REVIEW";
+            const canSelect = participant.approvalStatus === "PENDING_REVIEW" && canApproveParticipant(participant);
             return <li key={participant.id} className={`min-w-0 py-5 ${selectedIds.includes(participant.id) ? "bg-teal-50/70" : ""}`}>
               <div className="grid min-w-0 gap-4 px-4 md:grid-cols-[2rem_minmax(0,1fr)]">
-                <div>{canSelect ? <input type="checkbox" checked={selectedIds.includes(participant.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, participant.id] : current.filter((id) => id !== participant.id))} aria-label={`Pilih ${participant.ustadzName}`} className="mt-1 h-5 w-5 accent-teal-800" /> : <UserRoundCheck className="mt-1 h-5 w-5 text-slate-400" aria-hidden="true" />}</div>
+                <div>{canSelect ? <input type="checkbox" disabled={Boolean(busy) || loading || requiresRefresh} checked={selectedIds.includes(participant.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, participant.id] : current.filter((id) => id !== participant.id))} aria-label={`Pilih ${participant.ustadzName}`} className="mt-1 h-5 w-5 accent-teal-800" /> : <UserRoundCheck className="mt-1 h-5 w-5 text-slate-400" aria-hidden="true" />}</div>
                 <div className="min-w-0">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div className="min-w-0"><p className="font-mono text-sm font-bold text-teal-800">{participant.participantCode}</p><h3 className="mt-1 overflow-wrap-anywhere text-lg font-black text-slate-950">{participant.ustadzName}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{participant.institutionName || (participant.publicGroupId ? `Rombongan reguler ${participant.publicGroupId.slice(0, 8)}` : "Peserta individu")}</p>{participant.publicGroupId && <p className="text-xs font-bold text-teal-800">{participant.isDelegationLead ? "Kepala rombongan" : "Anggota rombongan"}</p>}</div>
@@ -474,8 +529,8 @@ export const CommitteeParticipantsPage: React.FC = () => {
 
                   <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                     <div className="flex flex-wrap gap-2">
-                      {participant.approvalStatus === "PENDING_REVIEW" && <><button type="button" onClick={() => setDecisionRequest({ participant, decision: "approve" })} disabled={Boolean(busy)} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-teal-800 px-4 text-sm font-bold text-white hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:opacity-50"><Check className="h-4 w-4" />Setujui</button><button type="button" onClick={() => setDecisionRequest({ participant, decision: "waitlist" })} disabled={Boolean(busy)} className="min-h-[44px] whitespace-nowrap rounded-lg border border-amber-400 bg-amber-50 px-4 text-sm font-bold text-amber-950 hover:bg-amber-100 disabled:opacity-50">Daftar tunggu</button><button type="button" onClick={() => setDecisionRequest({ participant, decision: "decline" })} disabled={Boolean(busy)} className="min-h-[44px] whitespace-nowrap rounded-lg border border-rose-300 bg-white px-4 text-sm font-bold text-rose-800 hover:bg-rose-50 disabled:opacity-50">Tolak</button></>}
-                      {(participant.approvalStatus === "APPROVED" || participant.approvalStatus === "WAITLISTED") && <button type="button" onClick={() => setDecisionRequest({ participant, decision: "cancel" })} disabled={Boolean(busy)} className="min-h-[44px] whitespace-nowrap rounded-lg border border-rose-300 bg-white px-4 text-sm font-bold text-rose-800 hover:bg-rose-50 disabled:opacity-50">Batalkan</button>}
+                      {participant.approvalStatus === "PENDING_REVIEW" && <><button type="button" onClick={() => setDecisionRequest({ participant, decision: "approve" })} disabled={Boolean(busy) || loading || requiresRefresh} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-teal-800 px-4 text-sm font-bold text-white hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:opacity-50"><Check className="h-4 w-4" />Setujui</button><button type="button" onClick={() => setDecisionRequest({ participant, decision: "waitlist" })} disabled={Boolean(busy) || loading || requiresRefresh} className="min-h-[44px] whitespace-nowrap rounded-lg border border-amber-400 bg-amber-50 px-4 text-sm font-bold text-amber-950 hover:bg-amber-100 disabled:opacity-50">Daftar tunggu</button><button type="button" onClick={() => setDecisionRequest({ participant, decision: "decline" })} disabled={Boolean(busy) || loading || requiresRefresh} className="min-h-[44px] whitespace-nowrap rounded-lg border border-rose-300 bg-white px-4 text-sm font-bold text-rose-800 hover:bg-rose-50 disabled:opacity-50">Tolak</button></>}
+                      {(participant.approvalStatus === "APPROVED" || participant.approvalStatus === "WAITLISTED") && <button type="button" onClick={() => setDecisionRequest({ participant, decision: "cancel" })} disabled={Boolean(busy) || loading || requiresRefresh} className="min-h-[44px] whitespace-nowrap rounded-lg border border-rose-300 bg-white px-4 text-sm font-bold text-rose-800 hover:bg-rose-50 disabled:opacity-50">Batalkan</button>}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 xl:border-0 xl:pt-0">
                       <ParticipantProfileDialog participant={{ id: participant.id, ustadzId: participant.ustadzId, name: participant.ustadzName, participantCode: participant.participantCode, institutionName: participant.institutionName, email: participant.ustadzEmail, phone: participant.ustadzPhone, whatsapp: participant.ustadzWhatsapp, address: participant.ustadzAddress, approvalStatus: participant.approvalStatus, confirmationStatus: participant.confirmationStatus, registrationSource: participant.registrationSource, registeredAt: participant.registeredAt, eventName: participant.eventName || selectedEvent?.name }} />

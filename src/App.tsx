@@ -39,6 +39,8 @@ import { CommitteeOperationsPage } from "./pages/committee/CommitteeOperationsPa
 import { CommitteeParticipantsPage } from "./pages/committee/CommitteeParticipantsPage";
 import { CommitteeAssignmentsPage } from "./pages/committee/CommitteeAssignmentsPage";
 import { ParticipantPortalPage } from "./pages/portal/ParticipantPortalPage";
+import { RuangAsatidzPage } from "./pages/portal/RuangAsatidzPage";
+import { RuangAsatidzAdminPage } from "./pages/admin/RuangAsatidzAdminPage";
 import { EventPublicPage } from "./pages/public/EventPublicPage";
 import { PublicProgramsPage } from "./pages/public/PublicProgramsPage";
 import { PublicEventRegistrationPage } from "./pages/public/PublicEventRegistrationPage";
@@ -362,6 +364,8 @@ export const App: React.FC = () => {
           <Route path="/committee/*" element={<NotFoundPage />} />
 
           {/* Portal 3: Ustadz (Protected) */}
+          <Route path="/admin/ruang-asatidz/*" element={<ProtectedRoute><RuangAsatidzAdminPage /></ProtectedRoute>} />
+          <Route path="/portal/ruang-asatidz/*" element={<ProtectedRoute><RuangAsatidzPage /></ProtectedRoute>} />
           <Route
             path="/portal"
             element={

@@ -17,6 +17,8 @@ import { createAuditLog } from "./auditService";
 import { assertAttendanceConfirmationAllowed, assertParticipantEligibleForCheckin } from "./deadlineService";
 import { hashPassword } from "../utils/password";
 import { isRegularRegistrationSource, quotaForSource } from "./eventQuota";
+import { z } from "zod";
+import { bulkApproveSchema } from "../validations/participantValidation";
 
 function generateTemporaryPassword() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
@@ -155,14 +157,29 @@ export async function approveParticipantService(
   participantId: string,
   actorUserId?: string,
   requestId?: string,
-  notes?: string
+  notes?: string,
+  expectedEventId?: string
 ) {
   const participant = await findParticipantByIdRepository(participantId);
   if (!participant) throw new NotFoundError(`Peserta ID ${participantId} tidak ditemukan.`);
-  if (participant.approvalStatus === "APPROVED") return participant;
+  // Check scope before idempotency, event reads, quota checks, or any writes.
+  if (expectedEventId !== undefined && participant.eventId.toLowerCase() !== expectedEventId.toLowerCase()) {
+    throw new NotFoundError("Peserta tidak ditemukan pada event ini.");
+  }
+  if (!["INVITED", "CONFIRMED"].includes(participant.confirmationStatus)) {
+    throw new ValidationError(`Peserta berstatus ${participant.confirmationStatus} tidak dapat diapprove.`);
+  }
 
   const event = await findEventByIdRepository(participant.eventId);
-  if (event && event.capacity) {
+  if (!event) throw new NotFoundError("Event peserta tidak ditemukan.");
+  if (event.archivedAt || ["ARCHIVED", "COMPLETED", "CANCELLED"].includes(event.status)) {
+    throw new ValidationError("Peserta tidak dapat diapprove pada event yang selesai, dibatalkan, atau diarsipkan.");
+  }
+  if (participant.approvalStatus === "APPROVED") return participant;
+  if (!["PENDING_REVIEW", "WAITLISTED"].includes(participant.approvalStatus)) {
+    throw new ValidationError(`Peserta berstatus ${participant.approvalStatus} tidak dapat diapprove.`);
+  }
+  if (event.capacity != null) {
     const currentApproved = await countApprovedParticipantsForEventRepository(participant.eventId);
     if (currentApproved >= event.capacity) {
       throw new ValidationError(
@@ -170,16 +187,14 @@ export async function approveParticipantService(
       );
     }
   }
-  if (event) {
-    const limit = quotaForSource(event, participant.registrationSource);
-    if (limit != null) {
-      const currentApproved = await countApprovedParticipantsBySourceRepository(
-        participant.eventId,
-        isRegularRegistrationSource(participant.registrationSource),
-      );
-      if (currentApproved >= limit) {
-        throw new ValidationError(`Kuota ${isRegularRegistrationSource(participant.registrationSource) ? "reguler" : "undangan"} (${limit} peserta) sudah penuh. Pindahkan ke daftar tunggu atau sesuaikan kuota.`);
-      }
+  const limit = quotaForSource(event, participant.registrationSource);
+  if (limit != null) {
+    const currentApproved = await countApprovedParticipantsBySourceRepository(
+      participant.eventId,
+      isRegularRegistrationSource(participant.registrationSource),
+    );
+    if (currentApproved >= limit) {
+      throw new ValidationError(`Kuota ${isRegularRegistrationSource(participant.registrationSource) ? "reguler" : "undangan"} (${limit} peserta) sudah penuh. Pindahkan ke daftar tunggu atau sesuaikan kuota.`);
     }
   }
 
@@ -294,17 +309,26 @@ export async function replaceParticipantService(
 
 // 6. Command bulkApproveParticipants (Returns per-item succeeded/failed breakdown)
 export async function bulkApproveParticipantsService(
+  eventId: string,
   participantIds: string[],
   actorUserId?: string,
   requestId?: string
 ) {
+  // Also guard direct service callers, not only HTTP requests.
+  if (!z.string().uuid().safeParse(eventId).success) {
+    throw new ValidationError("ID event tidak valid.");
+  }
+  const validated = bulkApproveSchema.safeParse({ participantIds });
+  if (!validated.success) {
+    throw new ValidationError(validated.error.issues.map((issue) => issue.message).join("; "));
+  }
   const results: { participantId: string; status: "SUCCESS" | "FAILED"; message: string }[] = [];
   let succeededCount = 0;
   let failedCount = 0;
 
   for (const pid of participantIds) {
     try {
-      await approveParticipantService(pid, actorUserId, requestId, "Bulk approval oleh panitia");
+      await approveParticipantService(pid, actorUserId, requestId, "Bulk approval oleh panitia", eventId);
       results.push({ participantId: pid, status: "SUCCESS", message: "Peserta berhasil diapprove" });
       succeededCount++;
     } catch (err: any) {
@@ -313,23 +337,22 @@ export async function bulkApproveParticipantsService(
     }
   }
 
+  const summary = { total: participantIds.length, succeeded: succeededCount, failed: failedCount };
   if (requestId) {
     await createAuditLog({
       actorUserId: actorUserId || null,
       action: "PARTICIPANTS_BULK_APPROVED",
-      resourceType: "EVENT_PARTICIPANT",
-      resourceId: participantIds.join(","),
+      resourceType: "EVENT",
+      resourceId: eventId,
+      eventId,
+      afterData: { participantIds, results, summary },
       reason: `Bulk approval: ${succeededCount} sukses, ${failedCount} gagal dari total ${participantIds.length}`,
       requestId,
     });
   }
 
   return {
-    summary: {
-      total: participantIds.length,
-      succeeded: succeededCount,
-      failed: failedCount,
-    },
+    summary,
     results,
   };
 }
