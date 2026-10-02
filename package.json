@@ -16,6 +16,7 @@
     "db:migrate:committee": "node scripts/apply-committee-deadline-migration.mjs",
     "db:migrate:event-poster": "node scripts/apply-event-poster-migration.mjs",
     "db:migrate:program-registration": "node scripts/apply-program-registration-migration.mjs",
+    "db:migrate:ruang-asatidz": "node scripts/apply-ruang-asatidz-migration.mjs",
     "db:seed": "node scripts/run-seed.mjs"
   },
   "dependencies": {

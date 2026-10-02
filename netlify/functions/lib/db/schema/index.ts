@@ -5,3 +5,4 @@ export * from "./invitations";
 export * from "./participants";
 export * from "./attendance";
 export * from "./communications";
+export * from "./ruangAsatidz";

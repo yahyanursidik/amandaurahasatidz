@@ -71,7 +71,11 @@ export const replacePortalDelegationMemberSchema = z.object({
 });
 
 export const bulkApproveSchema = z.object({
-  participantIds: z.array(z.string().uuid()).min(1, "Minimal 1 peserta untuk diapprove"),
+  participantIds: z.array(z.string().uuid())
+    .min(1, "Minimal 1 peserta untuk diapprove")
+    .max(25, "Maksimal 25 peserta per permintaan approval")
+    .refine((ids) => new Set(ids.map((id) => id.toLowerCase())).size === ids.length,
+      "ID peserta tidak boleh duplikat"),
 });
 
 export const provisionParticipantPortalAccountSchema = z.object({

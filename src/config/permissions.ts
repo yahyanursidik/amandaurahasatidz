@@ -19,6 +19,8 @@ export type ExternalRole =
 export type RoleCode = GlobalRole | EventScopedRole | ExternalRole;
 
 export type PermissionCode =
+  | "ruang_asatidz.access"
+  | "ruang_asatidz.manage"
   | "events.read"
   | "events.create"
   | "events.update"
@@ -69,6 +71,7 @@ export type PermissionCode =
 
 export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   SUPER_ADMIN: [
+    "ruang_asatidz.access", "ruang_asatidz.manage",
     "events.read", "events.create", "events.update", "events.publish", "events.cancel", "events.archive",
     "institutions.read", "institutions.create", "institutions.update", "institutions.merge",
     "ustadz.read", "ustadz.create", "ustadz.update", "ustadz.merge",
@@ -83,6 +86,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     "audit.read", "settings.manage"
   ],
   SYSTEM_ADMIN: [
+    "ruang_asatidz.access", "ruang_asatidz.manage",
     "events.read", "events.create", "events.update",
     "institutions.read", "institutions.create", "institutions.update",
     "ustadz.read", "ustadz.create", "ustadz.update",
@@ -124,6 +128,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     "events.read", "schedule.read", "announcements.read", "reports.read"
   ],
   USTADZ: [
+    "ruang_asatidz.access",
     "events.read", "schedule.read", "announcements.read", "attendance.read"
   ],
   INSTITUTION_REPRESENTATIVE: [

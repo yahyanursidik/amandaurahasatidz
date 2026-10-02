@@ -39,6 +39,8 @@ import { InvitationShareActions } from "@/components/invitations/InvitationShare
 import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
 import { ParticipantShareDialog } from "@/components/participants/ParticipantShareDialog";
 import { ManualParticipantDialog } from "@/components/participants/ManualParticipantDialog";
+import { BulkParticipantApprovalPanel } from "@/components/participants/BulkParticipantApprovalPanel";
+import { canApproveParticipant, eligibleApprovalIds } from "@/lib/participantBulkApproval";
 import { buildInstitutionInvitationPath } from "@/lib/invitationUrl";
 import { parseParticipantCsv } from "@/lib/participantImportCsv";
 
@@ -313,6 +315,9 @@ export const EventRegistrationsPage: React.FC = () => {
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [participantBusy, setParticipantBusy] = useState("");
+  const approvalBusyRef = useRef(false);
+  const [approvalMessage, setApprovalMessage] = useState("");
+  const [approvalRequiresRefresh, setApprovalRequiresRefresh] = useState(false);
   const [selectedParticipants, setSelectedParticipants] = useState<string[]>([]);
   const [participantImportRows, setParticipantImportRows] = useState<ParticipantImportRow[]>([]);
   const [participantImportPreview, setParticipantImportPreview] = useState<ParticipantImportPreview | null>(null);
@@ -369,6 +374,7 @@ export const EventRegistrationsPage: React.FC = () => {
       if (!isCurrent()) return false;
       setInvitations(invitationData || []);
       setParticipants(participantData || []);
+      setApprovalRequiresRefresh(false);
       setInstitutions(Array.isArray(institutionData) ? institutionData : institutionData.data || []);
       setEventDeadline(deadlineData);
       setForm((current) => ({
@@ -386,9 +392,20 @@ export const EventRegistrationsPage: React.FC = () => {
 
   useEffect(() => {
     mounted.current = true;
+    setSelectedParticipants([]);
+    setParticipantBusy("");
+    approvalBusyRef.current = false;
+    setApprovalMessage("");
+    setApprovalRequiresRefresh(false);
+    setParticipants([]);
     void loadData();
     return () => { mounted.current = false; loadGeneration.current += 1; };
   }, [id]);
+
+  useEffect(() => {
+    // Returning to the tab reconciles a request that completed while the panel was unmounted.
+    if (participantView) void loadData();
+  }, [participantView]);
 
   const filtered = useMemo(
     () =>
@@ -415,6 +432,10 @@ export const EventRegistrationsPage: React.FC = () => {
   const pagedParticipants = filteredParticipants.slice((visibleParticipantPage - 1) * 25, visibleParticipantPage * 25);
 
   useEffect(() => { setParticipantPage(1); }, [id, search, statusFilter]);
+  useEffect(() => {
+    const eligible = eligibleApprovalIds(participants);
+    setSelectedParticipants((current) => current.filter((participantId) => eligible.includes(participantId)));
+  }, [participants]);
 
   const acceptedCount = invitations.filter((item) => item.status === "ACCEPTED").length;
   const awaitingCount = invitations.filter((item) => ["DRAFT", "SENT", "OPENED"].includes(item.status)).length;
@@ -536,9 +557,12 @@ export const EventRegistrationsPage: React.FC = () => {
   };
 
   const approveParticipants = async (participantIds: string[]) => {
-    if (participantIds.length === 0) return;
-    setParticipantBusy(participantIds.length > 1 ? "bulk" : participantIds[0]);
+    if (participantIds.length !== 1 || approvalBusyRef.current || loading || approvalRequiresRefresh) return;
+    if (!participants.some((participant) => participant.id === participantIds[0] && canApproveParticipant(participant))) return;
+    approvalBusyRef.current = true;
+    setParticipantBusy(participantIds[0]);
     setError("");
+    setApprovalMessage("");
     if (demoMode) {
       setParticipants((current) =>
         current.map((participant) =>
@@ -547,26 +571,36 @@ export const EventRegistrationsPage: React.FC = () => {
       );
       setSelectedParticipants([]);
       setParticipantBusy("");
+      approvalBusyRef.current = false;
+      setApprovalMessage("Pratinjau: status peserta diperbarui secara lokal, tidak mengubah database.");
       return;
     }
     try {
-      if (participantIds.length === 1) {
-        await api(`/events/${id}/participants/${participantIds[0]}/approve`, {
-          method: "POST",
-          body: JSON.stringify({}),
-        });
-      } else {
-        await api(`/events/${id}/participants/bulk-approve`, {
-          method: "POST",
-          body: JSON.stringify({ participantIds }),
-        });
-      }
-      setSelectedParticipants([]);
-      await loadData();
+      await api(`/events/${id}/participants/${participantIds[0]}/approve`, {
+        method: "POST", body: JSON.stringify({}),
+      });
+      if (!mounted.current || activeEventId.current !== id) return;
+      setSelectedParticipants((current) => current.filter((participantId) => participantId !== participantIds[0]));
+      const refreshed = await loadData();
+      if (mounted.current && activeEventId.current === id) setApprovalRequiresRefresh(!refreshed);
+      if (mounted.current && activeEventId.current === id) setApprovalMessage(refreshed
+        ? "Peserta berhasil disetujui. Konfirmasi kehadiran dan presensi tidak diubah."
+        : "Persetujuan sudah tersimpan, tetapi daftar gagal dimuat ulang. Periksa status terbaru sebelum mencoba lagi.");
     } catch (approveError) {
-      setError(approveError instanceof Error ? approveError.message : "Persetujuan peserta gagal diproses.");
+      if (mounted.current && activeEventId.current === id) {
+        setApprovalRequiresRefresh(true);
+        const message = approveError instanceof Error ? approveError.message : "Persetujuan peserta gagal diproses.";
+        const refreshed = await loadData();
+        if (mounted.current && activeEventId.current === id) {
+          setApprovalRequiresRefresh(!refreshed);
+          setError(message);
+        }
+      }
     } finally {
-      setParticipantBusy("");
+      if (mounted.current && activeEventId.current === id) {
+        approvalBusyRef.current = false;
+        setParticipantBusy("");
+      }
     }
   };
 
@@ -875,12 +909,18 @@ export const EventRegistrationsPage: React.FC = () => {
           <label className="relative block"><span className="sr-only">Cari peserta</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama, kode peserta, atau lembaga" className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-xs" /></label>
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold"><option value="ALL">Semua status</option><option value="PENDING_REVIEW">Menunggu tinjauan</option><option value="APPROVED">Disetujui</option><option value="WAITLISTED">Daftar tunggu</option><option value="DECLINED">Ditolak</option></select>
         </div>
-        {selectedParticipants.length > 0 && (
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t-2 border-emerald-700 bg-emerald-50 p-3">
-            <p className="text-xs font-bold text-emerald-950">{selectedParticipants.length} peserta dipilih</p>
-            <button type="button" onClick={() => void approveParticipants(selectedParticipants)} disabled={Boolean(participantBusy)} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white disabled:opacity-50"><Check className="h-4 w-4" /> Setujui terpilih</button>
-          </div>
-        )}
+        <BulkParticipantApprovalPanel key={id} eventId={id} eventName={eventDeadline?.name}
+          participants={participants} filteredParticipants={filteredParticipants} pageParticipants={pagedParticipants}
+          selectedIds={selectedParticipants} onSelectionChange={setSelectedParticipants}
+          onBusyChange={(busy) => {
+            if (!mounted.current || activeEventId.current !== id) return;
+            if (busy) setApprovalRequiresRefresh(true);
+            approvalBusyRef.current = busy; setParticipantBusy(busy ? "bulk" : ""); setApprovalMessage("");
+          }}
+          requiresRefresh={approvalRequiresRefresh}
+          onRefreshRequiredChange={(required) => { if (mounted.current && activeEventId.current === id) setApprovalRequiresRefresh(required); }}
+          onCompleted={loadData} disabled={loading || Boolean(participantBusy) || Boolean(participantImportBusy)} demoMode={demoMode} />
+        {approvalMessage && <p role="status" className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950">{approvalMessage}</p>}
         <div className="mt-4 max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white">
           {loading ? <div className="h-64 animate-pulse bg-slate-100" /> : filteredParticipants.length ? (
             <table className="min-w-[72rem] w-full text-left text-sm" aria-label="Daftar peserta event">
@@ -896,7 +936,7 @@ export const EventRegistrationsPage: React.FC = () => {
                     aria-label={`Pilih ${participant.ustadzName}`}
                     checked={selectedParticipants.includes(participant.id)}
                     onChange={(event) => setSelectedParticipants((current) => event.target.checked ? [...current, participant.id] : current.filter((item) => item !== participant.id))}
-                    disabled={participant.approvalStatus === "APPROVED"}
+                    disabled={!canApproveParticipant(participant) || Boolean(participantBusy) || loading || approvalRequiresRefresh}
                     className="h-4 w-4 accent-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                    />
                   </td>
@@ -969,11 +1009,11 @@ export const EventRegistrationsPage: React.FC = () => {
                       previewMode={demoMode}
                       onCompleted={() => setParticipants((current) => current.map((item) => item.id === participant.id ? { ...item, portalPasswordConfigured: true, portalAccountStatus: "ACTIVE" } : item))}
                     />
-                    {participant.approvalStatus === "PENDING_REVIEW" && (
+                    {canApproveParticipant(participant) && (
                       <button
                         type="button"
                         onClick={() => void approveParticipants([participant.id])}
-                        disabled={Boolean(participantBusy)}
+                        disabled={Boolean(participantBusy) || loading || approvalRequiresRefresh}
                         className="min-h-[44px] whitespace-nowrap rounded-lg bg-emerald-700 px-3 text-sm font-bold text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         Setujui
