@@ -10,7 +10,7 @@ export type ParticipantCardDetails = {
   whatsapp?: string | null;
 };
 
-export function ParticipantQrCard({ person, eventName }: { person: ParticipantCardDetails; eventName: string }) {
+export function ParticipantQrCard({ person, eventName, showShareActions = true }: { person: ParticipantCardDetails; eventName: string; showShareActions?: boolean }) {
   const canvasId = useId();
   const url = new URL(person.cardUrl, window.location.origin).toString();
   const message = `Kartu peserta ${person.fullName} untuk ${eventName} (kode ${person.participantCode}). Tunjukkan QR pribadi saat presensi.`;
@@ -46,7 +46,7 @@ export function ParticipantQrCard({ person, eventName }: { person: ParticipantCa
     ctx.font = "bold 28px sans-serif";
     ctx.fillText(person.fullName.slice(0, 32), 35, 185);
     ctx.font = "bold 28px sans-serif";
-    ctx.fillText(`Kode: ${person.participantCode}`, 35, 222);
+    ctx.fillText(`Kode: ${person.participantCode}`, 35, 222, 530);
     ctx.drawImage(qrImage, 105, 255, 390, 390);
     URL.revokeObjectURL(blobUrl);
     ctx.fillStyle = "#475569";
@@ -72,8 +72,8 @@ export function ParticipantQrCard({ person, eventName }: { person: ParticipantCa
     <div className="mt-4 flex flex-wrap gap-2 text-sm font-bold">
       <button type="button" onClick={() => void download()} disabled={!person.qrToken?.startsWith("pqr_")} className="min-h-11 rounded-lg bg-emerald-800 px-3 py-2 text-white disabled:opacity-50">Unduh kartu PNG</button>
       <a className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700 px-3 py-2 text-emerald-800" href={url} target="_blank" rel="noopener noreferrer">Buka kartu QR</a>
-      <a className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700 px-3 py-2 text-emerald-800" href={`https://wa.me/${digits}?text=${encodeURIComponent(`${message} ${url}`)}`} target="_blank" rel="noopener noreferrer">Bagikan WhatsApp</a>
-      <a className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700 px-3 py-2 text-emerald-800" href={`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer">Bagikan Telegram</a>
+      {showShareActions && <a className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700 px-3 py-2 text-emerald-800" href={`https://wa.me/${digits}?text=${encodeURIComponent(`${message} ${url}`)}`} target="_blank" rel="noopener noreferrer">Bagikan WhatsApp</a>}
+      {showShareActions && <a className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700 px-3 py-2 text-emerald-800" href={`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer">Bagikan Telegram</a>}
     </div>
   </article>;
 }

@@ -18,6 +18,8 @@ describe("jalur dan kuota program", () => {
     expect(quotaForSource(event, "DIRECT_PUBLIC")).toBe(10);
     expect(quotaForSource(event, "INSTITUTION_DELEGATION")).toBe(20);
     expect(isRegularRegistrationSource("DIRECT_ADMIN_UPLOAD")).toBe(true);
+    expect(isRegularRegistrationSource("ADMIN_ENTRY")).toBe(true);
+    expect(quotaForSource(event, "ADMIN_ENTRY")).toBe(10);
   });
 
   it("menolak jumlah alokasi yang melampaui kapasitas", () => {
