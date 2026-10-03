@@ -50,12 +50,13 @@ describe("public Ruang Asatidz", () => {
     expect(html).toContain('href="/login/ustadz"');
   });
 
-  it("makes the public page discoverable from programs and the asatidz portal", () => {
+  it("keeps the public page discoverable publicly without linking out of the asatidz portal", () => {
     expect(render(<PublicProgramsPage />, "/programs")).toContain("Kenali Ruang Asatidz");
     const portalLayout = readFileSync(new URL("../../src/components/layouts/PortalLayout.tsx", import.meta.url), "utf8");
-    expect(portalLayout).toContain('href: "/ruang-asatidz"');
+    expect(portalLayout).not.toContain('href: "/ruang-asatidz"');
+    expect(portalLayout).toContain('href: "/portal/ruang-asatidz"');
     const portalPage = readFileSync(new URL("../../src/pages/portal/RuangAsatidzPage.tsx", import.meta.url), "utf8");
-    expect(portalPage).toContain('to="/ruang-asatidz"');
+    expect(portalPage).not.toContain('to="/ruang-asatidz"');
   });
 });
 

@@ -1,10 +1,14 @@
 import { getDbClient } from "../db/client";
-import { eventParticipants, checkinTokens, events, eventSessions, eventDays } from "../db/schema";
-import { eq, and, isNull, gt } from "drizzle-orm";
+import { eventParticipants, checkinTokens, events, eventSessions, eventDays, ustadzProfiles } from "../db/schema";
+import { eq, and, isNull, gt, lte, sql } from "drizzle-orm";
 import { recordCheckinTransactionRepository, recordCheckinLogRepository } from "../repositories/attendanceRepository";
 import { hashToken } from "../utils/token";
 import { NotFoundError, ValidationError, UnauthorizedError } from "../utils/errors";
 import { assertParticipantEligibleForCheckin } from "./deadlineService";
+import { findOwnPortalProfileRepository, portalProfileOwnership } from "../repositories/portalProfileRepository";
+import { selfCheckinSchema } from "../validations/attendanceValidation";
+import { validateRequestData } from "../utils/validator";
+import { getAttendanceCheckinUnitsService } from "./attendanceService";
 
 // Memory rate limit cache: max 5 requests per minute
 const rateLimitCache = new Map<string, { count: number; resetAt: number }>();
@@ -34,9 +38,12 @@ export async function processSelfCheckinService(
   requestId = "req-self-checkin"
 ) {
   // 1. Mandatory Login / Auth Verification (Compliance Point 4)
-  if (!ustadzId) {
+  if (!ustadzId || !actorUserId) {
     throw new UnauthorizedError("Self check-in memerlukan login peserta.");
   }
+  validateRequestData(selfCheckinSchema, { eventId, sessionId, rawLocationQrToken });
+  const ownProfile = await findOwnPortalProfileRepository(actorUserId);
+  if (ownProfile?.id !== ustadzId) throw new UnauthorizedError("Profil peserta tidak terhubung dengan akun ini.");
 
   // 2. Rate Limiting Guard (Compliance Point 5)
   checkRateLimit(`self_checkin_${ustadzId}`, 5, 60000);
@@ -54,13 +61,15 @@ export async function processSelfCheckinService(
       and(
         eq(checkinTokens.eventId, eventId),
         eq(checkinTokens.eventSessionId, sessionId),
+        eq(checkinTokens.tokenHash, tokenHash),
         isNull(checkinTokens.revokedAt),
+        lte(checkinTokens.validFrom, now),
         gt(checkinTokens.validUntil, now)
       )
     )
     .limit(1);
 
-  if (validToken.length === 0 && !rawLocationQrToken.startsWith("loc_qr_")) {
+  if (validToken.length === 0) {
     await recordCheckinLogRepository({
       eventId,
       method: "SELF_SCAN",
@@ -79,12 +88,17 @@ export async function processSelfCheckinService(
     .where(and(eq(eventSessions.id, sessionId), eq(eventDays.eventId, eventId)))
     .limit(1))[0];
   if (!sessionRecord) throw new ValidationError("Sesi tidak termasuk dalam event ini.");
+  const schedule = await getAttendanceCheckinUnitsService(eventId, now);
+  const unit = schedule.units.find((item) => item.sessionId === sessionId);
+  if (!unit?.isOpen) throw new ValidationError("Jendela self check-in sesi belum dibuka atau telah ditutup.");
 
   // 4. Resolve Participant ID for this Ustadz on this Event
   const participant = await db
     .select()
     .from(eventParticipants)
-    .where(and(eq(eventParticipants.eventId, eventId), eq(eventParticipants.ustadzId, ustadzId)))
+    .where(and(eq(eventParticipants.eventId, eventId), eq(eventParticipants.ustadzId, ustadzId),
+      // Recheck ownership in the participant query, not just a cached session/profile ID.
+      sql`${eventParticipants.ustadzId} IN (SELECT ${ustadzProfiles.id} FROM ${ustadzProfiles} WHERE ${portalProfileOwnership(actorUserId)})`))
     .limit(1);
 
   if (participant.length === 0) {

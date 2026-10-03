@@ -15,7 +15,6 @@ const portalNavItems: SidebarNavItem[] = [
       { label: "Ajukan kebutuhan", href: "/portal/ruang-asatidz/kebutuhan", icon: <HandHeart />, exact: true },
       { label: "Pesan & tanggapan saya", href: "/portal/ruang-asatidz/pesan", icon: <MessageCircle /> },
       { label: "Terhubung · Cerita bersama", href: "/portal/ruang-asatidz/terhubung", icon: <BookOpen />, exact: true },
-      { label: "Halaman publik Ruang Asatidz", href: "/ruang-asatidz", icon: <HeartHandshake />, exact: true },
     ],
   },
   { label: "Pendaftaran Saya", shortLabel: "Daftar", href: "/portal/invitations", icon: <Mail />, mobilePrimary: true },

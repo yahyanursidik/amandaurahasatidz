@@ -3,7 +3,7 @@
  * audience: peserta/asatidz · use: memastikan kesiapan hadir dan check-in individu
  * Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
 import {
@@ -20,7 +20,6 @@ import {
   Loader2,
   RefreshCw,
   MapPin,
-  MessageCircle,
   QrCode,
   Save,
   ShieldCheck,
@@ -32,6 +31,8 @@ import { PortalLayout } from "@/components/layouts/PortalLayout";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge, StatusVariant } from "@/components/common/StatusBadge";
 import { eventApi } from "@/lib/eventApi";
+import { ProfileEditor, type PortalProfile } from "@/components/portal/ProfileEditor";
+import { PortalGreeting } from "@/components/portal/PortalGreeting";
 
 type PortalTab =
   | "HOME"
@@ -126,22 +127,7 @@ type PortalDelegation = {
 };
 
 type PortalOverview = {
-  profile: {
-    id: string;
-    fullName: string;
-    email?: string | null;
-    phone?: string | null;
-    whatsapp?: string | null;
-    address?: string | null;
-    educationSummary?: string | null;
-    expertiseSummary?: string | null;
-    profileStatus: string;
-    primaryInstitution?: {
-      institutionName: string;
-      institutionCode: string;
-      position?: string | null;
-    } | null;
-  };
+  profile: PortalProfile;
   participations: PortalParticipation[];
 };
 
@@ -170,6 +156,7 @@ const previewOverview: PortalOverview = {
     id: "preview-ustadz",
     fullName: "Ustadz Abdullah, Lc.",
     email: "ustadz.demo@yts.or.id",
+    loginEmail: "akun.demo@yts.or.id",
     phone: "0812 9999 0000",
     whatsapp: "0812 9999 0000",
     address: "Bandung, Jawa Barat",
@@ -290,7 +277,7 @@ const tabMeta: Record<PortalTab, { title: string; description: string }> = {
   },
   PROFILE: {
     title: "Profil saya",
-    description: "Perbarui kontak dan data pendukung tanpa mengubah identitas master.",
+    description: "Perbarui identitas, email kontak, dan domisili. Email login dan status verifikasi tetap terjaga.",
   },
   ATTENDANCE: {
     title: "Riwayat kehadiran",
@@ -332,25 +319,31 @@ export const ParticipantPortalPage: React.FC = () => {
   const activeTab = tabByPath[location.pathname] || "HOME";
   const [overview, setOverview] = useState<PortalOverview | null>(null);
   const [announcements, setAnnouncements] = useState<PortalAnnouncement[]>([]);
+  const [announcementError, setAnnouncementError] = useState("");
+  const [readingAnnouncementIds, setReadingAnnouncementIds] = useState<string[]>([]);
   const [selectedParticipantId, setSelectedParticipantId] = useState("");
   const [qr, setQr] = useState<PortalQr | null>(null);
   const [loading, setLoading] = useState(true);
   const [qrLoading, setQrLoading] = useState(false);
+  const [qrError, setQrError] = useState("");
+  const [copyError, setCopyError] = useState("");
   const [preview, setPreview] = useState(false);
   const [error, setError] = useState("");
   const [reloadKey, setReloadKey] = useState(0);
   const [copyDone, setCopyDone] = useState(false);
-  const [profileState, setProfileState] = useState({
-    phone: "",
-    whatsapp: "",
-    educationSummary: "",
-    expertiseSummary: "",
-    address: "",
-  });
-  const [saveState, setSaveState] = useState<"idle" | "saving" | "success" | "error">("idle");
+  const [profileNavigation, setProfileNavigation] = useState({ dirty: false, saving: false });
+  const profileSaved = useCallback((profile: PortalProfile) => {
+    setOverview((current) => current ? { ...current, profile } : current);
+  }, []);
+  const reloadPortal = () => {
+    if (profileNavigation.saving) return;
+    if (profileNavigation.dirty && !window.confirm("Perubahan profil belum disimpan. Muat ulang dan buang perubahan?")) return;
+    setReloadKey((current) => current + 1);
+  };
   const [delegation, setDelegation] = useState<PortalDelegation | null>(null);
   const [delegationLoading, setDelegationLoading] = useState(false);
   const [delegationError, setDelegationError] = useState("");
+  const delegationRequest = useRef(0);
   const [replaceTarget, setReplaceTarget] = useState<DelegationMember | null>(null);
   const [replaceState, setReplaceState] = useState<"idle" | "saving" | "success" | "error">("idle");
   const [replacement, setReplacement] = useState({
@@ -367,23 +360,20 @@ export const ParticipantPortalPage: React.FC = () => {
     const load = async () => {
       setLoading(true);
       setError("");
+      setAnnouncementError("");
       setPreview(false);
       try {
         const [overviewData, announcementData] = await Promise.all([
           eventApi<PortalOverview>("/portal/overview"),
-          eventApi<PortalAnnouncement[]>("/portal/announcements").catch(() => []),
+          eventApi<PortalAnnouncement[]>("/portal/announcements").catch((announcementLoadError) => {
+            if (!cancelled) setAnnouncementError(announcementLoadError instanceof Error ? announcementLoadError.message : "Pengumuman gagal dimuat.");
+            return [];
+          }),
         ]);
         if (cancelled) return;
         setOverview(overviewData);
         setAnnouncements(announcementData);
         setSelectedParticipantId(overviewData.participations[0]?.participantId || "");
-        setProfileState({
-          phone: overviewData.profile.phone || "",
-          whatsapp: overviewData.profile.whatsapp || overviewData.profile.phone || "",
-          educationSummary: overviewData.profile.educationSummary || "",
-          expertiseSummary: overviewData.profile.expertiseSummary || "",
-          address: overviewData.profile.address || "",
-        });
       } catch (loadError) {
         if (cancelled) return;
         if (import.meta.env.DEV) {
@@ -391,13 +381,6 @@ export const ParticipantPortalPage: React.FC = () => {
           setOverview(previewOverview);
           setAnnouncements(previewAnnouncements);
           setSelectedParticipantId(previewOverview.participations[0].participantId);
-          setProfileState({
-            phone: previewOverview.profile.phone || "",
-            whatsapp: previewOverview.profile.whatsapp || "",
-            educationSummary: previewOverview.profile.educationSummary || "",
-            expertiseSummary: previewOverview.profile.expertiseSummary || "",
-            address: previewOverview.profile.address || "",
-          });
         } else {
           setOverview(null);
           setAnnouncements([]);
@@ -429,6 +412,10 @@ export const ParticipantPortalPage: React.FC = () => {
   );
 
   useEffect(() => {
+    let cancelled = false;
+    setQrError("");
+    setCopyError("");
+    setCopyDone(false);
     if (activeTab !== "QR" || !selectedParticipation) return;
     if (selectedParticipation.approvalStatus !== "APPROVED" || ["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus)) {
       setQr(null);
@@ -452,12 +439,14 @@ export const ParticipantPortalPage: React.FC = () => {
     void eventApi<PortalQr>(
       `/portal/qr?participantId=${encodeURIComponent(selectedParticipation.participantId)}`,
     )
-      .then(setQr)
+      .then((result) => { if (!cancelled) setQr(result); })
       .catch((qrError) => {
+        if (cancelled) return;
         setQr(null);
-        setError(qrError instanceof Error ? qrError.message : "QR peserta gagal dimuat.");
+        setQrError(qrError instanceof Error ? qrError.message : "QR peserta gagal dimuat.");
       })
-      .finally(() => setQrLoading(false));
+      .finally(() => { if (!cancelled) setQrLoading(false); });
+    return () => { cancelled = true; };
   }, [activeTab, overview?.profile.fullName, preview, selectedParticipation]);
 
   const readiness = useMemo(() => {
@@ -498,40 +487,26 @@ export const ParticipantPortalPage: React.FC = () => {
     ? Math.round((readiness.filter((item) => item.complete).length / readiness.length) * 100)
     : 0;
 
-  const saveProfile = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (preview) {
-      setSaveState("success");
-      window.setTimeout(() => setSaveState("idle"), 2400);
-      return;
-    }
-    setSaveState("saving");
-    try {
-      const updated = await eventApi<PortalOverview["profile"]>("/portal/profile", {
-        method: "PATCH",
-        body: JSON.stringify(profileState),
-      });
-      setOverview((current) => (current ? { ...current, profile: { ...current.profile, ...updated } } : current));
-      setSaveState("success");
-      window.setTimeout(() => setSaveState("idle"), 2400);
-    } catch {
-      setSaveState("error");
-    }
-  };
-
   const markRead = async (announcementId: string) => {
-    setAnnouncements((current) =>
-      current.map((item) => (item.id === announcementId ? { ...item, isRead: true } : item)),
-    );
-    if (!preview) {
-      await eventApi(`/portal/announcements/${announcementId}/read`, { method: "POST" }).catch(
-        () => undefined,
+    if (readingAnnouncementIds.includes(announcementId)) return;
+    setReadingAnnouncementIds((current) => [...current, announcementId]);
+    setAnnouncementError("");
+    try {
+      if (!preview) await eventApi(`/portal/announcements/${announcementId}/read`, { method: "POST" });
+      setAnnouncements((current) =>
+        current.map((item) => (item.id === announcementId ? { ...item, isRead: true } : item)),
       );
+    } catch (readError) {
+      setAnnouncementError(readError instanceof Error ? readError.message : "Status baca gagal disimpan. Silakan coba lagi.");
+    } finally {
+      setReadingAnnouncementIds((current) => current.filter((id) => id !== announcementId));
     }
   };
 
   const loadDelegation = async (participantId: string) => {
+    const request = ++delegationRequest.current;
     setSelectedParticipantId(participantId);
+    setDelegation(null);
     setDelegationLoading(true);
     setDelegationError("");
     setReplaceTarget(null);
@@ -577,15 +552,19 @@ export const ParticipantPortalPage: React.FC = () => {
       }
       const isPublicGroup = overview?.participations.some((participation) => participation.participantId === participantId && participation.publicGroupId);
       const data = await eventApi<PortalDelegation>(isPublicGroup ? `/portal/groups/${participantId}` : `/portal/delegations/${participantId}`);
+      if (request !== delegationRequest.current) return false;
       setDelegation(data);
+      return true;
     } catch (delegationLoadError) {
+      if (request !== delegationRequest.current) return false;
       setDelegationError(
         delegationLoadError instanceof Error
           ? delegationLoadError.message
           : "Data delegasi gagal dimuat.",
       );
+      return false;
     } finally {
-      setDelegationLoading(false);
+      if (request === delegationRequest.current) setDelegationLoading(false);
     }
   };
 
@@ -627,7 +606,13 @@ export const ParticipantPortalPage: React.FC = () => {
             ...replacement,
           }),
         });
-        await loadDelegation(delegation.actorParticipantId);
+        const refreshed = await loadDelegation(delegation.actorParticipantId);
+        if (!refreshed) {
+          setReplaceState("error");
+          setReplaceTarget(null);
+          setDelegationError((current) => `Penggantian peserta telah disimpan, tetapi daftar terbaru belum dapat dimuat. Jangan kirim ulang penggantian. ${current}`);
+          return;
+        }
       }
       setReplaceState("success");
       setReplaceTarget(null);
@@ -643,9 +628,14 @@ export const ParticipantPortalPage: React.FC = () => {
 
   const copyParticipantCode = async () => {
     if (!selectedParticipation) return;
-    await navigator.clipboard.writeText(selectedParticipation.participantCode);
-    setCopyDone(true);
-    window.setTimeout(() => setCopyDone(false), 1800);
+    setCopyError("");
+    try {
+      await navigator.clipboard.writeText(selectedParticipation.participantCode);
+      setCopyDone(true);
+      window.setTimeout(() => setCopyDone(false), 1800);
+    } catch {
+      setCopyError("Kode belum dapat disalin. Pilih kode peserta di atas dan salin secara manual.");
+    }
   };
 
   if (!loading && !overview) {
@@ -654,7 +644,7 @@ export const ParticipantPortalPage: React.FC = () => {
         <div className="mx-auto max-w-xl border-t-4 border-rose-700 bg-white p-6 text-center shadow-sm" role="alert">
           <h1 className="text-xl font-black text-slate-950">Data portal belum dapat dimuat</h1>
           <p className="mt-2 text-sm leading-6 text-slate-600">{error || "Periksa koneksi lalu coba lagi."}</p>
-          <button type="button" onClick={() => setReloadKey((current) => current + 1)} className="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800">
+          <button type="button" onClick={reloadPortal} className="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800">
             <RefreshCw className="h-4 w-4" /> Coba lagi
           </button>
         </div>
@@ -690,6 +680,13 @@ export const ParticipantPortalPage: React.FC = () => {
         }
       />
 
+      <PortalGreeting fullName={overview.profile.fullName} activeTab={activeTab} />
+
+      {announcementError && (activeTab === "HOME" || activeTab === "ANNOUNCEMENTS") && <div role="alert" className="mb-5 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+        <p><strong>Pengumuman belum dapat diperbarui.</strong> {announcementError}</p>
+        <button type="button" onClick={reloadPortal} className="mt-2 min-h-11 font-bold underline">Muat ulang portal</button>
+      </div>}
+
       {preview && (
         <div className="mb-5 flex items-start gap-3 border-y border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
           <Info className="mt-0.5 h-5 w-5 shrink-0 text-amber-700" />
@@ -706,7 +703,7 @@ export const ParticipantPortalPage: React.FC = () => {
         <section className="portal-first-step">
           <CalendarDays aria-hidden="true" />
           <h2>Belum ada program pada akun ini</h2>
-          <p>Lihat program daurah yang telah dipublikasikan. Jika lembaga sudah mendaftarkan Anda tetapi belum muncul di sini, pastikan email portal sama dengan email yang diberikan kepada lembaga.</p>
+          <p>Lihat program daurah yang telah dipublikasikan. Jika lembaga sudah mendaftarkan Anda tetapi belum muncul di sini, hubungi panitia dan pastikan email login akun sesuai email yang dipakai saat pendaftaran. Mengubah email kontak profil tidak mengubah akun login.</p>
           <Link to="/programs">Lihat program daurah <ArrowRight aria-hidden="true" /></Link>
         </section>
       )}
@@ -1153,6 +1150,7 @@ export const ParticipantPortalPage: React.FC = () => {
                 overview.profile.primaryInstitution?.institutionName ||
                 "Peserta individual"}
             </p>
+            {qrError && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{qrError}</p>}
             <div className="mx-auto mt-7 grid min-h-[248px] w-full max-w-[248px] place-items-center rounded-2xl border-8 border-slate-950 bg-white p-4 shadow-lg">
               {selectedParticipation.approvalStatus !== "APPROVED" ? (
                 <p className="max-w-[190px] text-sm font-bold text-slate-700">QR tersedia setelah panitia menyetujui pendaftaran.</p>
@@ -1185,6 +1183,7 @@ export const ParticipantPortalPage: React.FC = () => {
                 {copyDone ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copyDone ? "Kode tersalin" : "Salin kode"}
               </button>
+              {copyError && <p role="alert" className="mt-2 text-sm text-rose-800">{copyError}</p>}
             </div>
           </div>
           <aside className="space-y-4">
@@ -1237,10 +1236,11 @@ export const ParticipantPortalPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={() => void markRead(announcement.id)}
+                      disabled={readingAnnouncementIds.includes(announcement.id)}
                       className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 px-3 text-xs font-black text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
                     >
                       <CheckCircle2 className="h-4 w-4" />
-                      Tandai dibaca
+                      {readingAnnouncementIds.includes(announcement.id) ? "Menyimpan status baca…" : "Tandai dibaca"}
                     </button>
                   )}
                 </div>
@@ -1259,171 +1259,7 @@ export const ParticipantPortalPage: React.FC = () => {
       )}
 
       {activeTab === "PROFILE" && (
-        <form onSubmit={saveProfile} className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
-          <div className="border border-slate-200 bg-white p-5 sm:p-6">
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div>
-                <label className="text-xs font-bold text-slate-600" htmlFor="portal-name">
-                  Nama resmi
-                </label>
-                <input
-                  id="portal-name"
-                  value={overview.profile.fullName}
-                  disabled
-                  className="mt-2 min-h-[44px] w-full rounded-lg border border-slate-200 bg-slate-100 px-3 text-sm font-bold text-slate-700 opacity-70"
-                />
-                <p className="mt-1 min-h-[1lh] text-xs text-slate-500">Dikelola oleh admin.</p>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-600" htmlFor="portal-institution">
-                  Lembaga utama
-                </label>
-                <input
-                  id="portal-institution"
-                  value={overview.profile.primaryInstitution?.institutionName || "Belum terhubung"}
-                  disabled
-                  className="mt-2 min-h-[44px] w-full rounded-lg border border-slate-200 bg-slate-100 px-3 text-sm font-bold text-slate-700 opacity-70"
-                />
-                <p className="mt-1 min-h-[1lh] text-xs text-slate-500">Dikelola oleh admin.</p>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-600" htmlFor="portal-phone">
-                  Nomor telepon
-                </label>
-                <input
-                  id="portal-phone"
-                  value={profileState.phone}
-                  onChange={(event) =>
-                    setProfileState((current) => ({ ...current, phone: event.target.value }))
-                  }
-                  placeholder="Contoh: 0812 3456 7890"
-                  className="mt-2 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 pr-8 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-emerald-700"
-                />
-                <p className="mt-1 min-h-[1lh] text-xs text-slate-500">Nomor yang dapat dihubungi.</p>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-600" htmlFor="portal-whatsapp">
-                  Nomor WhatsApp
-                </label>
-                <input
-                  id="portal-whatsapp"
-                  value={profileState.whatsapp}
-                  onChange={(event) =>
-                    setProfileState((current) => ({ ...current, whatsapp: event.target.value }))
-                  }
-                  placeholder="Contoh: 62812 3456 7890"
-                  className="mt-2 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 pr-8 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-emerald-700"
-                />
-                <p className="mt-1 min-h-[1lh] text-xs text-slate-500">Dipakai panitia untuk informasi operasional.</p>
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-600" htmlFor="portal-education">
-                  Ringkasan pendidikan
-                </label>
-                <textarea
-                  id="portal-education"
-                  rows={4}
-                  value={profileState.educationSummary}
-                  onChange={(event) =>
-                    setProfileState((current) => ({
-                      ...current,
-                      educationSummary: event.target.value,
-                    }))
-                  }
-                  className="mt-2 min-h-24 w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-emerald-700"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-bold text-slate-600" htmlFor="portal-expertise">
-                  Keahlian dan aktivitas dakwah
-                </label>
-                <textarea
-                  id="portal-expertise"
-                  rows={4}
-                  value={profileState.expertiseSummary}
-                  onChange={(event) =>
-                    setProfileState((current) => ({
-                      ...current,
-                      expertiseSummary: event.target.value,
-                    }))
-                  }
-                  className="mt-2 min-h-24 w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-emerald-700"
-                />
-              </div>
-              <div className="sm:col-span-2">
-                <label className="text-xs font-bold text-slate-600" htmlFor="portal-address">
-                  Alamat domisili
-                </label>
-                <textarea
-                  id="portal-address"
-                  rows={3}
-                  value={profileState.address}
-                  onChange={(event) =>
-                    setProfileState((current) => ({ ...current, address: event.target.value }))
-                  }
-                  className="mt-2 min-h-24 w-full resize-y rounded-lg border border-slate-300 bg-white p-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-emerald-700"
-                />
-              </div>
-            </div>
-            <div className="mt-6 flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 pt-5">
-              <p
-                className={`text-xs font-bold ${
-                  saveState === "error"
-                    ? "text-rose-700"
-                    : saveState === "success"
-                      ? "text-emerald-700"
-                      : "text-slate-500"
-                }`}
-                aria-live="polite"
-              >
-                {saveState === "success"
-                  ? "Perubahan profil tersimpan."
-                  : saveState === "error"
-                    ? "Profil gagal disimpan. Periksa koneksi dan coba lagi."
-                    : "Nama dan status verifikasi hanya dapat diubah admin."}
-              </p>
-              <button
-                type="submit"
-                disabled={saveState === "saving"}
-                className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-800 px-5 text-sm font-black text-white hover:bg-emerald-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-              >
-                {saveState === "saving" ? (
-                  <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-                ) : saveState === "success" ? (
-                  <Check className="h-4 w-4" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                {saveState === "saving"
-                  ? "Menyimpan…"
-                  : saveState === "success"
-                    ? "Tersimpan"
-                    : "Simpan profil"}
-              </button>
-            </div>
-          </div>
-          <aside className="space-y-4">
-            <div className="border-t-4 border-emerald-800 bg-slate-950 p-5 text-white">
-              <ShieldCheck className="h-6 w-6 text-emerald-300" />
-              <h2 className="mt-4 font-black">Data yang dikunci</h2>
-              <p className="mt-2 text-sm leading-6 text-slate-300">
-                Nama resmi, status profil, dan afiliasi utama dijaga sebagai data master agar tidak
-                berubah tanpa verifikasi.
-              </p>
-            </div>
-            {overview.profile.whatsapp && (
-              <a
-                href={`https://wa.me/${overview.profile.whatsapp.replace(/\D/g, "").replace(/^0/, "62")}`}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-black text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
-              >
-                <MessageCircle className="h-4 w-4" />
-                Uji tautan WhatsApp
-              </a>
-            )}
-          </aside>
-        </form>
+        <ProfileEditor key={overview.profile.id} profile={overview.profile} preview={preview} onSaved={profileSaved} onNavigationStateChange={setProfileNavigation} />
       )}
 
       {activeTab === "ATTENDANCE" && selectedParticipation && (

@@ -1,5 +1,11 @@
 import { z } from "zod";
 
+export const selfCheckinSchema = z.object({
+  eventId: z.string().uuid("ID event tidak valid"),
+  sessionId: z.string().uuid("ID sesi tidak valid"),
+  rawLocationQrToken: z.string().trim().min(16, "Token QR lokasi tidak valid").max(512),
+}).strict();
+
 export const processCheckinSchema = z.object({
   qrTokenOrCode: z.string().min(4, "Token QR atau Kode Peserta wajib diisi"),
   sessionId: z.string().uuid().optional().nullable(),

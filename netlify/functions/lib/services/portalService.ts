@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, or } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
 import { getDbClient } from "../db/client";
 import {
   attendanceRecords,
@@ -14,27 +14,23 @@ import {
 import { ForbiddenError, NotFoundError } from "../utils/errors";
 import { getParticipantQrTokenService } from "./participantQrService";
 import { replacePortalDelegationMemberTxRepository } from "../repositories/participantRepository";
+import { findOwnPortalProfileRepository, portalProfileOwnership } from "../repositories/portalProfileRepository";
+import { portalProfileResponse } from "./portalProfileService";
+
+function ownParticipantCondition(userId: string, ustadzId: string) {
+  return and(eq(eventParticipants.ustadzId, ustadzId), sql`${eventParticipants.ustadzId} IN
+    (SELECT ${ustadzProfiles.id} FROM ${ustadzProfiles} WHERE ${portalProfileOwnership(userId)})`);
+}
 
 export async function resolvePortalUstadzIdService(userId: string, email: string) {
-  const db = getDbClient();
-  const profiles = await db
-    .select({ id: ustadzProfiles.id })
-    .from(ustadzProfiles)
-    .where(
-      or(
-        eq(ustadzProfiles.userId, userId),
-        eq(ustadzProfiles.email, email.trim().toLowerCase()),
-      ),
-    )
-    .limit(1);
-
-  if (!profiles[0]) {
+  const profile = await findOwnPortalProfileRepository(userId);
+  if (!profile) {
     throw new NotFoundError(
       "Profil asatidz belum terhubung dengan akun ini. Hubungi admin untuk menghubungkan akun dan data peserta.",
     );
   }
 
-  return profiles[0].id;
+  return profile.id;
 }
 
 export async function getPortalOverviewService(userId: string, email: string) {
@@ -42,7 +38,7 @@ export async function getPortalOverviewService(userId: string, email: string) {
   const ustadzId = await resolvePortalUstadzIdService(userId, email);
 
   const [profileRows, affiliationRows, participationRows] = await Promise.all([
-    db.select().from(ustadzProfiles).where(eq(ustadzProfiles.id, ustadzId)).limit(1),
+    db.select().from(ustadzProfiles).where(and(eq(ustadzProfiles.id, ustadzId), portalProfileOwnership(userId))).limit(1),
     db
       .select({
         institutionId: institutions.id,
@@ -93,7 +89,7 @@ export async function getPortalOverviewService(userId: string, email: string) {
       .from(eventParticipants)
       .innerJoin(events, eq(eventParticipants.eventId, events.id))
       .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
-      .where(eq(eventParticipants.ustadzId, ustadzId))
+      .where(ownParticipantCondition(userId, ustadzId))
       .orderBy(desc(events.startDate)),
   ]);
 
@@ -143,12 +139,13 @@ export async function getPortalOverviewService(userId: string, email: string) {
   ]);
 
   const profile = profileRows[0];
+  if (!profile) throw new NotFoundError("Profil asatidz tidak lagi terhubung dengan akun ini. Muat ulang atau hubungi admin.");
   const primaryAffiliation =
     affiliationRows.find((item) => item.isPrimary) || affiliationRows[0] || null;
 
   return {
     profile: {
-      ...profile,
+      ...portalProfileResponse(profile, email),
       affiliations: affiliationRows,
       primaryInstitution: primaryAffiliation,
     },
@@ -188,7 +185,7 @@ export async function getPortalDelegationService(
     .where(
       and(
         eq(eventParticipants.id, actorParticipantId),
-        eq(eventParticipants.ustadzId, ustadzId),
+        ownParticipantCondition(userId, ustadzId),
       ),
     )
     .limit(1);
@@ -257,7 +254,7 @@ export async function getPortalPublicGroupService(userId: string, email: string,
     eventName: events.name,
   }).from(eventParticipants)
     .innerJoin(events, eq(eventParticipants.eventId, events.id))
-    .where(and(eq(eventParticipants.id, actorParticipantId), eq(eventParticipants.ustadzId, ustadzId))).limit(1))[0];
+    .where(and(eq(eventParticipants.id, actorParticipantId), ownParticipantCondition(userId, ustadzId))).limit(1))[0];
   if (!actor?.publicGroupId || !actor.isDelegationLead) throw new ForbiddenError("Hanya kepala rombongan yang dapat melihat anggota rombongan ini.");
   const members = await db.select({
     participantId: eventParticipants.id,
@@ -315,7 +312,7 @@ export async function getPortalParticipantIdsService(userId: string, email: stri
   const participants = await db
     .select({ id: eventParticipants.id })
     .from(eventParticipants)
-    .where(eq(eventParticipants.ustadzId, ustadzId));
+    .where(ownParticipantCondition(userId, ustadzId));
   return participants.map((participant) => participant.id);
 }
 
@@ -333,7 +330,7 @@ export async function getPortalParticipantQrService(
     })
     .from(eventParticipants)
     .innerJoin(events, eq(eventParticipants.eventId, events.id))
-    .where(eq(eventParticipants.ustadzId, ustadzId))
+    .where(ownParticipantCondition(userId, ustadzId))
     .orderBy(desc(events.startDate));
 
   const participant = requestedParticipantId

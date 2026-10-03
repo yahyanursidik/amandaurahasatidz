@@ -16,10 +16,10 @@ describe("Undangan Individu & Portal Ustadz Unit Tests", () => {
     expect(parsed.success).toBe(true);
   });
 
-  it("should validate updateUstadzSelfProfileSchema allowing phone, specialization, address", () => {
+  it("should validate updateUstadzSelfProfileSchema allowing phone, expertise, address", () => {
     const payload = {
       phone: "081299990000",
-      specialization: "Fiqih Muamalah",
+      expertiseSummary: "Fiqih Muamalah",
       address: "Bandung",
     };
 
@@ -30,7 +30,7 @@ describe("Undangan Individu & Portal Ustadz Unit Tests", () => {
     }
   });
 
-  it("should strip/ignore approvalStatus when Ustadz attempts self profile update", () => {
+  it("should reject approvalStatus when Ustadz attempts self profile update", () => {
     const payload = {
       phone: "081299990000",
       approvalStatus: "VERIFIED", // Attempting to change approval status directly!
@@ -38,12 +38,7 @@ describe("Undangan Individu & Portal Ustadz Unit Tests", () => {
     };
 
     const parsed = updateUstadzSelfProfileSchema.safeParse(payload);
-    expect(parsed.success).toBe(true);
-    if (parsed.success) {
-      // approvalStatus and fullName must NOT be in the parsed payload!
-      expect((parsed.data as any).approvalStatus).toBeUndefined();
-      expect((parsed.data as any).fullName).toBeUndefined();
-    }
+    expect(parsed.success).toBe(false);
   });
 
   it("should verify RSVP selection status (ACCEPTED or DECLINED)", () => {

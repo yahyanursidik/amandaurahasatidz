@@ -11,6 +11,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ruang-asatidz:live": "vitest run tests/integration/ruang_asatidz_live.test.ts --maxWorkers=1",
+    "test:portal:live": "vitest run tests/integration/portal_features_live.test.ts --maxWorkers=1",
+    "test:profile:browser": "node scripts/check-profile-browser.mjs",
     "test:communications:browser": "node scripts/check-event-communications-browser.mjs",
     "preview": "vite preview",
     "db:generate": "drizzle-kit generate",

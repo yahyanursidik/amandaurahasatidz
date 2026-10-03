@@ -142,35 +142,6 @@ export async function setUstadzArchiveService(id: string, archived: boolean, act
     : "Profil dipulihkan ke direktori asatidz." };
 }
 
-export async function updateUstadzSelfProfileService(id: string, data: any, actorUserId: string, requestId: string) {
-  // Stripping any attempt to edit read-only fields
-  const allowedData = {
-    phone: data.phone !== undefined ? normalizePhone(data.phone) : undefined,
-    whatsapp: data.whatsapp !== undefined ? normalizePhone(data.whatsapp) : undefined,
-    educationSummary: data.educationSummary !== undefined ? data.educationSummary : undefined,
-    expertiseSummary: data.expertiseSummary !== undefined ? data.expertiseSummary : undefined,
-    address: data.address !== undefined ? data.address : undefined,
-  };
-
-  const existing = await findUstadzByIdRepository(id);
-  if (!existing) throw new NotFoundError(`Profil Ustadz ID ${id} tidak ditemukan.`);
-  if (existing.deletedAt) throw new ConflictError("Profil diarsipkan. Hubungi admin untuk memulihkannya sebelum mengubah data.");
-
-  const updated = await updateUstadzRepository(id, allowedData);
-
-  await createAuditLog({
-    actorUserId,
-    action: "USTADZ_SELF_PROFILE_UPDATED",
-    resourceType: "USTADZ_PROFILE",
-    resourceId: id,
-    beforeData: existing as any,
-    afterData: updated as any,
-    requestId,
-  });
-
-  return updated;
-}
-
 export async function addUstadzAffiliationService(
   ustadzId: string,
   institutionId: string,
