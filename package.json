@@ -14,6 +14,7 @@
     "test:portal:live": "vitest run tests/integration/portal_features_live.test.ts --maxWorkers=1",
     "test:profile:browser": "node scripts/check-profile-browser.mjs",
     "test:ukhuwah:browser": "node scripts/check-ukhuwah-browser.mjs",
+    "test:ustadz-notes:browser": "node scripts/check-ustadz-notes-browser.mjs",
     "test:communications:browser": "node scripts/check-event-communications-browser.mjs",
     "preview": "vite preview",
     "db:generate": "drizzle-kit generate",
@@ -24,6 +25,7 @@
     "db:migrate:ruang-asatidz": "node scripts/apply-ruang-asatidz-migration.mjs",
     "db:migrate:event-communications": "node scripts/apply-event-communications-migration.mjs",
     "db:migrate:ukhuwah": "node scripts/apply-ukhuwah-migration.mjs",
+    "db:migrate:ustadz-notes": "node scripts/apply-ustadz-notes-migration.mjs",
     "db:seed": "node scripts/run-seed.mjs"
   },
   "dependencies": {

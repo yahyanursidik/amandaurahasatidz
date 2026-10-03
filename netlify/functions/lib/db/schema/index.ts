@@ -7,3 +7,4 @@ export * from "./attendance";
 export * from "./communications";
 export * from "./ruangAsatidz";
 export * from "./ukhuwah";
+export * from "./ustadzNotes";

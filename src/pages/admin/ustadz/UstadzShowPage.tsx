@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useGetIdentity } from "@refinedev/core";
 import {
   AlertTriangle,
   BookOpenCheck,
@@ -8,6 +9,7 @@ import {
   CheckCircle2,
   Edit3,
   GitMerge,
+  Flag,
   Loader2,
   Mail,
   MapPin,
@@ -26,8 +28,11 @@ import { UstadzWorkspaceNav } from "@/components/admin/ustadz/UstadzWorkspaceNav
 import { institutionApi, Institution } from "@/lib/institutionApi";
 import { UstadzProfile, ustadzApi } from "@/lib/ustadzApi";
 import { getUstadzPreviewProfile } from "@/lib/ustadzPreview";
+import { AuthIdentity } from "@/lib/refine/authProvider";
+import { canAccessYtsNotes } from "@/lib/ustadzNotes";
+import { YtsNotesPanel } from "@/components/admin/ustadz/YtsNotesPanel";
 
-type Tab = "PROFILE" | "AFFILIATIONS" | "EVENTS" | "QUALITY";
+type Tab = "PROFILE" | "AFFILIATIONS" | "EVENTS" | "QUALITY" | "NOTES";
 
 const formatDate = (value?: string | null) => {
   if (!value) return "Belum tersedia";
@@ -47,6 +52,9 @@ const missingLabels: Array<[keyof UstadzProfile, string]> = [
 
 export const UstadzShowPage: React.FC = () => {
   const { id = "" } = useParams<{ id: string }>();
+  const { data: identity } = useGetIdentity<AuthIdentity>();
+  const canReadNotes = canAccessYtsNotes(identity?.assignments ?? []);
+  const [searchParams, setSearchParams] = useSearchParams();
   const [profile, setProfile] = useState<UstadzProfile | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("PROFILE");
   const [loading, setLoading] = useState(true);
@@ -60,6 +68,10 @@ export const UstadzShowPage: React.FC = () => {
   const [savingAffiliation, setSavingAffiliation] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
   const [duplicates, setDuplicates] = useState<UstadzProfile[]>([]);
+  useEffect(() => {
+    const requested = searchParams.get("tab");
+    setActiveTab(requested === "notes" && canReadNotes ? "NOTES" : requested === "affiliations" ? "AFFILIATIONS" : requested === "events" ? "EVENTS" : requested === "quality" ? "QUALITY" : "PROFILE");
+  }, [searchParams, canReadNotes, id]);
 
   const loadProfile = async () => {
     setLoading(true);
@@ -259,19 +271,23 @@ export const UstadzShowPage: React.FC = () => {
                 ["AFFILIATIONS", `Afiliasi (${profile.affiliations?.length || 0})`, Building2],
                 ["EVENTS", `Riwayat event (${profile.eventHistory?.length || 0})`, CalendarDays],
                 ["QUALITY", "Kualitas data", ShieldCheck],
+                ...(canReadNotes ? [["NOTES", "Catatan internal YTS", Flag]] : []),
               ] as Array<[Tab, string, React.ComponentType<{ className?: string }>]>).map(([key, label, Icon]) => (
                 <button
                   key={key}
                   type="button"
                   data-active={activeTab === key}
                   aria-selected={activeTab === key}
-                  onClick={() => setActiveTab(key)}
+                  data-yts-note-navigation
+                  onClick={() => { setActiveTab(key); setSearchParams(previous => { const next = new URLSearchParams(previous); next.set("tab", key.toLowerCase()); return next; }); }}
                 >
                   <Icon aria-hidden="true" />
                   <span>{label}</span>
                 </button>
               ))}
             </nav>
+
+            {activeTab === "NOTES" && canReadNotes && !loading && <YtsNotesPanel key={id} ustadzId={id} profileName={profile.fullName} assignments={identity?.assignments ?? []} mergedIntoId={profile.mergedIntoId} disabled={preview} />}
 
             {activeTab === "PROFILE" && (
               <section className="ustadz-panel">
