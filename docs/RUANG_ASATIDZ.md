@@ -4,7 +4,7 @@ Ruang komunikasi asatidz dengan Yayasan Tarbiyah Sunnah (YTS), tidak terikat pad
 
 ## Halaman publik
 
-- `/ruang-asatidz`: halaman pengenalan khusus, dapat dibuka tanpa login dari menu publik **Ruang Asatidz**, kartu pengenalan di halaman program, atau tautan **Halaman publik** di portal.
+- `/ruang-asatidz`: halaman pengenalan khusus, dapat dibuka tanpa login dari menu publik **Ruang Asatidz** atau kartu pengenalan di halaman program. Portal asatidz tidak menyediakan tautan keluar menuju halaman publik ini.
 - Halaman publik menjelaskan Disapa, Didengar, Terhubung, pilihan saran/pengalaman/kebutuhan/pesan, serta privasi dan batas layanan. Tidak mengambil data percakapan, sapaan database, atau cerita pengguna.
 - Tombol tindakan menuju `/portal/ruang-asatidz` dan subhalamannya. Jika belum login, pengguna masuk melalui Portal Asatidz lalu kembali ke rute Ruang yang dipilih. Tujuan kembali dibatasi ke rute Ruang yang dikenal, bukan URL eksternal.
 - Pesan pribadi, balasan, sapaan, dan papan pengalaman tetap berada di portal yang membutuhkan akun. Persetujuan berbagi yang sudah diberikan penulis tidak diubah menjadi izin publikasi anonim di internet.

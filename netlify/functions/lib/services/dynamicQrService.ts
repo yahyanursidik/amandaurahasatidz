@@ -1,7 +1,7 @@
 import { getDbClient } from "../db/client";
-import { checkinTokens, eventSessions } from "../db/schema";
-import { eq, and, isNull, gt } from "drizzle-orm";
-import { generateSecureToken, hashToken } from "../utils/token";
+import { checkinTokens, eventSessions, eventDays } from "../db/schema";
+import { eq, and } from "drizzle-orm";
+import { generateSecureToken } from "../utils/token";
 import { NotFoundError, ValidationError } from "../utils/errors";
 
 export interface LocationQrInfo {
@@ -20,38 +20,16 @@ export async function getOrGenerateLocationQrTokenService(
   rotationSeconds = 30
 ): Promise<LocationQrInfo> {
   const db = getDbClient();
-  const now = new Date();
-
-  // 1. Find existing active, non-expired, non-revoked token
-  const activeTokens = await db
-    .select()
-    .from(checkinTokens)
-    .where(
-      and(
-        eq(checkinTokens.eventId, eventId),
-        eq(checkinTokens.eventSessionId, sessionId),
-        isNull(checkinTokens.revokedAt),
-        gt(checkinTokens.validUntil, now)
-      )
-    )
-    .limit(1);
-
-  if (activeTokens.length > 0) {
-    const t = activeTokens[0];
-    const secondsRemaining = Math.max(0, Math.floor((new Date(t.validUntil).getTime() - now.getTime()) / 1000));
-
-    return {
-      tokenId: t.id,
-      eventId: t.eventId,
-      sessionId: t.eventSessionId || sessionId,
-      rawToken: `loc_qr_${t.id.substring(0, 8)}_${t.tokenHash.substring(0, 16)}`,
-      validFrom: new Date(t.validFrom),
-      validUntil: new Date(t.validUntil),
-      secondsRemaining,
-    };
+  if (!Number.isInteger(rotationSeconds) || rotationSeconds < 5 || rotationSeconds > 120) {
+    throw new ValidationError("Masa berlaku QR lokasi harus 5–120 detik.");
   }
+  const session = (await db.select({ id: eventSessions.id }).from(eventSessions)
+    .innerJoin(eventDays, eq(eventSessions.eventDayId, eventDays.id))
+    .where(and(eq(eventSessions.id, sessionId), eq(eventDays.eventId, eventId))).limit(1))[0];
+  if (!session) throw new NotFoundError("Sesi tidak termasuk dalam event ini.");
 
-  // 2. Generate new dynamic location QR token if expired/absent
+  // A stored hash cannot reconstruct its bearer token. Issue fresh entropy rather
+  // than a fabricated token derived from the hash. Previous tokens expire normally.
   const tokenGen = generateSecureToken("loc_qr");
   const validFrom = new Date();
   const validUntil = new Date(Date.now() + rotationSeconds * 1000);

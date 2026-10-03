@@ -65,7 +65,6 @@ import {
   createUstadzService,
   updateUstadzService,
   setUstadzArchiveService,
-  updateUstadzSelfProfileService,
   addUstadzAffiliationService,
   updateUstadzAffiliationService,
   mergeUstadzProfilesService,
@@ -202,6 +201,7 @@ import {
   replacePortalDelegationMemberService,
   resolvePortalUstadzIdService,
 } from "./lib/services/portalService";
+import { updatePortalProfileService } from "./lib/services/portalProfileService";
 
 import { processCheckinSchema, queryCheckinLogsSchema, searchCheckinParticipantSchema } from "./lib/validations/attendanceValidation";
 import {
@@ -218,6 +218,7 @@ import {
   rotateLocationQrTokenService,
 } from "./lib/services/dynamicQrService";
 import { processSelfCheckinService } from "./lib/services/selfCheckinService";
+import { selfCheckinSchema } from "./lib/validations/attendanceValidation";
 
 import {
   manualMarkAttendanceSchema,
@@ -591,12 +592,9 @@ export const handler: Handler = async (event, _context) => {
 
     if (path === "/portal/profile" && method === "PATCH") {
       const session = requireAuth(userSession);
-      const ustadzId =
-        session.ustadzId ||
-        (await resolvePortalUstadzIdService(session.userId, session.email));
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(updateUstadzSelfProfileSchema, body);
-      const updated = await updateUstadzSelfProfileService(ustadzId, validated, session.userId, requestId);
+      const updated = await updatePortalProfileService(session.userId, session.email, validated, requestId);
       return buildSuccessResponse(updated, requestId);
     }
 
@@ -1593,13 +1591,14 @@ export const handler: Handler = async (event, _context) => {
 
     if (path === "/portal/self-checkin" && method === "POST") {
       const session = requireAuth(userSession);
-      const ustadzId = session.ustadzId || "00000000-0000-0000-0000-000000000001";
       const body = event.body ? JSON.parse(event.body) : {};
+      const input = validateRequestData(selfCheckinSchema, body);
+      const ustadzId = await resolvePortalUstadzIdService(session.userId, session.email);
       const result = await processSelfCheckinService(
         ustadzId,
-        body.eventId,
-        body.sessionId,
-        body.rawLocationQrToken,
+        input.eventId,
+        input.sessionId,
+        input.rawLocationQrToken,
         session.userId,
         requestId
       );

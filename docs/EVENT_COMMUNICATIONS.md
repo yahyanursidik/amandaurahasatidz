@@ -50,6 +50,14 @@ Modul ini menggunakan portal peserta dan antrean email yang sudah ada. Tidak men
 
 ## Pengujian dan rilis
 
+### Penerapan migrasi 3 Oktober 2026
+
+Migrasi `0010_event_communications.sql` telah diterapkan ke proyek Neon **DaurahAsatidz** (`weathered-mode-74673540`), branch **production** (`br-still-star-azoho3h9`), database **neondb**, setelah host koneksi dicocokkan dengan endpoint proyek. Branch cadangan **event-communications-backup-2026-10-03T09-09-34-973Z** (`br-crimson-star-aza11oi4`) dipertahankan. Staging terisolasi berhasil menjalankan apply dua kali (idempoten) sebelum produksi. Verifikasi produksi menemukan 18 kolom terkait yang diharapkan. Migrasi tidak menjalankan worker atau mengirim email.
+
+Penerapan skema bukan bukti bahwa versi kode lokal sudah terdeploy. Perubahan profil/portal pada sesi ini harus dirilis terpisah setelah validasi.
+
+Setelah pengujian API nyata selesai, fixture staging diverifikasi bersih (0 akun/event/email uji tersisa) dan branch staging sementara dihapus. Branch cadangan sebelum migrasi tetap dipertahankan; produksi juga diverifikasi memiliki ketiga indeks komunikasi yang diharapkan.
+
 Jalankan `npm run typecheck`, `npm test -- --maxWorkers=2`, serta `npm run build`. Tes memakai database/transport mock, sehingga tidak mengirim pesan kepada peserta asli. Validasi database nyata dan provider email harus dilakukan terpisah pada lingkungan yang disetujui.
 
 Perubahan ini memerlukan migrasi database untuk pengaturan draf, personalisasi penerima, dan template komunikasi. Terapkan migrasi sebelum merilis frontend/API. Cadangkan dan periksa target database; gunakan dry-run lebih dahulu:
