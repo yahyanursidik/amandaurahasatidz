@@ -11,6 +11,7 @@ import { RouteLoadingBoundary } from "./components/common/RouteLoadingBoundary";
 // Keep loaders at module scope: React caches each page, and Vite can split the
 // literal dynamic imports without eagerly loading other portals or their UI.
 const LoginPage = lazy(() => import("./pages/auth/LoginPage").then((module) => ({ default: module.LoginPage })));
+const UkhuwahPage = lazy(() => import("./pages/shared/UkhuwahPage").then((module) => ({ default: module.UkhuwahPage })));
 const AdminDashboardPage = lazy(() => import("./pages/admin/AdminDashboardPage").then((module) => ({ default: module.AdminDashboardPage })));
 const AdminAuditPage = lazy(() => import("./pages/admin/AdminAuditPage").then((module) => ({ default: module.AdminAuditPage })));
 const AdminEmailJobsPage = lazy(() => import("./pages/admin/AdminEmailJobsPage").then((module) => ({ default: module.AdminEmailJobsPage })));
@@ -114,6 +115,8 @@ export const App: React.FC = () => {
           <Route path="/gate/:eventSlug" element={<CheckInPublicPage />} />
 
           {/* Portal 1: Super Admin & Panitia (Protected) */}
+          <Route path="/admin/peta-ukhuwah/*" element={<ProtectedRoute><UkhuwahPage admin /></ProtectedRoute>} />
+          <Route path="/portal/peta-ukhuwah/*" element={<ProtectedRoute><UkhuwahPage /></ProtectedRoute>} />
           <Route
             path="/admin"
             element={

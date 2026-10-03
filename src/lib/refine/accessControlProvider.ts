@@ -20,7 +20,12 @@ export const accessControlProvider: AccessControlProvider = {
       // Map Refine resource + action to PermissionCode
       let targetPermission: PermissionCode = "events.read";
 
-      if (resource === "events") {
+      if (resource === "ukhuwah") {
+        if (action === "list" || action === "show") targetPermission = "ukhuwah.access";
+        else if (action === "create") targetPermission = "ukhuwah.contribute";
+        else if (action === "moderate") targetPermission = "ukhuwah.moderate";
+        else targetPermission = "ukhuwah.manage";
+      } else if (resource === "events") {
         if (action === "list" || action === "show") targetPermission = "events.read";
         else if (action === "create") targetPermission = "events.create";
         else if (action === "edit") targetPermission = "events.update";

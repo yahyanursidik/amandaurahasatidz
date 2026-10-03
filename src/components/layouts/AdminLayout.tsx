@@ -12,6 +12,7 @@ import {
   LayoutDashboard,
   ListChecks,
   HeartHandshake,
+  MapPinned,
   MessageCircle,
   Mail,
   Megaphone,
@@ -109,6 +110,23 @@ export const getAdminNavItems = (pathname: string): SidebarNavItem[] => {
       children: [
         { label: "Buat & jadwalkan BC", href: "/admin/broadcast", icon: <Megaphone />, exact: true, keywords: ["sapaan", "template", "jadwal"] },
         { label: "Antrean & email gagal", href: "/admin/email-jobs", icon: <Mail />, exact: true, keywords: ["pengiriman", "retry"] },
+      ],
+    },
+    {
+      label: "Peta Ukhuwah",
+      shortLabel: "Ukhuwah",
+      href: "/admin/peta-ukhuwah",
+      icon: <MapPinned />,
+      description: "Pemetaan lembaga, laporan wilayah Bandung Raya dan tindak lanjut.",
+      keywords: ["bandung", "peta", "dakwah", "kontak", "laporan"],
+      children: [
+        { label: "Peta & direktori", href: "/admin/peta-ukhuwah", icon: <MapPinned />, exact: true },
+        { label: "Kelola lokasi & kontak", href: "/admin/peta-ukhuwah/lembaga", icon: <Building2 />, exact: true },
+        { label: "Laporan wilayah", href: "/admin/peta-ukhuwah/laporan", icon: <ClipboardList />, exact: true },
+        { label: "Buat laporan", href: "/admin/peta-ukhuwah/laporan/baru", icon: <Plus />, exact: true },
+        { label: "Laporan saya", href: "/admin/peta-ukhuwah/laporan-saya", icon: <MessageCircle />, exact: true },
+        { label: "Moderasi", href: "/admin/peta-ukhuwah/moderasi", icon: <ShieldCheck />, exact: true },
+        { label: "Tindak lanjut", href: "/admin/peta-ukhuwah/tindak-lanjut", icon: <ListChecks />, exact: true },
       ],
     },
     {

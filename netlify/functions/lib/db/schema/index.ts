@@ -6,3 +6,4 @@ export * from "./participants";
 export * from "./attendance";
 export * from "./communications";
 export * from "./ruangAsatidz";
+export * from "./ukhuwah";

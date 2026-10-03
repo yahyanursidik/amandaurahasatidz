@@ -64,7 +64,7 @@ afterEach(() => {
 
 describe("lazy route loading", () => {
   it("keeps all page modules and the check-in layout behind literal lazy imports", () => {
-    expect(loaders).toHaveLength(41);
+    expect(loaders).toHaveLength(42);
     expect(appSource).not.toMatch(/import\s+.*from\s+["']\.\/pages\//);
     expect(loaders.map(([, name]) => name)).toContain("CommitteeLayout");
   });
@@ -73,6 +73,8 @@ describe("lazy route loading", () => {
     ["/", "PublicProgramsPage", "SUPER_ADMIN"],
     ["/programs", "PublicProgramsPage", "SUPER_ADMIN"],
     ["/ruang-asatidz", "RuangAsatidzPublicPage", "USTADZ"],
+    ["/admin/peta-ukhuwah", "UkhuwahPage", "SYSTEM_ADMIN"],
+    ["/portal/peta-ukhuwah", "UkhuwahPage", "USTADZ"],
     ["/login/committee", "LoginPage", "SUPER_ADMIN"],
     ["/gate/event-a", "CheckInPublicPage", "SUPER_ADMIN"],
     ["/invitation/institution/slug/token", "InvitationRegistrationPage", "SUPER_ADMIN"],

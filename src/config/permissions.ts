@@ -19,6 +19,10 @@ export type ExternalRole =
 export type RoleCode = GlobalRole | EventScopedRole | ExternalRole;
 
 export type PermissionCode =
+  | "ukhuwah.access"
+  | "ukhuwah.contribute"
+  | "ukhuwah.manage"
+  | "ukhuwah.moderate"
   | "ruang_asatidz.access"
   | "ruang_asatidz.manage"
   | "events.read"
@@ -71,6 +75,7 @@ export type PermissionCode =
 
 export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   SUPER_ADMIN: [
+    "ukhuwah.access", "ukhuwah.contribute", "ukhuwah.manage", "ukhuwah.moderate",
     "ruang_asatidz.access", "ruang_asatidz.manage",
     "events.read", "events.create", "events.update", "events.publish", "events.cancel", "events.archive",
     "institutions.read", "institutions.create", "institutions.update", "institutions.merge",
@@ -86,6 +91,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     "audit.read", "settings.manage"
   ],
   SYSTEM_ADMIN: [
+    "ukhuwah.access", "ukhuwah.contribute", "ukhuwah.manage", "ukhuwah.moderate",
     "ruang_asatidz.access", "ruang_asatidz.manage",
     "events.read", "events.create", "events.update",
     "institutions.read", "institutions.create", "institutions.update",
@@ -128,6 +134,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     "events.read", "schedule.read", "announcements.read", "reports.read"
   ],
   USTADZ: [
+    "ukhuwah.access", "ukhuwah.contribute",
     "ruang_asatidz.access",
     "events.read", "schedule.read", "announcements.read", "attendance.read"
   ],
