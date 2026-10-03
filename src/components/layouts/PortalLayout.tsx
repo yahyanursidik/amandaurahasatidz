@@ -1,6 +1,6 @@
 import React from "react";
 import { AppShell } from "../common/AppShell";
-import { User, QrCode, Calendar, Bell, Home, Mail, CheckCircle2, CalendarRange, HeartHandshake, MessageCircle, BookOpen, HandHeart, Lightbulb } from "lucide-react";
+import { User, QrCode, Calendar, Bell, Home, Mail, CheckCircle2, CalendarRange, HeartHandshake, MessageCircle, BookOpen, HandHeart, Lightbulb, MapPinned } from "lucide-react";
 import { SidebarNavItem } from "../common/Sidebar";
 
 const portalNavItems: SidebarNavItem[] = [
@@ -17,6 +17,14 @@ const portalNavItems: SidebarNavItem[] = [
       { label: "Terhubung · Cerita bersama", href: "/portal/ruang-asatidz/terhubung", icon: <BookOpen />, exact: true },
     ],
   },
+  { label: "Peta Ukhuwah", shortLabel: "Ukhuwah", href: "/portal/peta-ukhuwah", icon: <MapPinned />,
+    description: "Lembaga, kebutuhan dakwah, laporan bersama, dan silaturahmi Bandung Raya.",
+    keywords: ["peta", "bandung", "kontak", "dakwah", "laporan"], children: [
+      { label: "Peta & direktori", href: "/portal/peta-ukhuwah", icon: <MapPinned />, exact: true },
+      { label: "Laporan bersama", href: "/portal/peta-ukhuwah/laporan", icon: <BookOpen />, exact: true },
+      { label: "Buat laporan", href: "/portal/peta-ukhuwah/laporan/baru", icon: <Lightbulb />, exact: true },
+      { label: "Laporan saya", href: "/portal/peta-ukhuwah/laporan-saya", icon: <MessageCircle />, exact: true },
+    ] },
   { label: "Pendaftaran Saya", shortLabel: "Daftar", href: "/portal/invitations", icon: <Mail />, mobilePrimary: true },
   { label: "Kegiatan Saya", shortLabel: "Kegiatan", href: "/portal/activities", icon: <CalendarRange /> },
   { label: "Jadwal Daurah", shortLabel: "Jadwal", href: "/portal/schedule", icon: <Calendar /> },

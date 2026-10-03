@@ -29,6 +29,7 @@ import { getParticipantShareService } from "./lib/services/participantShareServi
 import { createManualParticipantService } from "./lib/services/manualParticipantService";
 import { manualParticipantSchema } from "./lib/validations/participantValidation";
 import { handleRuangAsatidzRoute } from "./lib/routes/ruangAsatidzRoutes";
+import { handleUkhuwahRoute } from "./lib/routes/ukhuwahRoutes";
 
 import {
   createInstitutionSchema,
@@ -543,6 +544,8 @@ export const handler: Handler = async (event, _context) => {
     );
     const ruangResponse = await handleRuangAsatidzRoute(event, path, method, userSession, requestId);
     if (ruangResponse) return ruangResponse;
+    const ukhuwahResponse = await handleUkhuwahRoute(event, path, method, userSession, requestId);
+    if (ukhuwahResponse) return ukhuwahResponse;
 
     if (path === "/auth/session" && method === "GET") {
       requireAuth(userSession);

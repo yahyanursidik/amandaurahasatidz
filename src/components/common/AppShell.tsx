@@ -94,6 +94,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const openCommandItem = (index: number) => {
     const item = filteredCommandItems[index];
     if (!item) return;
+    if (!window.dispatchEvent(new Event("portal-before-navigate", { cancelable: true }))) return;
     closeCommandMenu();
     navigate(item.href);
   };
