@@ -49,7 +49,7 @@ export function useDirtyGuard(dirty: boolean, busy = false) {
       const target = event.target as Element;
       const link = target.closest?.("a[href]") as HTMLAnchorElement | null;
       const logout = target.closest?.("button")?.textContent?.trim() === "Keluar";
-      const internalSwitch = !!target.closest?.("[data-ukhuwah-navigation]");
+      const internalSwitch = !!target.closest?.("[data-ukhuwah-navigation], [data-yts-note-navigation]");
       if (!logout && !internalSwitch && (!link || link.target === "_blank" || link.hasAttribute("download") || link.href === window.location.href)) return;
       if (!leave()) { event.preventDefault(); event.stopPropagation(); }
     };

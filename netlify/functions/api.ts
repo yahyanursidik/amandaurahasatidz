@@ -30,6 +30,7 @@ import { createManualParticipantService } from "./lib/services/manualParticipant
 import { manualParticipantSchema } from "./lib/validations/participantValidation";
 import { handleRuangAsatidzRoute } from "./lib/routes/ruangAsatidzRoutes";
 import { handleUkhuwahRoute } from "./lib/routes/ukhuwahRoutes";
+import { handleUstadzNotesRoute } from "./lib/routes/ustadzNotesRoutes";
 
 import {
   createInstitutionSchema,
@@ -546,6 +547,8 @@ export const handler: Handler = async (event, _context) => {
     if (ruangResponse) return ruangResponse;
     const ukhuwahResponse = await handleUkhuwahRoute(event, path, method, userSession, requestId);
     if (ukhuwahResponse) return ukhuwahResponse;
+    const ytsNotesResponse = await handleUstadzNotesRoute(event, path, method, userSession, requestId);
+    if (ytsNotesResponse) return ytsNotesResponse;
 
     if (path === "/auth/session" && method === "GET") {
       requireAuth(userSession);

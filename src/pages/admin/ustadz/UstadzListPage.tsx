@@ -27,6 +27,8 @@ import { AuthIdentity } from "@/lib/refine/authProvider";
 import { ustadzPreviewProfiles } from "@/lib/ustadzPreview";
 import { updateUstadzDirectoryQuery } from "@/lib/ustadzDirectoryQuery";
 import { ParticipantCommunicationPanel } from "@/components/communications/ParticipantCommunicationPanel";
+import { canAccessYtsNotes } from "@/lib/ustadzNotes";
+import { useYtsNoteSummaries, YtsNoteDirectoryBadge, YtsNoteLegend } from "@/components/admin/ustadz/YtsNotesPanel";
 
 const PAGE_SIZE = 25;
 
@@ -170,6 +172,9 @@ export const UstadzListPage: React.FC = () => {
     [duplicateOnly, incompleteOnly, profiles],
   );
 
+  const canReadNotes = canAccessYtsNotes(identity?.assignments ?? []);
+  const noteSummaries = useYtsNoteSummaries(visibleProfiles.map(profile => profile.id), canReadNotes && !loading && !preview);
+
   const metrics = [
     { label: "Total profil", value: summary.total, hint: "Seluruh status", icon: UsersRound },
     { label: "Profil aktif", value: summary.active, hint: "Siap dipakai lintas modul", icon: UserCheck },
@@ -236,6 +241,7 @@ export const UstadzListPage: React.FC = () => {
           }
         />
         <UstadzWorkspaceNav />
+        {canReadNotes && !preview && <div className="mb-4 rounded-lg border border-slate-200 bg-white p-4"><YtsNoteLegend />{noteSummaries.error && <div role="alert" className="mt-2 text-sm text-rose-800">{noteSummaries.error} <button className="underline" onClick={noteSummaries.retry}>Coba muat penanda YTS</button></div>}</div>}
 
         {preview && (
           <div className="ustadz-preview-notice" role="status">
@@ -334,6 +340,7 @@ export const UstadzListPage: React.FC = () => {
                           <div className="ustadz-person">
                             <strong>{profile.fullName}</strong>
                             <span>ID {profile.id.slice(0, 8)}</span>
+                            {canReadNotes && !preview && <YtsNoteDirectoryBadge id={profile.id} summary={noteSummaries.byId[profile.id]} loading={noteSummaries.loading} error={noteSummaries.error} />}
                             {profile.hasDuplicateAlert && (
                               <Link to={`/admin/ustadz/merge?source=${profile.id}`}>
                                 <AlertTriangle aria-hidden="true" /> Tinjau duplikat
@@ -397,6 +404,7 @@ export const UstadzListPage: React.FC = () => {
                       <div>
                         <strong>{profile.fullName}</strong>
                         <span>{profile.primaryInstitution?.institutionName || "Belum ada afiliasi utama"}</span>
+                        {canReadNotes && !preview && <YtsNoteDirectoryBadge id={profile.id} summary={noteSummaries.byId[profile.id]} loading={noteSummaries.loading} error={noteSummaries.error} />}
                       </div>
                       <span className="ustadz-status" data-status={profile.deletedAt ? "ARCHIVED" : profile.profileStatus}>
                         {profile.deletedAt ? "Diarsipkan" : statusLabel(profile.profileStatus)}
