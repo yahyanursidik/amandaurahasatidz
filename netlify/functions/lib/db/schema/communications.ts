@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, timestamp, integer, jsonb, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, integer, jsonb, index, boolean, uniqueIndex } from "drizzle-orm/pg-core";
 import { users } from "./foundation";
 import { institutions } from "./master_data";
 import { events } from "./events";
@@ -12,6 +12,9 @@ export const eventAnnouncements = pgTable(
     eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
     title: text("title").notNull(),
     body: text("body").notNull(),
+    emailSubject: text("email_subject"),
+    sendEmailNotification: boolean("send_email_notification").notNull().default(false),
+    contentFormat: text("content_format").notNull().default("LEGACY_HTML"),
     audienceType: text("audience_type").notNull().default("ALL"),
     targetInstitutionId: uuid("target_institution_id").references(() => institutions.id),
     status: text("status").notNull().default("DRAFT"),
@@ -22,6 +25,22 @@ export const eventAnnouncements = pgTable(
   }
 );
 
+export const eventCommunicationTemplates = pgTable("event_communication_templates", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  category: text("category").notNull().default("CUSTOM"),
+  title: text("title").notNull(),
+  body: text("body").notNull(),
+  emailSubject: text("email_subject"),
+  audienceType: text("audience_type").notNull().default("ALL_PARTICIPANTS"),
+  sendEmailNotification: boolean("send_email_notification").notNull().default(false),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  archivedAt: timestamp("archived_at", { withTimezone: true }),
+}, (table) => [index("idx_communication_templates_event").on(table.eventId, table.archivedAt)]);
+
 // 22. announcement_recipients
 export const announcementRecipients = pgTable(
   "announcement_recipients",
@@ -31,9 +50,15 @@ export const announcementRecipients = pgTable(
     userId: uuid("user_id").references(() => users.id),
     participantId: uuid("participant_id").references(() => eventParticipants.id),
     institutionId: uuid("institution_id").references(() => institutions.id),
+    renderedTitle: text("rendered_title"),
+    renderedBody: text("rendered_body"),
     readAt: timestamp("read_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  }
+  },
+  (table) => [
+    uniqueIndex("uniq_announcement_participant").on(table.announcementId, table.participantId),
+    uniqueIndex("uniq_announcement_user").on(table.announcementId, table.userId),
+  ]
 );
 
 // 23. email_templates

@@ -7,22 +7,18 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import {
   AlertTriangle,
-  Bell,
-  Check,
   CheckCircle2,
   ClipboardCheck,
   Eye,
   Loader2,
-  Megaphone,
-  Plus,
   RefreshCcw,
   ScanLine,
-  Send,
   Users,
 } from "lucide-react";
 import { CommitteeLayout } from "@/components/layouts/CommitteeLayout";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { EventCommunicationCenter, canSwitchCommunicationEvent, type CommunicationNavigationState } from "@/components/admin/events/EventCommunicationCenter";
 import {
   committeeApi,
   CommitteeAssignment,
@@ -55,52 +51,6 @@ type AttendanceRecap = {
     unitStatuses?: Array<{ unitId: string; status: string }>;
   }>;
 };
-
-type Announcement = {
-  id: string;
-  eventId: string;
-  title: string;
-  body: string;
-  audienceType: string;
-  status: string;
-  publishedAt?: string | null;
-  createdAt?: string | null;
-};
-
-type AudienceType =
-  | "ALL_PARTICIPANTS"
-  | "APPROVED_ONLY"
-  | "UNCONFIRMED_ONLY"
-  | "ATTENDED_SPECIFIC_DAY"
-  | "COMMITTEE_ONLY";
-
-const audienceOptions: Array<{ value: AudienceType; label: string; description: string }> = [
-  {
-    value: "ALL_PARTICIPANTS",
-    label: "Semua peserta",
-    description: "Seluruh peserta yang terdaftar pada event.",
-  },
-  {
-    value: "APPROVED_ONLY",
-    label: "Peserta disetujui",
-    description: "Hanya peserta dengan status persetujuan aktif.",
-  },
-  {
-    value: "UNCONFIRMED_ONLY",
-    label: "Belum konfirmasi",
-    description: "Peserta yang masih perlu menanggapi undangan.",
-  },
-  {
-    value: "ATTENDED_SPECIFIC_DAY",
-    label: "Sudah hadir",
-    description: "Peserta yang telah memiliki riwayat presensi.",
-  },
-  {
-    value: "COMMITTEE_ONLY",
-    label: "Panitia",
-    description: "Informasi internal operasional panitia.",
-  },
-];
 
 const previewAssignments: CommitteeAssignment[] = [
   {
@@ -180,50 +130,20 @@ const previewRecap: AttendanceRecap = {
   ],
 };
 
-const previewAnnouncements: Announcement[] = [
-  {
-    id: "preview-announcement",
-    eventId: "preview-event",
-    title: "Persiapan meja registrasi",
-    body: "Pastikan scanner, daftar peserta, dan kode fallback siap sebelum pintu registrasi dibuka.",
-    audienceType: "COMMITTEE_ONLY",
-    status: "DRAFT",
-    createdAt: "2026-07-31T08:00:00+07:00",
-  },
-];
-
-const audienceLabel = (value: string) =>
-  audienceOptions.find((item) => item.value === value)?.label || value.replaceAll("_", " ");
-
 export const CommitteeOperationsPage: React.FC<{
   mode: "attendance" | "announcements";
 }> = ({ mode }) => {
   const attendanceMode = mode === "attendance";
   const [assignments, setAssignments] = useState<CommitteeAssignment[]>([]);
   const [eventId, setEventId] = useState("");
+  const [communicationNavigation, setCommunicationNavigation] = useState<CommunicationNavigationState>({ hasUnsavedChanges: false, pending: false });
   const [recap, setRecap] = useState<AttendanceRecap | null>(null);
-  const [announcements, setAnnouncements] = useState<Announcement[]>([]);
   const [loading, setLoading] = useState(true);
-  const [actionLoading, setActionLoading] = useState("");
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(false);
   const [search, setSearch] = useState("");
   const [attendanceFilter, setAttendanceFilter] = useState<"ALL" | "HADIR" | "TIDAK_HADIR">("ALL");
-  const [composerOpen, setComposerOpen] = useState(false);
-  const [title, setTitle] = useState("");
-  const [body, setBody] = useState("");
-  const [audienceType, setAudienceType] = useState<AudienceType>("ALL_PARTICIPANTS");
-  const [sendEmail, setSendEmail] = useState(false);
-  const [feedback, setFeedback] = useState("");
-
   const activeAssignment = assignments.find((item) => item.eventId === eventId) || assignments[0];
-  const canManageAnnouncements =
-    preview ||
-    Boolean(
-      activeAssignment?.effectivePermissions?.includes("announcements.manage") ||
-        activeAssignment?.effectivePermissions?.includes("announcements.publish"),
-    );
-
   const loadContext = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -262,19 +182,14 @@ export const CommitteeOperationsPage: React.FC<{
   }, [loadContext]);
 
   const loadOperationalData = useCallback(async () => {
-    if (!eventId) return;
+    if (!attendanceMode || !eventId) return;
     setLoading(true);
     setError("");
     try {
       if (preview) {
-        if (attendanceMode) setRecap(previewRecap);
-        else setAnnouncements(previewAnnouncements);
-      } else if (attendanceMode) {
-        setRecap(await committeeApi<AttendanceRecap>(`/events/${eventId}/attendance/recap`));
+        setRecap(previewRecap);
       } else {
-        setAnnouncements(
-          await committeeApi<Announcement[]>(`/events/${eventId}/announcements`),
-        );
+        setRecap(await committeeApi<AttendanceRecap>(`/events/${eventId}/attendance/recap`));
       }
     } catch (loadError) {
       setError(
@@ -304,90 +219,6 @@ export const CommitteeOperationsPage: React.FC<{
     });
   }, [attendanceFilter, recap?.participantDetails, search]);
 
-  const createAnnouncement = async (event: React.FormEvent) => {
-    event.preventDefault();
-    if (!eventId || title.trim().length < 3 || body.trim().length < 5) {
-      setFeedback("Judul minimal 3 karakter dan isi minimal 5 karakter.");
-      return;
-    }
-    setActionLoading("create");
-    setFeedback("");
-    try {
-      const created: Announcement = preview
-        ? {
-            id: `preview-${Date.now()}`,
-            eventId,
-            title: title.trim(),
-            body: body.trim(),
-            audienceType,
-            status: "DRAFT",
-            createdAt: new Date().toISOString(),
-          }
-        : await committeeApi<Announcement>(`/events/${eventId}/announcements`, {
-            method: "POST",
-            body: JSON.stringify({
-              title: title.trim(),
-              body: body.trim(),
-              audienceType,
-              sendEmailNotification: false,
-            }),
-          });
-      setAnnouncements((current) => [created, ...current]);
-      setTitle("");
-      setBody("");
-      setAudienceType("ALL_PARTICIPANTS");
-      setSendEmail(false);
-      setComposerOpen(false);
-      setFeedback("Draf pengumuman berhasil dibuat.");
-    } catch (createError) {
-      setFeedback(
-        createError instanceof Error ? createError.message : "Pengumuman gagal dibuat.",
-      );
-    } finally {
-      setActionLoading("");
-    }
-  };
-
-  const publishAnnouncement = async (announcement: Announcement) => {
-    setActionLoading(announcement.id);
-    setFeedback("");
-    try {
-      let queued = 0;
-      let failed = 0;
-      if (!preview) {
-        const result = await committeeApi<{ emailEnqueuedCount: number; emailFailedCount: number }>(
-          `/events/${eventId}/announcements/${announcement.id}/publish`,
-          {
-            method: "POST",
-            body: JSON.stringify({ sendEmailNotification: sendEmail }),
-          },
-        );
-        queued = result.emailEnqueuedCount;
-        failed = result.emailFailedCount;
-      }
-      setAnnouncements((current) =>
-        current.map((item) =>
-          item.id === announcement.id
-            ? { ...item, status: "PUBLISHED", publishedAt: new Date().toISOString() }
-            : item,
-        ),
-      );
-      setFeedback(
-        sendEmail
-          ? `Pengumuman diterbitkan. ${queued} email diantrekan${failed ? `; ${failed} gagal dan perlu diperiksa admin` : ""}.`
-          : "Pengumuman diterbitkan ke portal peserta.",
-      );
-    } catch (publishError) {
-      setFeedback(
-        publishError instanceof Error
-          ? publishError.message
-          : "Pengumuman gagal diterbitkan.",
-      );
-    } finally {
-      setActionLoading("");
-    }
-  };
-
   if (loading && assignments.length === 0) {
     return (
       <CommitteeLayout>
@@ -410,7 +241,7 @@ export const CommitteeOperationsPage: React.FC<{
         description={
           attendanceMode
             ? "Pantau peserta hadir per individu, cari anomali, dan lanjutkan ke scanner."
-            : "Susun draf, tentukan sasaran, lalu terbitkan informasi ke Portal Asatidz."
+            : "Susun dan simpan draf, periksa pratinjau penerima, lalu terbitkan informasi ke Portal Asatidz."
         }
         breadcrumbs={[
           { label: "Panitia", href: "/committee" },
@@ -425,17 +256,7 @@ export const CommitteeOperationsPage: React.FC<{
               <ScanLine className="h-4 w-4" />
               Buka scanner
             </Link>
-          ) : (
-            <button
-              type="button"
-              onClick={() => setComposerOpen((current) => !current)}
-              disabled={!canManageAnnouncements}
-              className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-teal-800 px-4 text-sm font-black text-white hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <Plus className="h-4 w-4" />
-              Buat draf
-            </button>
-          )
+          ) : null
         }
       />
 
@@ -479,7 +300,14 @@ export const CommitteeOperationsPage: React.FC<{
           <select
             id="committee-operation-event"
             value={eventId}
-            onChange={(event) => setEventId(event.target.value)}
+            disabled={!attendanceMode && communicationNavigation.pending}
+            onChange={(event) => {
+              const nextEvent = event.target.value;
+              if (!attendanceMode && !canSwitchCommunicationEvent(communicationNavigation, eventId, nextEvent, () =>
+                window.confirm("Draft atau template belum disimpan. Buang perubahan dan pindah event?"))) return;
+              setCommunicationNavigation({ hasUnsavedChanges: false, pending: false });
+              setEventId(nextEvent);
+            }}
             className="mt-2 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold outline outline-2 outline-transparent focus-visible:outline-teal-700"
           >
             {assignments.map((assignment) => (
@@ -497,22 +325,12 @@ export const CommitteeOperationsPage: React.FC<{
           <p className="mt-1 text-xs">{error}</p>
           <button
             type="button"
-            onClick={() => void loadOperationalData()}
+            onClick={() => void (attendanceMode ? loadOperationalData() : loadContext())}
             className="mt-3 inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap text-xs font-black underline underline-offset-4"
           >
             <RefreshCcw className="h-4 w-4" />
             Coba lagi
           </button>
-        </div>
-      )}
-
-      {feedback && (
-        <div
-          aria-live="polite"
-          className="mb-5 flex items-center gap-3 border-y border-emerald-200 bg-emerald-50 p-3 text-sm font-bold text-emerald-900"
-        >
-          <Check className="h-4 w-4 shrink-0" />
-          {feedback}
         </div>
       )}
 
@@ -647,197 +465,9 @@ export const CommitteeOperationsPage: React.FC<{
           ) : null}
         </div>
       ) : (
-        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_21rem]">
-          <section className="space-y-3">
-            {composerOpen && (
-              <form
-                onSubmit={createAnnouncement}
-                className="border-t-4 border-teal-800 bg-white p-5 shadow-sm sm:p-6"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <h2 className="text-lg font-black text-slate-950">Draf pengumuman baru</h2>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Draf belum terlihat peserta sampai tombol terbitkan digunakan.
-                    </p>
-                  </div>
-                  <StatusBadge label="Draf" variant="neutral" />
-                </div>
-                <div className="mt-5 space-y-4">
-                  <div>
-                    <label htmlFor="announcement-title" className="text-xs font-bold text-slate-600">
-                      Judul
-                    </label>
-                    <input
-                      id="announcement-title"
-                      value={title}
-                      onChange={(event) => setTitle(event.target.value)}
-                      placeholder="Contoh: Perubahan ruang sesi"
-                      className="mt-2 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="announcement-body" className="text-xs font-bold text-slate-600">
-                      Isi pengumuman
-                    </label>
-                    <textarea
-                      id="announcement-body"
-                      value={body}
-                      onChange={(event) => setBody(event.target.value)}
-                      rows={5}
-                      placeholder="Tulis informasi, waktu berlaku, dan tindakan yang perlu dilakukan peserta."
-                      className="mt-2 min-h-32 w-full resize-y rounded-lg border border-slate-300 p-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700"
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="announcement-audience" className="text-xs font-bold text-slate-600">
-                      Sasaran
-                    </label>
-                    <select
-                      id="announcement-audience"
-                      value={audienceType}
-                      onChange={(event) => setAudienceType(event.target.value as AudienceType)}
-                      className="mt-2 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold outline outline-2 outline-transparent focus-visible:outline-teal-700"
-                    >
-                      {audienceOptions.map((option) => (
-                        <option key={option.value} value={option.value}>
-                          {option.label}
-                        </option>
-                      ))}
-                    </select>
-                    <p className="mt-1 min-h-[1lh] text-xs text-slate-500">
-                      {audienceOptions.find((option) => option.value === audienceType)?.description}
-                    </p>
-                  </div>
-                </div>
-                <div className="mt-5 flex flex-wrap justify-end gap-2 border-t border-slate-200 pt-5">
-                  <button
-                    type="button"
-                    onClick={() => setComposerOpen(false)}
-                    className="inline-flex min-h-[44px] items-center whitespace-nowrap rounded-lg px-4 text-sm font-black text-slate-700 hover:bg-slate-100"
-                  >
-                    Tutup
-                  </button>
-                  <button
-                    type="submit"
-                    disabled={actionLoading === "create"}
-                    className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-teal-800 px-5 text-sm font-black text-white hover:bg-teal-900 disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {actionLoading === "create" ? (
-                      <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-                    ) : (
-                      <Plus className="h-4 w-4" />
-                    )}
-                    Simpan draf
-                  </button>
-                </div>
-              </form>
-            )}
-
-            {announcements.map((announcement) => (
-              <article
-                key={announcement.id}
-                className="border border-slate-200 bg-white p-5 sm:p-6"
-              >
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <StatusBadge
-                        label={announcement.status}
-                        variant={announcement.status === "PUBLISHED" ? "success" : "neutral"}
-                      />
-                      <StatusBadge
-                        label={audienceLabel(announcement.audienceType)}
-                        variant="info"
-                      />
-                    </div>
-                    <h2 className="mt-3 text-lg font-black text-slate-950">
-                      {announcement.title}
-                    </h2>
-                    <p className="mt-2 text-xs text-slate-500">
-                      {announcement.publishedAt
-                        ? `Terbit ${formatCommitteeDate(announcement.publishedAt)}`
-                        : `Dibuat ${formatCommitteeDate(announcement.createdAt)}`}
-                    </p>
-                  </div>
-                  {announcement.status !== "PUBLISHED" && canManageAnnouncements && (
-                    <button
-                      type="button"
-                      onClick={() => void publishAnnouncement(announcement)}
-                      disabled={actionLoading === announcement.id}
-                      className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-teal-800 px-4 text-sm font-black text-white hover:bg-teal-900 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      {actionLoading === announcement.id ? (
-                        <Loader2 className="h-4 w-4 animate-spin motion-reduce:animate-none" />
-                      ) : (
-                        <Send className="h-4 w-4" />
-                      )}
-                      Terbitkan
-                    </button>
-                  )}
-                </div>
-                <p className="mt-5 whitespace-pre-line text-sm leading-7 text-slate-700">
-                  {announcement.body}
-                </p>
-              </article>
-            ))}
-
-            {!announcements.length && !composerOpen && (
-              <div className="border border-dashed border-slate-300 bg-white p-10 text-center">
-                <Bell className="mx-auto h-8 w-8 text-slate-400" />
-                <p className="mt-3 font-bold text-slate-700">Belum ada pengumuman untuk event ini.</p>
-                <button
-                  type="button"
-                  onClick={() => setComposerOpen(true)}
-                  className="mt-4 inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap text-sm font-black text-teal-800 underline underline-offset-4"
-                >
-                  <Plus className="h-4 w-4" />
-                  Buat draf pertama
-                </button>
-              </div>
-            )}
-          </section>
-
-          <aside className="space-y-4">
-            <div className="border-t-4 border-teal-800 bg-slate-950 p-5 text-white">
-              <Megaphone className="h-6 w-6 text-teal-300" />
-              <h2 className="mt-4 font-black">Alur publikasi</h2>
-              <ol className="mt-4 space-y-4 text-sm">
-                {[
-                  ["1", "Tulis draf", "Judul, isi, dan sasaran peserta."],
-                  ["2", "Periksa", "Pastikan waktu dan instruksi tidak ambigu."],
-                  ["3", "Terbitkan", "Informasi tampil di Portal Asatidz."],
-                ].map(([number, label, detail]) => (
-                  <li key={number} className="flex gap-3">
-                    <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-teal-400/15 font-mono text-xs font-black text-teal-300">
-                      {number}
-                    </span>
-                    <span>
-                      <span className="block font-black">{label}</span>
-                      <span className="mt-1 block text-xs leading-5 text-slate-300">{detail}</span>
-                    </span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-            <label className="flex cursor-pointer items-start gap-3 border border-slate-200 bg-white p-4">
-              <input
-                type="checkbox"
-                checked={sendEmail}
-                onChange={(event) => setSendEmail(event.target.checked)}
-                className="mt-1 h-4 w-4 accent-teal-800"
-              />
-              <span>
-                <span className="block text-sm font-black text-slate-900">
-                  Sertakan notifikasi email
-                </span>
-                <span className="mt-1 block text-xs leading-5 text-slate-500">
-                  Berlaku saat draf berikutnya diterbitkan.
-                </span>
-              </span>
-            </label>
-          </aside>
-        </div>
+        eventId && (
+          <EventCommunicationCenter key={eventId} eventId={eventId} previewMode={preview} onUnsavedChange={setCommunicationNavigation} />
+        )
       )}
     </CommitteeLayout>
   );

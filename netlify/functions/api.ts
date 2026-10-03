@@ -182,12 +182,8 @@ import { cancelBroadcastCampaign, getBroadcastAudienceSummary, getBroadcastCampa
 import { broadcastJobsQuerySchema, broadcastTemplateSchema, scheduleBroadcastSchema, testBroadcastSchema } from "./lib/validations/broadcastValidation";
 import { processScheduledReminderService } from "./lib/services/reminderService";
 
-import { createAnnouncementSchema, publishAnnouncementSchema } from "./lib/validations/announcementValidation";
+import { handleCommunicationRoute } from "./lib/routes/communicationRoutes";
 import {
-  createAnnouncementService,
-  getEventAnnouncementsService,
-  publishAnnouncementService,
-  unpublishAnnouncementService,
   getPortalAnnouncementsService,
   markAnnouncementAsReadService,
 } from "./lib/services/announcementService";
@@ -1429,55 +1425,8 @@ export const handler: Handler = async (event, _context) => {
       return buildSuccessResponse(result, requestId);
     }
 
-    // Event Announcements Endpoints
-    const annListMatch = path.match(/^\/events\/([a-f0-9-]+)\/announcements$/i);
-    if (annListMatch && method === "GET") {
-      const eventId = annListMatch[1];
-      requirePermission(userSession, "announcements.read", eventId);
-      const data = await getEventAnnouncementsService(eventId);
-      return buildSuccessResponse(data, requestId);
-    }
-
-    if (annListMatch && method === "POST") {
-      const eventId = annListMatch[1];
-      const session = requireAuth(userSession);
-      requirePermission(session, "announcements.manage", eventId);
-      const body = event.body ? JSON.parse(event.body) : {};
-      const validated = validateRequestData(createAnnouncementSchema, body);
-      const created = await createAnnouncementService(
-        { ...validated, eventId },
-        session.userId,
-        requestId
-      );
-      return buildSuccessResponse(created, requestId);
-    }
-
-    const annPublishMatch = path.match(/^\/events\/([a-f0-9-]+)\/announcements\/([a-f0-9-]+)\/publish$/i);
-    if (annPublishMatch && method === "POST") {
-      const eventId = annPublishMatch[1];
-      const announcementId = annPublishMatch[2];
-      const session = requireAuth(userSession);
-      requirePermission(session, "announcements.publish", eventId);
-      const body = event.body ? JSON.parse(event.body) : {};
-      const validated = validateRequestData(publishAnnouncementSchema, body);
-      const result = await publishAnnouncementService(
-        announcementId,
-        validated.sendEmailNotification,
-        session.userId,
-        requestId
-      );
-      return buildSuccessResponse(result, requestId);
-    }
-
-    const annUnpublishMatch = path.match(/^\/events\/([a-f0-9-]+)\/announcements\/([a-f0-9-]+)\/unpublish$/i);
-    if (annUnpublishMatch && method === "POST") {
-      const eventId = annUnpublishMatch[1];
-      const announcementId = annUnpublishMatch[2];
-      const session = requireAuth(userSession);
-      requirePermission(session, "announcements.publish", eventId);
-      const result = await unpublishAnnouncementService(announcementId, session.userId, requestId);
-      return buildSuccessResponse(result, requestId);
-    }
+    const communicationResponse = await handleCommunicationRoute(event, path, method, userSession, requestId);
+    if (communicationResponse) return communicationResponse;
 
     // Portal Ustadz Announcements Endpoints
     if (path === "/portal/announcements" && method === "GET") {
