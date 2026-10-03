@@ -11,6 +11,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:ruang-asatidz:live": "vitest run tests/integration/ruang_asatidz_live.test.ts --maxWorkers=1",
+    "test:communications:browser": "node scripts/check-event-communications-browser.mjs",
     "preview": "vite preview",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -18,6 +19,7 @@
     "db:migrate:event-poster": "node scripts/apply-event-poster-migration.mjs",
     "db:migrate:program-registration": "node scripts/apply-program-registration-migration.mjs",
     "db:migrate:ruang-asatidz": "node scripts/apply-ruang-asatidz-migration.mjs",
+    "db:migrate:event-communications": "node scripts/apply-event-communications-migration.mjs",
     "db:seed": "node scripts/run-seed.mjs"
   },
   "dependencies": {

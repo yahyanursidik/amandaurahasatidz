@@ -31,6 +31,8 @@ async function campaignDailyLimitReached(db: ReturnType<typeof getDbClient>, pay
 }
 
 export interface EnqueueOptions {
+  eventId?: string;
+  renderedContent?: { subject: string; bodyText: string; htmlBody: string };
   templateCode: string;
   recipientEmail: string;
   recipientName?: string | null;
@@ -55,7 +57,9 @@ export async function enqueueEmailJob(options: EnqueueOptions) {
   }
 
   // Render template with variable whitelist (plain text for payload storage)
-  const rendered = renderEmailTemplate(options.templateCode, options.variables);
+  const rendered = options.templateCode === "ANNOUNCEMENT_CUSTOM" && options.renderedContent
+    ? { subject: options.renderedContent.subject, body: options.renderedContent.bodyText }
+    : renderEmailTemplate(options.templateCode, options.variables);
 
   let template = (
     await db
@@ -75,8 +79,10 @@ export async function enqueueEmailJob(options: EnqueueOptions) {
           bodyTemplate: rendered.body,
           status: "ACTIVE",
         })
+        .onConflictDoNothing({ target: emailTemplates.code })
         .returning()
     )[0];
+    if (!template) template = (await db.select().from(emailTemplates).where(eq(emailTemplates.code, options.templateCode)).limit(1))[0];
   }
 
   const inserted = await db
@@ -84,6 +90,7 @@ export async function enqueueEmailJob(options: EnqueueOptions) {
     .values({
       idempotencyKey: options.idempotencyKey,
       templateId: template.id,
+      eventId: options.eventId || null,
       recipientEmail: options.recipientEmail,
       recipientName: options.recipientName || null,
       payload: {
@@ -91,15 +98,17 @@ export async function enqueueEmailJob(options: EnqueueOptions) {
         variables: options.variables,
         subject: rendered.subject,
         bodyText: rendered.body,
+        ...(options.renderedContent ? { htmlBody: options.renderedContent.htmlBody } : {}),
       },
       status: "QUEUED",
       scheduledAt: new Date(),
       maxAttempts: options.maxAttempts || 3,
       attemptCount: 0,
     })
+    .onConflictDoNothing({ target: emailJobs.idempotencyKey })
     .returning();
 
-  return { job: inserted[0], isDuplicate: false };
+  return { job: inserted[0], isDuplicate: inserted.length === 0 };
 }
 
 export async function processEmailQueueWorker(workerId = "worker-1", batchSize = 10, requestId = "req-worker") {
@@ -160,22 +169,27 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
       let htmlBody: string;
       let textBody: string;
 
-        if (templateCode === "BROADCAST_CUSTOM") {
-          subjectStr = String(payloadObj.subject || "Sapaan untuk Asatidz");
+      if (templateCode === "ANNOUNCEMENT_CUSTOM") {
+        subjectStr = String(payloadObj.subject || "Pengumuman");
+        textBody = String(payloadObj.bodyText || "");
+        // Trusted server-rendered snapshot; never regenerate from mutable templates/event data.
+        htmlBody = String(payloadObj.htmlBody || broadcastHtml(textBody));
+      } else if (templateCode === "BROADCAST_CUSTOM") {
+        subjectStr = String(payloadObj.subject || "Sapaan untuk Asatidz");
+        textBody = String(payloadObj.bodyText || "");
+        htmlBody = broadcastHtml(textBody);
+      } else {
+        try {
+          const rendered = renderHtmlEmailTemplate(templateCode, variables);
+          subjectStr = rendered.subject;
+          htmlBody = rendered.htmlBody;
+          textBody = rendered.textBody;
+        } catch {
+          subjectStr = String(payloadObj.subject || "Email Notification");
           textBody = String(payloadObj.bodyText || "");
           htmlBody = broadcastHtml(textBody);
-        } else {
-          try {
-            const rendered = renderHtmlEmailTemplate(templateCode, variables);
-            subjectStr = rendered.subject;
-            htmlBody = rendered.htmlBody;
-            textBody = rendered.textBody;
-          } catch {
-            subjectStr = String(payloadObj.subject || "Email Notification");
-            textBody = String(payloadObj.bodyText || "");
-            htmlBody = broadcastHtml(textBody);
-          }
         }
+      }
 
       logInfo(requestId, `Mengirim email ke ${job.recipientEmail}: ${subjectStr}`);
 

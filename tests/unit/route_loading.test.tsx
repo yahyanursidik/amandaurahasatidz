@@ -103,7 +103,9 @@ describe("lazy route loading", () => {
     if (path.endsWith("/reports")) expect(html).toContain('data-mode="reports"');
     if (path.endsWith("/broadcast")) expect(html).toContain('data-mode="broadcast"');
     if (path.endsWith("/announcements")) expect(html).toContain('data-mode="announcements"');
-  });
+  // The first App import transforms the full shell on a cold Windows worker.
+  // Keep a bounded timeout without weakening the lazy-loading assertions.
+  }, 15000);
 
   it("loads the public Ruang page without authentication or private portal modules", async () => {
     session.path = "/ruang-asatidz";
