@@ -18,7 +18,7 @@ import { validateEventDeadlines } from "./deadlineService";
 import { assertValidQuotaAllocation } from "./eventQuota";
 import { countApprovedParticipantsBySourceRepository } from "../repositories/participantRepository";
 import { getDbClient } from "../db/client";
-import { eventSessions, events } from "../db/schema";
+import { eventDays, eventSessions, events } from "../db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 
 export async function getEventsService(search?: string, status?: string) {
@@ -238,6 +238,48 @@ export async function addEventDayService(eventId: string, data: any, actorUserId
   });
 
   return created;
+}
+
+export async function updateEventDayService(eventId: string, dayId: string, input: Record<string, unknown>, actorUserId: string, requestId: string) {
+  const event = await getEventByIdService(eventId);
+  const existing = event.days.find((day) => day.id === dayId);
+  if (!existing) throw new NotFoundError("Hari kegiatan tidak ditemukan pada event ini.");
+  if (["COMPLETED", "CANCELLED", "ARCHIVED"].includes(event.status)) {
+    throw new ValidationError("Hari kegiatan pada event yang selesai atau tidak aktif tidak dapat diubah.");
+  }
+  const nextDate = String(input.date ?? existing.date);
+  const nextNumber = Number(input.dayNumber ?? existing.dayNumber);
+  if (event.status === "ONGOING" && (nextDate !== existing.date || nextNumber !== existing.dayNumber)) {
+    throw new ValidationError("Tanggal dan nomor hari tidak dapat digeser saat event berlangsung.");
+  }
+  if (nextDate < event.startDate || nextDate > event.endDate) {
+    throw new ValidationError("Tanggal hari kegiatan harus berada dalam rentang tanggal event.");
+  }
+  if (nextDate !== existing.date && event.sessions.some((session) => session.eventDayId === dayId)) {
+    throw new ValidationError("Tanggal hari yang sudah memiliki sesi tidak dapat diubah. Sesuaikan sesi terlebih dahulu.");
+  }
+  const orderedDays = event.days.map((day) => day.id === dayId ? { ...day, date: nextDate, dayNumber: nextNumber } : day)
+    .sort((a, b) => a.dayNumber - b.dayNumber);
+  if (orderedDays.some((day, index) => index > 0 && (day.dayNumber === orderedDays[index - 1].dayNumber || day.date <= orderedDays[index - 1].date))) {
+    throw new ValidationError("Nomor hari dan tanggal harus unik serta berurutan. Tanggal berjeda diperbolehkan.");
+  }
+  const open = input.checkinOpenAt === undefined ? existing.checkinOpenAt : input.checkinOpenAt;
+  const close = input.checkinCloseAt === undefined ? existing.checkinCloseAt : input.checkinCloseAt;
+  if ((open && Number.isNaN(new Date(String(open)).getTime())) || (close && Number.isNaN(new Date(String(close)).getTime())) ||
+    (open && close && new Date(String(open)) >= new Date(String(close)))) {
+    throw new ValidationError("Pembukaan check-in harian harus lebih awal daripada penutupannya.");
+  }
+  const db = getDbClient();
+  const [updated] = await db.update(eventDays).set({
+    ...input,
+    ...(input.checkinOpenAt !== undefined && { checkinOpenAt: input.checkinOpenAt ? new Date(String(input.checkinOpenAt)) : null }),
+    ...(input.checkinCloseAt !== undefined && { checkinCloseAt: input.checkinCloseAt ? new Date(String(input.checkinCloseAt)) : null }),
+    updatedAt: new Date(),
+  }).where(and(eq(eventDays.id, dayId), eq(eventDays.eventId, eventId))).returning();
+  if (!updated) throw new NotFoundError("Hari kegiatan tidak lagi tersedia. Segarkan halaman.");
+  await createAuditLog({ actorUserId, action: "EVENT_DAY_UPDATED", resourceType: "EVENT_DAY", resourceId: dayId,
+    eventId, beforeData: existing as any, afterData: updated as any, requestId });
+  return updated;
 }
 
 export async function addEventSessionService(eventId: string, data: any, actorUserId: string, requestId: string) {

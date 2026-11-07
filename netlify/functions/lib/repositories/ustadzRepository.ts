@@ -12,7 +12,7 @@ import {
   eventSessions,
   participantStatusHistories,
 } from "../db/schema";
-import { eq, ilike, and, or, isNull, isNotNull, count, desc, inArray } from "drizzle-orm";
+import { eq, ilike, and, or, isNull, isNotNull, count, countDistinct, desc, inArray } from "drizzle-orm";
 import { normalizeName, normalizeEmail, normalizePhone } from "../utils/normalization";
 import {
   AttendanceMode,
@@ -27,6 +27,19 @@ export interface UstadzQueryParams {
   cityCode?: string;
   provinceCode?: string;
   profileStatus?: string;
+  institutionId?: string;
+  quality?: "incomplete";
+  duplicate?: "true";
+  participation?: "attended";
+}
+
+type CompletenessProfile = Pick<typeof ustadzProfiles.$inferSelect,
+  "email" | "phone" | "whatsapp" | "address" | "cityCode" | "provinceCode" | "educationSummary" | "expertiseSummary">;
+
+export function getUstadzCompletenessPercent(profile: CompletenessProfile) {
+  const fields = [profile.email, profile.whatsapp || profile.phone, profile.address,
+    profile.cityCode, profile.provinceCode, profile.educationSummary, profile.expertiseSummary];
+  return Math.round(fields.filter((value) => Boolean(String(value || "").trim())).length / fields.length * 100);
 }
 
 export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
@@ -34,6 +47,43 @@ export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
   const page = params.page || 1;
   const pageSize = params.pageSize || 25;
   const offset = (page - 1) * pageSize;
+
+  const [activeProfiles, [archivedRow], [attendedRow]] = await Promise.all([
+    db.select({
+      id: ustadzProfiles.id,
+      normalizedName: ustadzProfiles.normalizedName,
+      email: ustadzProfiles.email,
+      phone: ustadzProfiles.phone,
+      whatsapp: ustadzProfiles.whatsapp,
+      address: ustadzProfiles.address,
+      cityCode: ustadzProfiles.cityCode,
+      provinceCode: ustadzProfiles.provinceCode,
+      educationSummary: ustadzProfiles.educationSummary,
+      expertiseSummary: ustadzProfiles.expertiseSummary,
+      profileStatus: ustadzProfiles.profileStatus,
+    }).from(ustadzProfiles).where(isNull(ustadzProfiles.deletedAt)),
+    db.select({ total: count() }).from(ustadzProfiles).where(isNotNull(ustadzProfiles.deletedAt)),
+    db.select({ total: countDistinct(eventParticipants.ustadzId) })
+      .from(eventParticipants)
+      .innerJoin(attendanceRecords, eq(attendanceRecords.participantId, eventParticipants.id))
+      .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
+      .where(and(isNull(ustadzProfiles.deletedAt), inArray(attendanceRecords.attendanceStatus, ["PRESENT", "LATE"]))),
+  ]);
+  const duplicateKeys = new Map<string, Set<string>>();
+  for (const profile of activeProfiles) {
+    if (profile.profileStatus !== "ACTIVE") continue;
+    for (const key of [profile.normalizedName && `name:${profile.normalizedName}`,
+      profile.email && `email:${profile.email}`, profile.phone && `phone:${profile.phone}`]) {
+      if (!key) continue;
+      const ids = duplicateKeys.get(key) || new Set<string>();
+      ids.add(profile.id);
+      duplicateKeys.set(key, ids);
+    }
+  }
+  const hasDuplicate = (profile: Pick<typeof activeProfiles[number], "id" | "normalizedName" | "email" | "phone">) =>
+    [profile.normalizedName && `name:${profile.normalizedName}`,
+      profile.email && `email:${profile.email}`, profile.phone && `phone:${profile.phone}`]
+      .some((key) => key && [...(duplicateKeys.get(key) || [])].some((id) => id !== profile.id));
 
   const conditions = [params.profileStatus === "ARCHIVED"
     ? isNotNull(ustadzProfiles.deletedAt) : isNull(ustadzProfiles.deletedAt)];
@@ -63,6 +113,27 @@ export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
     conditions.push(eq(ustadzProfiles.profileStatus, params.profileStatus));
   }
 
+  if (params.institutionId) {
+    conditions.push(inArray(ustadzProfiles.id, db.select({ id: ustadzInstitutionAffiliations.ustadzId })
+      .from(ustadzInstitutionAffiliations)
+      .where(and(eq(ustadzInstitutionAffiliations.institutionId, params.institutionId),
+        eq(ustadzInstitutionAffiliations.status, "ACTIVE")))));
+  }
+
+  if (params.quality || params.duplicate) {
+    const matchingIds = activeProfiles.filter((profile) =>
+      (!params.quality || getUstadzCompletenessPercent(profile) < 70) &&
+      (!params.duplicate || hasDuplicate(profile))).map((profile) => profile.id);
+    conditions.push(inArray(ustadzProfiles.id, matchingIds));
+  }
+
+  if (params.participation === "attended") {
+    conditions.push(inArray(ustadzProfiles.id, db.select({ id: eventParticipants.ustadzId })
+      .from(eventParticipants)
+      .innerJoin(attendanceRecords, eq(attendanceRecords.participantId, eventParticipants.id))
+      .where(inArray(attendanceRecords.attendanceStatus, ["PRESENT", "LATE"]))));
+  }
+
   const whereClause = and(...conditions);
 
   const [dataResult, countResult] = await Promise.all([
@@ -82,7 +153,7 @@ export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
   const total = countResult[0]?.total || 0;
   const pageCount = Math.ceil(total / pageSize);
   const profileIds = dataResult.map((profile) => profile.id);
-  const [affiliationRows, activeProfiles, [archivedRow]] = await Promise.all([
+  const affiliationRows = await (
     profileIds.length
       ? db
           .select({
@@ -102,52 +173,19 @@ export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
               eq(ustadzInstitutionAffiliations.status, "ACTIVE"),
             ),
           )
-      : Promise.resolve([]),
-    db
-      .select({
-        id: ustadzProfiles.id,
-        normalizedName: ustadzProfiles.normalizedName,
-        email: ustadzProfiles.email,
-        phone: ustadzProfiles.phone,
-        whatsapp: ustadzProfiles.whatsapp,
-        address: ustadzProfiles.address,
-        profileStatus: ustadzProfiles.profileStatus,
-      })
-      .from(ustadzProfiles)
-      .where(isNull(ustadzProfiles.deletedAt)),
-    db.select({ total: count() }).from(ustadzProfiles).where(isNotNull(ustadzProfiles.deletedAt)),
-  ]);
+      : Promise.resolve([])
+  );
 
   const data = dataResult.map((profile) => {
     const affiliations = affiliationRows.filter((row) => row.ustadzId === profile.id);
     const primaryInstitution = affiliations.find((row) => row.isPrimary) || affiliations[0] || null;
-    const hasDuplicateAlert = activeProfiles.some(
-      (candidate) =>
-        candidate.id !== profile.id &&
-        candidate.profileStatus === "ACTIVE" &&
-        (
-          candidate.normalizedName === profile.normalizedName ||
-          (profile.email && candidate.email === profile.email) ||
-          (profile.phone && candidate.phone === profile.phone)
-        ),
-    );
-    const completenessFields = [
-      profile.email,
-      profile.whatsapp || profile.phone,
-      profile.address,
-      profile.cityCode,
-      profile.provinceCode,
-      profile.educationSummary,
-      profile.expertiseSummary,
-    ];
+    const hasDuplicateAlert = hasDuplicate(profile);
     return {
       ...profile,
       primaryInstitution,
       affiliationCount: affiliations.length,
       hasDuplicateAlert,
-      completenessPercent: Math.round(
-        (completenessFields.filter((value) => Boolean(String(value || "").trim())).length / completenessFields.length) * 100,
-      ),
+      completenessPercent: getUstadzCompletenessPercent(profile),
     };
   });
 
@@ -156,23 +194,10 @@ export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
     active: activeProfiles.filter((profile) => profile.profileStatus === "ACTIVE").length,
     inactive: activeProfiles.filter((profile) => profile.profileStatus === "INACTIVE").length,
     merged: activeProfiles.filter((profile) => profile.profileStatus === "MERGED").length,
-    incomplete: activeProfiles.filter(
-      (profile) => !profile.email || !(profile.whatsapp || profile.phone) || !profile.address,
-    ).length,
-    duplicateCandidates: activeProfiles.filter((profile, index, source) =>
-      source.some(
-        (candidate, candidateIndex) =>
-          candidateIndex !== index &&
-          candidate.profileStatus === "ACTIVE" &&
-          profile.profileStatus === "ACTIVE" &&
-          (
-            candidate.normalizedName === profile.normalizedName ||
-            (profile.email && candidate.email === profile.email) ||
-            (profile.phone && candidate.phone === profile.phone)
-          ),
-      ),
-    ).length,
+    incomplete: activeProfiles.filter((profile) => getUstadzCompletenessPercent(profile) < 70).length,
+    duplicateCandidates: activeProfiles.filter((profile) => profile.profileStatus === "ACTIVE" && hasDuplicate(profile)).length,
     archived: archivedRow?.total || 0,
+    attended: attendedRow?.total || 0,
   };
 
   return {
@@ -269,26 +294,13 @@ export async function findUstadzByIdRepository(id: string) {
   const activeAffiliations = affiliations.filter((affiliation) => affiliation.status === "ACTIVE");
   const primaryInstitution =
     activeAffiliations.find((affiliation) => affiliation.isPrimary) || activeAffiliations[0] || null;
-  const completenessFields = [
-    profile[0].email,
-    profile[0].whatsapp || profile[0].phone,
-    profile[0].address,
-    profile[0].cityCode,
-    profile[0].provinceCode,
-    profile[0].educationSummary,
-    profile[0].expertiseSummary,
-  ];
 
   return {
     ...profile[0],
     affiliations,
     primaryInstitution,
     affiliationCount: activeAffiliations.length,
-    completenessPercent: Math.round(
-      (completenessFields.filter((value) => Boolean(String(value || "").trim())).length /
-        completenessFields.length) *
-        100,
-    ),
+    completenessPercent: getUstadzCompletenessPercent(profile[0]),
     participationStats: {
       totalEvents: eventHistory.length,
       approved: eventHistory.filter((item) => item.approvalStatus === "APPROVED").length,

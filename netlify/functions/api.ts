@@ -78,6 +78,7 @@ import {
   updateEventSchema,
   transitionEventSchema,
   createEventDaySchema,
+  updateEventDaySchema,
   createEventSessionSchema,
   updateEventSessionSchema,
   assignCommitteeSchema,
@@ -95,6 +96,7 @@ import {
   updateEventService,
   transitionEventStatusService,
   addEventDayService,
+  updateEventDayService,
   addEventSessionService,
   updateEventSessionService,
 } from "./lib/services/eventService";
@@ -196,6 +198,7 @@ import {
 } from "./lib/services/participantQrService";
 import {
   getPortalOverviewService,
+  confirmOwnPortalAttendanceService,
   getPortalParticipantIdsService,
   getPortalParticipantQrService,
   getPortalDelegationService,
@@ -596,6 +599,13 @@ export const handler: Handler = async (event, _context) => {
       return buildSuccessResponse(overview, requestId);
     }
 
+    const portalConfirmMatch = path.match(/^\/portal\/participations\/([a-f0-9-]+)\/confirm$/i);
+    if (portalConfirmMatch && method === "POST") {
+      const session = requireAuth(userSession);
+      const confirmed = await confirmOwnPortalAttendanceService(session.userId, session.email, portalConfirmMatch[1], requestId);
+      return buildSuccessResponse(confirmed, requestId);
+    }
+
     if (path === "/portal/profile" && method === "PATCH") {
       const session = requireAuth(userSession);
       const body = event.body ? JSON.parse(event.body) : {};
@@ -708,6 +718,14 @@ export const handler: Handler = async (event, _context) => {
         null,
         201
       );
+    }
+
+    const editDayMatch = path.match(/^\/events\/([a-f0-9-]+)\/days\/([a-f0-9-]+)$/i);
+    if (editDayMatch && method === "PATCH") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "schedule.manage", editDayMatch[1]);
+      const validated = validateRequestData(updateEventDaySchema, event.body ? JSON.parse(event.body) : {});
+      return buildSuccessResponse(await updateEventDayService(editDayMatch[1], editDayMatch[2], validated, session.userId, requestId), requestId);
     }
 
     const eventSessionsMatch = path.match(/^\/events\/([a-f0-9-]+)\/sessions$/i);

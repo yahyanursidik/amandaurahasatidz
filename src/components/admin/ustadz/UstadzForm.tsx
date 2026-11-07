@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { AlertTriangle, CheckCircle2, Loader2, Save, SearchCheck } from "lucide-react";
-import { institutionApi, Institution } from "@/lib/institutionApi";
+import { Institution, listAllActiveInstitutions } from "@/lib/institutionApi";
+import { institutionCities, institutionProvinces } from "@/lib/institutionRegion";
 import {
   UstadzFormValues,
   UstadzProfile,
@@ -47,6 +48,8 @@ export const UstadzForm: React.FC<UstadzFormProps> = ({
   const [institutions, setInstitutions] = useState<Institution[]>([]);
   const [duplicates, setDuplicates] = useState<UstadzProfile[]>([]);
   const [checkingDuplicates, setCheckingDuplicates] = useState(false);
+  const [duplicateError, setDuplicateError] = useState("");
+  const [institutionError, setInstitutionError] = useState("");
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -57,21 +60,24 @@ export const UstadzForm: React.FC<UstadzFormProps> = ({
 
   useEffect(() => {
     if (mode !== "create") return;
-    const params = new URLSearchParams({ page: "1", pageSize: "100", status: "ACTIVE" });
-    institutionApi
-      .list(params)
-      .then((response) => setInstitutions(response.data))
-      .catch(() => setInstitutions([]));
+    let active = true;
+    listAllActiveInstitutions()
+      .then((items) => { if (active) setInstitutions(items); })
+      .catch((cause) => { if (active) setInstitutionError(cause instanceof Error ? cause.message : "Daftar lembaga gagal dimuat."); });
+    return () => { active = false; };
   }, [mode]);
 
   useEffect(() => {
     const name = values.fullName.trim();
     if (name.length < 3) {
       setDuplicates([]);
+      setDuplicateError("");
       return;
     }
+    let active = true;
     const timer = window.setTimeout(async () => {
       setCheckingDuplicates(true);
+      setDuplicateError("");
       try {
         const result = await ustadzApi.findDuplicates({
           fullName: name,
@@ -79,14 +85,14 @@ export const UstadzForm: React.FC<UstadzFormProps> = ({
           phone: values.phone || null,
           excludeId: profileId || null,
         });
-        setDuplicates(result);
-      } catch {
-        setDuplicates([]);
+        if (active) setDuplicates(result);
+      } catch (cause) {
+        if (active) { setDuplicates([]); setDuplicateError(cause instanceof Error ? cause.message : "Pemeriksaan duplikat gagal."); }
       } finally {
-        setCheckingDuplicates(false);
+        if (active) setCheckingDuplicates(false);
       }
     }, 450);
-    return () => window.clearTimeout(timer);
+    return () => { active = false; window.clearTimeout(timer); };
   }, [profileId, values.email, values.fullName, values.phone]);
 
   const update = <K extends keyof UstadzFormValues>(key: K, value: UstadzFormValues[K]) => {
@@ -244,22 +250,24 @@ export const UstadzForm: React.FC<UstadzFormProps> = ({
             <small>{contactHint}</small>
           </label>
           <label className="ustadz-field">
-            <span>Kode kota/kabupaten</span>
-            <input
-              className={fieldClass}
-              value={values.cityCode}
-              onChange={(event) => update("cityCode", event.target.value)}
-              placeholder="Kode wilayah"
-            />
-          </label>
-          <label className="ustadz-field">
-            <span>Kode provinsi</span>
-            <input
+            <span>Provinsi</span>
+            <select
               className={fieldClass}
               value={values.provinceCode}
-              onChange={(event) => update("provinceCode", event.target.value)}
-              placeholder="Kode provinsi"
-            />
+              onChange={(event) => setValues((current) => ({ ...current, provinceCode: event.target.value, cityCode: "" }))}
+            >
+              <option value="">Pilih provinsi</option>
+              {values.provinceCode && !institutionProvinces.some((item) => item.code === values.provinceCode) && <option value={values.provinceCode}>{values.provinceCode} (data lama)</option>}
+              {institutionProvinces.map((item) => <option key={item.code} value={item.code}>{item.name}</option>)}
+            </select>
+          </label>
+          <label className="ustadz-field">
+            <span>Kota/kabupaten</span>
+            <select className={fieldClass} value={values.cityCode} onChange={(event) => update("cityCode", event.target.value)} disabled={!values.provinceCode}>
+              <option value="">Pilih kota/kabupaten</option>
+              {values.cityCode && !institutionCities(values.provinceCode).some((item) => item.id === values.cityCode) && <option value={values.cityCode}>{values.cityCode} (data lama)</option>}
+              {institutionCities(values.provinceCode).map((item) => <option key={item.id} value={item.id}>{item.city}</option>)}
+            </select>
           </label>
           <label className="ustadz-field ustadz-field--wide">
             <span>Alamat</span>
@@ -330,6 +338,7 @@ export const UstadzForm: React.FC<UstadzFormProps> = ({
                   </option>
                 ))}
               </select>
+              {institutionError && <small role="alert" className="text-rose-800">Daftar lembaga belum tersedia: {institutionError}</small>}
             </label>
             <label className="ustadz-field">
               <span>Posisi di lembaga</span>
@@ -389,6 +398,10 @@ export const UstadzForm: React.FC<UstadzFormProps> = ({
             <p>
               {checkingDuplicates
                 ? "Memeriksa nama dan kontak…"
+                : duplicateError
+                  ? `Pemeriksaan belum berhasil: ${duplicateError}`
+                : values.fullName.trim().length < 3
+                  ? "Isi minimal 3 karakter nama untuk memeriksa profil serupa."
                 : duplicates.length > 0
                   ? `${duplicates.length} profil serupa ditemukan. Periksa sebelum menyimpan.`
                   : "Tidak ada indikasi duplikat dari data yang telah diisi."}
@@ -427,7 +440,7 @@ export const UstadzForm: React.FC<UstadzFormProps> = ({
       )}
 
       <div className="ustadz-form__actions">
-        <button type="button" onClick={() => navigate(-1)} className="ustadz-button ustadz-button--secondary">
+        <button type="button" onClick={() => navigate(mode === "edit" && profileId ? `/admin/ustadz/${profileId}` : "/admin/ustadz")} className="ustadz-button ustadz-button--secondary">
           Batal
         </button>
         <button type="submit" className="ustadz-button ustadz-button--primary" disabled={saving}>

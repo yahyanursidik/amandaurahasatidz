@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { Building2, Contact, MapPinned, Save, ShieldCheck, Loader2 } from "lucide-react";
 import { InstitutionFormValues } from "@/lib/institutionApi";
+import { institutionCities, institutionProvinces } from "@/lib/institutionRegion";
 
 export const emptyInstitutionValues: InstitutionFormValues = {
   code: "",
@@ -77,6 +78,7 @@ export const InstitutionForm: React.FC<InstitutionFormProps> = ({
   const [values, setValues] = useState(initialValues);
   const update = (name: keyof InstitutionFormValues, value: string) =>
     setValues((current) => ({ ...current, [name]: value }));
+  const cities = institutionCities(values.provinceCode);
 
   return (
     <form
@@ -107,6 +109,8 @@ export const InstitutionForm: React.FC<InstitutionFormProps> = ({
               <option>Rumah Qur&apos;an</option>
               <option>Masjid / Majelis</option>
               <option>Lembaga Pendidikan</option>
+              <option value="SCHOOL">Sekolah</option>
+              <option value="COMMUNITY">Komunitas / majelis</option>
               <option>Lainnya</option>
             </select>
             <small>&nbsp;</small>
@@ -139,8 +143,16 @@ export const InstitutionForm: React.FC<InstitutionFormProps> = ({
           </div>
         </div>
         <div className="institution-form__grid">
-          <Field label="Kode provinsi" name="provinceCode" value={values.provinceCode} onChange={update} placeholder="32" />
-          <Field label="Kode kota/kabupaten" name="cityCode" value={values.cityCode} onChange={update} placeholder="3273" />
+          <label className="institution-field"><span>Provinsi</span><select name="provinceCode" value={values.provinceCode} onChange={(event) => setValues((current) => ({ ...current, provinceCode: event.target.value, cityCode: "" }))}>
+            <option value="">Pilih provinsi</option>
+            {values.provinceCode && !institutionProvinces.some((item) => item.code === values.provinceCode) && <option value={values.provinceCode}>Kode lama: {values.provinceCode}</option>}
+            {institutionProvinces.map((province) => <option key={province.code} value={province.code}>{province.name}</option>)}
+          </select><small>Pilih provinsi sebelum kabupaten/kota.</small></label>
+          <label className="institution-field"><span>Kabupaten/kota</span><select name="cityCode" value={values.cityCode} disabled={!values.provinceCode} onChange={(event) => update("cityCode", event.target.value)}>
+            <option value="">Pilih kabupaten/kota</option>
+            {values.cityCode && !cities.some((city) => city.id === values.cityCode) && <option value={values.cityCode}>Kode lama: {values.cityCode}</option>}
+            {cities.map((city) => <option key={city.id} value={city.id}>{city.city}</option>)}
+          </select><small>{values.cityCode ? `Kode wilayah: ${values.cityCode}` : "Digunakan untuk laporan wilayah."}</small></label>
           <Field label="Kecamatan" name="district" value={values.district} onChange={update} />
           <Field label="Kode pos" name="postalCode" value={values.postalCode} onChange={update} />
           <label className="institution-field institution-field--wide">

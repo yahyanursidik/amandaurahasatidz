@@ -44,6 +44,14 @@ export async function getAdminDashboardMetricsService() {
     .from(eventParticipants)
     .where(eq(eventParticipants.approvalStatus, "PENDING_REVIEW"));
 
+  const pendingEventRes = await db
+    .select({ id: events.id, name: events.name })
+    .from(eventParticipants)
+    .innerJoin(events, eq(eventParticipants.eventId, events.id))
+    .where(eq(eventParticipants.approvalStatus, "PENDING_REVIEW"))
+    .orderBy(desc(events.startDate))
+    .limit(1);
+
   const totalAttendedRes = await db
     .select({ total: count() })
     .from(attendanceRecords)
@@ -78,6 +86,7 @@ export async function getAdminDashboardMetricsService() {
     totalResponsesCount: responsesRes[0]?.total || 0,
     approvedParticipantsCount: approvedParticipantsRes[0]?.total || 0,
     pendingParticipantsCount: pendingParticipantsRes[0]?.total || 0,
+    pendingEvent: pendingEventRes[0] || null,
     totalAttendedCount: totalAttendedRes[0]?.total || 0,
     failedEmailsCount: failedEmailsRes[0]?.total || 0,
     recentEvents,

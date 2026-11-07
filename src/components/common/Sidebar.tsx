@@ -13,6 +13,7 @@ export interface SidebarNavItem {
   description?: string;
   keywords?: string[];
   children?: SidebarNavItem[];
+  inactiveWhenQueryHas?: string[];
 }
 
 export interface SidebarCommandItem {
@@ -32,11 +33,16 @@ export interface SidebarProps {
   onSearchOpen?: () => void;
 }
 
-export const isNavigationItemActive = (pathname: string, item: SidebarNavItem): boolean => {
+export const isNavigationItemActive = (pathname: string, item: SidebarNavItem, search = ""): boolean => {
+  const [hrefPath, hrefQuery = ""] = item.href.split("?");
+  const currentQuery = new URLSearchParams(search);
+  const requiredQuery = new URLSearchParams(hrefQuery);
+  const queryMatches = [...requiredQuery].every(([key, value]) => currentQuery.get(key) === value) &&
+    !item.inactiveWhenQueryHas?.some((key) => currentQuery.has(key));
   const ownRouteActive = item.exact
-    ? pathname === item.href
-    : pathname === item.href || pathname.startsWith(`${item.href}/`);
-  return ownRouteActive || Boolean(item.children?.some((child) => isNavigationItemActive(pathname, child)));
+    ? pathname === hrefPath && queryMatches
+    : (pathname === hrefPath || pathname.startsWith(`${hrefPath}/`)) && queryMatches;
+  return ownRouteActive || Boolean(item.children?.some((child) => isNavigationItemActive(pathname, child, search)));
 };
 
 export const flattenSidebarNavItems = (items: SidebarNavItem[]): SidebarCommandItem[] => {
@@ -75,13 +81,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const location = useLocation();
   const [expandedHref, setExpandedHref] = useState<string | null>(() =>
-    items.find((item) => item.children?.length && isNavigationItemActive(location.pathname, item))?.href || null,
+    items.find((item) => item.children?.length && isNavigationItemActive(location.pathname, item, location.search))?.href || null,
   );
 
   useEffect(() => {
-    const activeGroup = items.find((item) => item.children?.length && isNavigationItemActive(location.pathname, item));
+    const activeGroup = items.find((item) => item.children?.length && isNavigationItemActive(location.pathname, item, location.search));
     if (activeGroup) setExpandedHref(activeGroup.href);
-  }, [items, location.pathname]);
+  }, [items, location.pathname, location.search]);
 
   return (
     <aside
@@ -112,7 +118,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
       <nav aria-label={title} className="space-y-1">
         {items.map((item) => {
-          const isActive = isNavigationItemActive(location.pathname, item);
+          const isActive = isNavigationItemActive(location.pathname, item, location.search);
           const hasChildren = Boolean(item.children?.length);
           const isExpanded = expandedHref === item.href;
 
@@ -123,7 +129,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   to={item.href}
                   onClick={onNavigate}
                   title={!mobile ? item.label : undefined}
-                  aria-current={isActive ? "page" : undefined}
+                  aria-current={isActive && location.pathname === item.href && !location.search ? "page" : undefined}
                   className={cn(
                     "app-sidebar__link flex min-h-[48px] min-w-0 flex-1 items-center px-3 py-2.5",
                     mobile ? "gap-3" : "justify-center xl:justify-start xl:gap-3",
@@ -153,7 +159,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               {hasChildren && isExpanded && (
                 <ul className={cn("app-sidebar__submenu", !mobile && "hidden xl:block")}>
                   {item.children?.map((child) => {
-                    const childActive = isNavigationItemActive(location.pathname, child);
+                    const childActive = isNavigationItemActive(location.pathname, child, location.search);
                     return (
                       <li key={child.href}>
                         <Link

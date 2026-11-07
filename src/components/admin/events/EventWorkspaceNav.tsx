@@ -45,13 +45,14 @@ export const EventWorkspaceNav: React.FC<Props> = ({ eventId }) => {
     if (item.label === "Peserta") {
       return location.pathname.includes("/registrations") && location.search.includes("view=participants");
     }
-    return item.exact ? location.pathname === targetPath : location.pathname === targetPath;
+    if (item.label === "Kehadiran") return location.pathname.startsWith(targetPath);
+    return location.pathname === targetPath;
   });
 
   return (
     <div className="sticky top-16 z-20 mb-6 border-y border-slate-200 bg-white/95 shadow-sm backdrop-blur-sm">
-      <label className="block p-3 lg:hidden">
-        <span className="sr-only">Pilih submodul event</span>
+      <label className="block p-3 xl:hidden">
+        <span className="mb-1 block text-sm font-bold text-slate-700">Area kerja event</span>
         <select
           value={current?.href || items[0].href}
           onChange={(event) => navigate(event.target.value)}
@@ -62,7 +63,7 @@ export const EventWorkspaceNav: React.FC<Props> = ({ eventId }) => {
           ))}
         </select>
       </label>
-      <nav aria-label="Submenu pengelolaan event" className="hidden overflow-x-auto lg:flex">
+      <nav aria-label="Submenu pengelolaan event" className="hidden overflow-x-auto xl:flex">
         {items.map((item) => {
           const ItemIcon = item.icon;
           const active = current?.label === item.label;

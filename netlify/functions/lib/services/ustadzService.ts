@@ -209,8 +209,20 @@ export async function mergeUstadzProfilesService(
   const sourceProfile = await getUstadzByIdService(sourceUstadzId);
   const targetProfile = await getUstadzByIdService(targetUstadzId);
 
+  if (sourceProfile.deletedAt || targetProfile.deletedAt) {
+    throw new ConflictError("Profil yang diarsipkan tidak dapat digabungkan. Pulihkan profil terlebih dahulu.");
+  }
+  if (targetProfile.profileStatus !== "ACTIVE") {
+    throw new ConflictError("Profil target harus berstatus aktif.");
+  }
   if (sourceProfile.profileStatus === "MERGED") {
     throw new ConflictError(`Profil sumber ID ${sourceUstadzId} sudah dalam status MERGED.`);
+  }
+
+  const targetEventIds = new Set(targetProfile.eventHistory.map((event) => event.eventId));
+  const overlappingEvent = sourceProfile.eventHistory.find((event) => targetEventIds.has(event.eventId));
+  if (overlappingEvent) {
+    throw new ConflictError(`Kedua profil sudah terdaftar pada event ${overlappingEvent.eventName}. Tinjau pendaftaran ganda sebelum menggabungkan profil.`);
   }
 
   const result = await mergeUstadzProfilesTxRepository(

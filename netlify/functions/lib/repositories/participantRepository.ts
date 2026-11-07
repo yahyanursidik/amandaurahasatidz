@@ -232,7 +232,11 @@ export async function updateParticipantStatusRepository(
 
   const updated = await db
     .update(eventParticipants)
-    .set({ confirmationStatus: toStatus, updatedAt: new Date() })
+    .set({
+      confirmationStatus: toStatus,
+      ...(toStatus === "CONFIRMED" ? { confirmedAt: new Date() } : {}),
+      updatedAt: new Date(),
+    })
     .where(eq(eventParticipants.id, participantId))
     .returning();
 

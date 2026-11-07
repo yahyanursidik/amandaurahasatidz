@@ -36,6 +36,23 @@ describe("admin navigation information architecture", () => {
     expect(isNavigationItemActive("/admin/ustadz/merge", ustadzMenu!)).toBe(true);
   });
 
+  it("keeps Asatidz sidebar filters distinct and hides write actions for read-only roles", () => {
+    const children = getAdminNavItems("/admin/ustadz", false)
+      .find((item) => item.href === "/admin/ustadz")?.children || [];
+    const active = children.filter((item) => isNavigationItemActive("/admin/ustadz", item, "?participation=attended&search=Ahmad"));
+    expect(active.map((item) => item.label)).toEqual(["Pernah hadir"]);
+    expect(children.some((item) => item.href === "/admin/ustadz/create")).toBe(false);
+    expect(children.some((item) => item.href === "/admin/ustadz/merge")).toBe(false);
+    expect(children.some((item) => item.href === "/admin/ustadz?profileStatus=ARCHIVED")).toBe(true);
+  });
+
+  it("shows create but not merge to an administrator without merge permission", () => {
+    const children = getAdminNavItems("/admin/ustadz", true, false)
+      .find((item) => item.href === "/admin/ustadz")?.children || [];
+    expect(children.some((item) => item.href === "/admin/ustadz/create")).toBe(true);
+    expect(children.some((item) => item.href === "/admin/ustadz/merge")).toBe(false);
+  });
+
   it("flattens nested navigation into unique command-menu destinations", () => {
     const commandItems = flattenSidebarNavItems(getAdminNavItems("/admin"));
     const hrefs = commandItems.map((item) => item.href);

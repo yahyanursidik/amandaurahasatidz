@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { EventForm, EventFormValues } from "@/components/admin/events/EventForm";
 import { EventWorkspaceNav } from "@/components/admin/events/EventWorkspaceNav";
 import { eventApi } from "@/lib/eventApi";
+import { fromEventIso, toEventIso } from "@/lib/eventDateTime";
 
 export const EventEditPage: React.FC = () => {
   const navigate = useNavigate();
@@ -63,10 +64,10 @@ export const EventEditPage: React.FC = () => {
           timezone: event.timezone || "Asia/Jakarta",
           startDate: event.startDate || "",
           endDate: event.endDate || "",
-          registrationOpenAt: event.registrationOpenAt ? String(event.registrationOpenAt).slice(0, 16) : "",
-          registrationCloseAt: event.registrationCloseAt ? String(event.registrationCloseAt).slice(0, 16) : "",
-          invitationResponseDeadline: event.invitationResponseDeadline ? String(event.invitationResponseDeadline).slice(0, 16) : "",
-          attendanceConfirmationDeadline: event.attendanceConfirmationDeadline ? String(event.attendanceConfirmationDeadline).slice(0, 16) : "",
+          registrationOpenAt: fromEventIso(event.registrationOpenAt, event.timezone),
+          registrationCloseAt: fromEventIso(event.registrationCloseAt, event.timezone),
+          invitationResponseDeadline: fromEventIso(event.invitationResponseDeadline, event.timezone),
+          attendanceConfirmationDeadline: fromEventIso(event.attendanceConfirmationDeadline, event.timezone),
           attendanceConfirmationRequired: event.attendanceConfirmationRequired !== false,
           lateConfirmationPolicy: event.lateConfirmationPolicy || "BLOCK",
           venueName: event.venueName || "",
@@ -97,6 +98,10 @@ export const EventEditPage: React.FC = () => {
         method: "PATCH",
         body: JSON.stringify({
           ...nextValues,
+          registrationOpenAt: toEventIso(nextValues.registrationOpenAt, nextValues.timezone),
+          registrationCloseAt: toEventIso(nextValues.registrationCloseAt, nextValues.timezone),
+          invitationResponseDeadline: toEventIso(nextValues.invitationResponseDeadline, nextValues.timezone),
+          attendanceConfirmationDeadline: toEventIso(nextValues.attendanceConfirmationDeadline, nextValues.timezone),
           code: undefined,
           slug: undefined,
           capacity: nextValues.capacity ? Number(nextValues.capacity) : null,

@@ -4,7 +4,6 @@ import { AlertTriangle, Loader2 } from "lucide-react";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { PageHeader } from "@/components/common/PageHeader";
 import { UstadzForm } from "@/components/admin/ustadz/UstadzForm";
-import { UstadzWorkspaceNav } from "@/components/admin/ustadz/UstadzWorkspaceNav";
 import { UstadzProfile, ustadzApi } from "@/lib/ustadzApi";
 import { getUstadzPreviewProfile } from "@/lib/ustadzPreview";
 
@@ -63,7 +62,6 @@ export const UstadzEditPage: React.FC = () => {
             { label: "Edit profil" },
           ]}
         />
-        <UstadzWorkspaceNav />
         {!profile && !error && (
           <div className="ustadz-loading" role="status">
             <Loader2 className="animate-spin" aria-hidden="true" />

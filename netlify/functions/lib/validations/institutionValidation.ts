@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 export const createInstitutionSchema = z.object({
-  code: z.string().min(2, "Kode lembaga minimal 2 karakter").max(50),
-  name: z.string().min(3, "Nama lembaga minimal 3 karakter"),
+  code: z.string().trim().min(2, "Kode lembaga minimal 2 karakter").max(50),
+  name: z.string().trim().min(3, "Nama lembaga minimal 3 karakter"),
   legalName: z.string().optional().nullable(),
   institutionType: z.string().optional().nullable(),
   email: z.string().email("Format email tidak valid").optional().nullable(),

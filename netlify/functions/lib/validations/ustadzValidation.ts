@@ -63,6 +63,9 @@ export const queryUstadzSchema = z.object({
   cityCode: z.string().optional(),
   provinceCode: z.string().optional(),
   profileStatus: z.enum(["ACTIVE", "INACTIVE", "MERGED", "ARCHIVED"]).optional(),
+  quality: z.literal("incomplete").optional(),
+  duplicate: z.literal("true").optional(),
+  participation: z.literal("attended").optional(),
   page: z.coerce.number().min(1).default(1),
   pageSize: z.coerce.number().min(1).max(100).default(25),
 });

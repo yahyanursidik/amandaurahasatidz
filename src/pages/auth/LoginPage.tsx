@@ -24,7 +24,7 @@ import {
 } from "lucide-react";
 import { AppFooter } from "@/components/common/AppFooter";
 import { ENV } from "@/config/env";
-import { ruangAsatidzLoginReturnPath } from "@/lib/ruangAsatidzLogin";
+import { portalLoginReturnPath } from "@/lib/portalLoginReturn";
 
 type PortalCode = "admin" | "committee" | "ustadz";
 
@@ -36,35 +36,35 @@ const portalConfig: Record<
     headline: string;
     description: string;
     helper: string;
-    guide: string;
+    task: string;
     icon: React.ComponentType<{ className?: string }>;
   }
 > = {
   admin: {
     name: "Portal Admin",
     eyebrow: "Administrasi sistem",
-    headline: "Kendali penuh untuk daurah yang tertata.",
-    description: "Kelola event, lembaga, undangan, data asatidz, dan laporan dari satu ruang kerja.",
-    helper: "Akses khusus administrator dan pengelola event.",
-    guide: "Siapkan email dan password akun admin. Setelah masuk, Anda dapat meninjau program, pendaftaran, dan laporan.",
+    headline: "Program tertata, amanah terjaga.",
+    description: "Program, lembaga, undangan, dan laporan dalam satu ruang kerja.",
+    helper: "Masuk untuk mengelola program dan data daurah.",
+    task: "Kelola program dan undangan",
     icon: ShieldCheck,
   },
   committee: {
     name: "Portal Panitia",
     eyebrow: "Operasional lapangan",
-    headline: "Pelayanan peserta, cepat dan terukur.",
-    description: "Tangani check-in, kehadiran, dan informasi acara tanpa membuka data administrasi yang tidak diperlukan.",
-    helper: "Akses khusus panitia yang ditugaskan pada event.",
-    guide: "Gunakan akun panitia yang sudah ditugaskan. Tugas check-in dan presensi akan tampil sesuai kewenangan Anda.",
+    headline: "Siap melayani di hari acara.",
+    description: "Pendaftaran, check-in, dan presensi sesuai tugas panitia.",
+    helper: "Masuk dengan akun panitia yang ditugaskan.",
+    task: "Buka tugas dan presensi",
     icon: ClipboardCheck,
   },
   ustadz: {
     name: "Portal Asatidz",
     eyebrow: "Peserta daurah",
-    headline: "Informasi daurah dalam satu ruang pribadi.",
-    description: "Akses jadwal, kartu peserta, QR kehadiran, pengumuman, dan riwayat presensi Anda.",
-    helper: "Gunakan akun pribadi yang terdaftar sebagai peserta.",
-    guide: "Sudah didaftarkan lembaga atau mendaftar reguler? Gunakan email peserta yang sama. Jika belum punya password, pilih aktivasi akun di bawah.",
+    headline: "Daurah Anda, mudah diikuti.",
+    description: "Status pendaftaran, jadwal, QR, dan riwayat kehadiran pribadi.",
+    helper: "Gunakan email pribadi yang didaftarkan ke program.",
+    task: "Lihat status dan QR pribadi",
     icon: BookOpen,
   },
 };
@@ -86,6 +86,8 @@ export const LoginPage: React.FC = () => {
   const [error, setError] = useState("");
   const [isPending, setIsPending] = useState(false);
   const [activationOpen, setActivationOpen] = useState(false);
+  const [activationEmail, setActivationEmail] = useState("");
+  const [requestedEmail, setRequestedEmail] = useState("");
   const [activationStep, setActivationStep] = useState<"request" | "complete" | "success">("request");
   const [activationPending, setActivationPending] = useState(false);
   const [activationError, setActivationError] = useState("");
@@ -104,6 +106,12 @@ export const LoginPage: React.FC = () => {
     setActivationOpen(false);
     setActivationStep("request");
     setActivationError("");
+    setActivationEmail("");
+    setRequestedEmail("");
+    setChallengeToken("");
+    setActivationCode("");
+    setNewPassword("");
+    setConfirmPassword("");
   }, [portal]);
 
   const readApiError = async (response: Response) => {
@@ -111,19 +119,21 @@ export const LoginPage: React.FC = () => {
     return payload.error?.message || "Permintaan akun tidak dapat diproses.";
   };
 
-  const requestActivation = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const sendActivationCode = async (address: string) => {
+    const normalizedEmail = address.trim().toLowerCase();
     setActivationPending(true);
     setActivationError("");
     try {
       const response = await fetch(`${ENV.API_BASE_URL}/auth/password/setup/request`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, portal }),
+        body: JSON.stringify({ email: normalizedEmail, portal }),
       });
       if (!response.ok) throw new Error(await readApiError(response));
       const payload = await response.json();
       setChallengeToken(payload.data.challengeToken);
+      setRequestedEmail(normalizedEmail);
+      setActivationCode("");
       setActivationStep("complete");
     } catch (activationRequestError) {
       setActivationError(
@@ -135,6 +145,16 @@ export const LoginPage: React.FC = () => {
       setActivationPending(false);
     }
   };
+
+  const requestActivation = (event: React.FormEvent) => {
+    event.preventDefault();
+    void sendActivationCode(activationEmail);
+  };
+
+  const loginDestination = (redirectTo?: string) =>
+    portalLoginReturnPath(portal, location.state?.from) ||
+    redirectTo ||
+    (portal === "committee" ? "/committee" : portal === "ustadz" ? "/portal" : "/admin");
 
   const completeActivation = async (event: React.FormEvent) => {
     event.preventDefault();
@@ -149,7 +169,7 @@ export const LoginPage: React.FC = () => {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email,
+          email: requestedEmail,
           portal,
           challengeToken,
           otp: activationCode,
@@ -157,7 +177,16 @@ export const LoginPage: React.FC = () => {
         }),
       });
       if (!response.ok) throw new Error(await readApiError(response));
-      setPassword(newPassword);
+      setEmail(requestedEmail);
+      const loginResult = await authProvider.login!({ email: requestedEmail, password: newPassword, portal });
+      setNewPassword("");
+      setConfirmPassword("");
+      setActivationCode("");
+      if (loginResult.success) {
+        window.location.replace(loginDestination(loginResult.redirectTo));
+        return;
+      }
+      setPassword("");
       setActivationStep("success");
     } catch (activationCompleteError) {
       setActivationError(
@@ -177,10 +206,7 @@ export const LoginPage: React.FC = () => {
     try {
       const result = await authProvider.login!({ email, password, portal });
       if (result.success) {
-        const destination =
-          ruangAsatidzLoginReturnPath(portal, location.state?.from) ||
-          result.redirectTo ||
-          (portal === "committee" ? "/committee" : portal === "ustadz" ? "/portal" : "/admin");
+        const destination = loginDestination(result.redirectTo);
         // A hard replace starts the protected workspace with a fresh Refine
         // authentication cache. SPA navigation can otherwise reuse the
         // anonymous result cached while the login page was open.
@@ -213,8 +239,8 @@ export const LoginPage: React.FC = () => {
           >
             <span className="login-brand__mark"><img src="/images/tarbiyah-sunnah-mark.svg" alt="" width="36" height="32" /></span>
             <span className="login-brand__copy">
-              <strong>Tarbiyah Sunnah</strong>
-              <span>Aman Daurah Asatidz</span>
+              <strong>Aman Daurah Asatidz</strong>
+              <span>Program Tarbiyah Sunnah</span>
             </span>
           </Link>
           <span className="login-nav__portal">
@@ -241,6 +267,7 @@ export const LoginPage: React.FC = () => {
             </span>
             <strong>{config.headline}</strong>
             <span>{config.description}</span>
+            <small>{config.task}</small>
           </figcaption>
         </figure>
 
@@ -256,8 +283,6 @@ export const LoginPage: React.FC = () => {
               </h1>
               <span>{config.helper}</span>
             </div>
-            <p className="login-portal-guide"><Info aria-hidden="true" />{config.guide}</p>
-
             <form onSubmit={handleSubmit} className="login-form__fields" aria-busy={isPending}>
               <div className="login-field">
                 <label htmlFor={`${portal}-email`}>
@@ -272,14 +297,13 @@ export const LoginPage: React.FC = () => {
                     autoComplete="email"
                     value={email}
                     onChange={(event) => setEmail(event.target.value)}
-                    placeholder="nama@lembaga.id"
+                    autoCapitalize="none"
+                    spellCheck={false}
+                    placeholder="nama@email.id"
                     disabled={isPending}
-                    aria-invalid={Boolean(error)}
+                    aria-invalid={Boolean(error) || undefined}
                   />
                 </div>
-                <p className="login-field__hint login-field__hint--reserved" aria-hidden="true">
-                  Gunakan email akun yang terdaftar.
-                </p>
               </div>
 
               <div className="login-field">
@@ -303,7 +327,7 @@ export const LoginPage: React.FC = () => {
                     onBlur={() => setCapsLockOn(false)}
                     placeholder="Masukkan password"
                     disabled={isPending}
-                    aria-invalid={Boolean(error)}
+                    aria-invalid={Boolean(error) || undefined}
                     aria-describedby={capsLockOn ? `${portal}-caps-lock` : undefined}
                   />
                   <button
@@ -360,11 +384,12 @@ export const LoginPage: React.FC = () => {
                 aria-expanded={activationOpen}
                 aria-controls={`${portal}-activation-panel`}
                 onClick={() => {
+                  if (!activationOpen) setActivationEmail(email);
                   setActivationOpen((current) => !current);
                   setActivationError("");
                 }}
               >
-                {activationOpen ? "Tutup aktivasi akun" : "Aktivasi atau atur ulang password"}
+                {activationOpen ? "Tutup bantuan akun" : "Aktivasi akun / lupa password"}
               </button>
 
               {activationOpen && (
@@ -372,12 +397,26 @@ export const LoginPage: React.FC = () => {
                   {activationStep === "request" && (
                     <form onSubmit={requestActivation} className="login-activation__form">
                       <div>
-                        <strong>Aktivasi akun</strong>
-                        <p>Kode 6 digit akan dikirim ke email akun yang terdaftar pada portal ini.</p>
+                        <strong>Terima kode lewat email</strong>
+                        <p>Untuk akun {config.name.replace("Portal ", "").toLowerCase()} yang sudah terdaftar.</p>
                       </div>
+                      <label className="login-activation__field">
+                        <span>Alamat email akun</span>
+                        <input
+                          type="email"
+                          required
+                          autoComplete="email"
+                          autoCapitalize="none"
+                          spellCheck={false}
+                          value={activationEmail}
+                          onChange={(event) => setActivationEmail(event.target.value)}
+                          disabled={activationPending}
+                          placeholder="nama@email.id"
+                        />
+                      </label>
                       <button type="submit" disabled={activationPending} className="login-activation__action">
                         {activationPending ? <Loader2 className="login-spinner" aria-hidden="true" /> : <Mail aria-hidden="true" />}
-                        {activationPending ? "Mengirim kode…" : "Kirim kode aktivasi"}
+                        {activationPending ? "Meminta kode…" : "Kirim kode ke email"}
                       </button>
                     </form>
                   )}
@@ -386,7 +425,7 @@ export const LoginPage: React.FC = () => {
                     <form onSubmit={completeActivation} className="login-activation__form">
                       <div>
                         <strong>Buat password baru</strong>
-                        <p>Kode berlaku 10 menit. Password minimal 10 karakter, memakai huruf besar, huruf kecil, dan angka.</p>
+                        <p>Kode untuk <strong>{requestedEmail}</strong> berlaku 10 menit.</p>
                       </div>
                       <label className="login-activation__field">
                         <span>Kode aktivasi</span>
@@ -396,6 +435,7 @@ export const LoginPage: React.FC = () => {
                           inputMode="numeric"
                           autoComplete="one-time-code"
                           pattern="[0-9]{6}"
+                          maxLength={6}
                           required
                           disabled={activationPending}
                         />
@@ -408,6 +448,7 @@ export const LoginPage: React.FC = () => {
                           onChange={(event) => setNewPassword(event.target.value)}
                           autoComplete="new-password"
                           minLength={10}
+                          maxLength={128}
                           required
                           disabled={activationPending}
                         />
@@ -420,14 +461,20 @@ export const LoginPage: React.FC = () => {
                           onChange={(event) => setConfirmPassword(event.target.value)}
                           autoComplete="new-password"
                           minLength={10}
+                          maxLength={128}
                           required
                           disabled={activationPending}
                         />
                       </label>
+                      <p className="login-activation__password-rule">Minimal 10 karakter, huruf besar, huruf kecil, dan angka.</p>
                       <button type="submit" disabled={activationPending} className="login-activation__action">
                         {activationPending ? <Loader2 className="login-spinner" aria-hidden="true" /> : <KeyRound aria-hidden="true" />}
-                        {activationPending ? "Menyimpan password…" : "Simpan password baru"}
+                        {activationPending ? "Menyimpan…" : "Simpan dan masuk"}
                       </button>
+                      <div className="login-activation__links">
+                        <button type="button" disabled={activationPending} onClick={() => void sendActivationCode(requestedEmail)}>Kirim ulang kode</button>
+                        <button type="button" disabled={activationPending} onClick={() => { setActivationStep("request"); setChallengeToken(""); setActivationCode(""); setActivationEmail(requestedEmail); setActivationError(""); }}>Ganti email</button>
+                      </div>
                     </form>
                   )}
 
@@ -436,7 +483,7 @@ export const LoginPage: React.FC = () => {
                       <CheckCircle2 aria-hidden="true" />
                       <div>
                         <strong>Password berhasil disimpan.</strong>
-                        <p>Email dan password baru sudah terisi pada formulir masuk.</p>
+                        <p>Masuk dengan email dan password baru Anda.</p>
                       </div>
                       <button
                         type="button"
@@ -456,16 +503,12 @@ export const LoginPage: React.FC = () => {
             </div>
 
             <div className="login-form__support">
-              <div className="login-form__verified">
-                <CheckCircle2 aria-hidden="true" />
-                <span>Akses akan diverifikasi berdasarkan peran akun dan jalur portal ini.</span>
-              </div>
               <Link
                 to="/"
                 className="login-back"
               >
                 <ArrowLeft aria-hidden="true" />
-                Lihat program daurah
+                {portal === "ustadz" ? "Cari program daurah" : "Lihat program daurah"}
               </Link>
             </div>
           </div>

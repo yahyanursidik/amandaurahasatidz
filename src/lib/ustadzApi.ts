@@ -102,6 +102,7 @@ export interface UstadzSummary {
   incomplete: number;
   duplicateCandidates: number;
   archived?: number;
+  attended?: number;
 }
 
 interface ApiResponse<T> {
@@ -144,6 +145,15 @@ const cleanPayload = (values: Partial<UstadzFormValues>) =>
 
 export const ustadzApi = {
   list: (params: URLSearchParams) => request<UstadzProfile[]>(`/ustadz?${params.toString()}`),
+  listAllUnmerged: async () => {
+    const profiles: UstadzProfile[] = [];
+    for (let page = 1; ; page += 1) {
+      const response = await request<UstadzProfile[]>(`/ustadz?${new URLSearchParams({ page: String(page), pageSize: "100" })}`);
+      profiles.push(...response.data.filter((profile) => profile.profileStatus !== "MERGED"));
+      if (page >= (response.meta?.pageCount ?? 1) || response.data.length === 0) break;
+    }
+    return profiles.sort((a, b) => a.fullName.localeCompare(b.fullName, "id-ID"));
+  },
   get: async (id: string) => (await request<UstadzProfile>(`/ustadz/${id}`)).data,
   archive: async (id: string) => (await request<{ id: string; archived: boolean; message: string }>(`/ustadz/${id}`, { method: "DELETE" })).data,
   restore: async (id: string) => (await request<{ id: string; archived: boolean; message: string }>(`/ustadz/${id}/restore`, { method: "POST" })).data,

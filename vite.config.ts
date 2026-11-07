@@ -99,6 +99,7 @@ export default defineConfig(({ mode }) => {
 
   return {
     plugins: [react(), localNetlifyApi()],
+    cacheDir: ".vite-cache",
     resolve: {
       alias: {
         "@": path.resolve(import.meta.dirname, "./src"),

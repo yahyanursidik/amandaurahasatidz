@@ -4,8 +4,7 @@ import {
   Archive,
   CircleAlert,
   ClipboardCheck,
-  GitMerge,
-  Plus,
+  UserCheck,
   UsersRound,
 } from "lucide-react";
 
@@ -13,24 +12,26 @@ const items = [
   { label: "Direktori", href: "/admin/ustadz", icon: UsersRound, exact: true },
   { label: "Perlu dilengkapi", href: "/admin/ustadz?quality=incomplete", icon: ClipboardCheck },
   { label: "Potensi duplikat", href: "/admin/ustadz?duplicate=true", icon: CircleAlert },
+  { label: "Pernah hadir", href: "/admin/ustadz?participation=attended", icon: UserCheck },
   { label: "Nonaktif", href: "/admin/ustadz?profileStatus=INACTIVE", icon: Archive },
-  { label: "Tambah profil", href: "/admin/ustadz/create", icon: Plus },
-  { label: "Gabungkan", href: "/admin/ustadz/merge", icon: GitMerge },
+  { label: "Arsip", href: "/admin/ustadz?profileStatus=ARCHIVED", icon: Archive },
 ];
 
 export const UstadzWorkspaceNav: React.FC = () => {
   const location = useLocation();
-  const current = `${location.pathname}${location.search}`;
+  const query = new URLSearchParams(location.search);
 
   return (
     <nav className="ustadz-workspace-nav" aria-label="Navigasi pengelolaan asatidz">
       <div className="ustadz-workspace-nav__scroll">
         {items.map((item) => {
           const Icon = item.icon;
+          const itemQuery = item.href.includes("?") ? new URLSearchParams(item.href.split("?")[1]) : null;
           const active = item.exact
-            ? current === item.href
-            : item.href.includes("?")
-              ? current === item.href
+            ? location.pathname === item.href && !query.has("quality") && !query.has("duplicate") && !query.has("participation") && !query.has("profileStatus")
+            : itemQuery
+              ? location.pathname === "/admin/ustadz" && [...itemQuery].every(([key, value]) => query.get(key) === value) &&
+                !["quality", "duplicate", "participation", "profileStatus"].some((key) => !itemQuery.has(key) && query.has(key))
               : location.pathname === item.href;
           return (
             <Link

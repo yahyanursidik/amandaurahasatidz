@@ -16,6 +16,7 @@ import { getParticipantQrTokenService } from "./participantQrService";
 import { replacePortalDelegationMemberTxRepository } from "../repositories/participantRepository";
 import { findOwnPortalProfileRepository, portalProfileOwnership } from "../repositories/portalProfileRepository";
 import { portalProfileResponse } from "./portalProfileService";
+import { updateParticipantStatusService } from "./participantService";
 
 function ownParticipantCondition(userId: string, ustadzId: string) {
   return and(eq(eventParticipants.ustadzId, ustadzId), sql`${eventParticipants.ustadzId} IN
@@ -85,6 +86,7 @@ export async function getPortalOverviewService(userId: string, email: string) {
         mapsUrl: events.mapsUrl,
         invitationResponseDeadline: events.invitationResponseDeadline,
         attendanceConfirmationDeadline: events.attendanceConfirmationDeadline,
+        attendanceConfirmationRequired: events.attendanceConfirmationRequired,
       })
       .from(eventParticipants)
       .innerJoin(events, eq(eventParticipants.eventId, events.id))
@@ -157,6 +159,44 @@ export async function getPortalOverviewService(userId: string, email: string) {
       ),
     })),
   };
+}
+
+export async function confirmOwnPortalAttendanceService(
+  userId: string,
+  email: string,
+  participantId: string,
+  requestId: string,
+) {
+  const ustadzId = await resolvePortalUstadzIdService(userId, email);
+  const db = getDbClient();
+  const owned = await db
+    .select({
+      id: eventParticipants.id,
+      confirmationStatus: eventParticipants.confirmationStatus,
+      approvalStatus: eventParticipants.approvalStatus,
+      eventStatus: events.status,
+    })
+    .from(eventParticipants)
+    .innerJoin(events, eq(eventParticipants.eventId, events.id))
+    .where(and(eq(eventParticipants.id, participantId), ownParticipantCondition(userId, ustadzId)))
+    .limit(1);
+  const participation = owned[0];
+  if (!participation) throw new NotFoundError("Kepesertaan tidak ditemukan pada akun Anda.");
+  if (["CANCELLED", "REPLACED"].includes(participation.confirmationStatus) ||
+      ["CANCELLED", "ARCHIVED"].includes(participation.eventStatus) ||
+      participation.approvalStatus === "DECLINED") {
+    throw new ForbiddenError("Kepesertaan ini tidak dapat dikonfirmasi. Hubungi panitia.");
+  }
+  if (participation.confirmationStatus !== "CONFIRMED") {
+    await updateParticipantStatusService(participantId, "CONFIRMED", "Konfirmasi hadir melalui portal asatidz.", userId, requestId);
+  }
+  const current = await db.select({
+    confirmationStatus: eventParticipants.confirmationStatus,
+    approvalStatus: eventParticipants.approvalStatus,
+    confirmedAt: eventParticipants.confirmedAt,
+  }).from(eventParticipants).where(eq(eventParticipants.id, participantId)).limit(1);
+  if (!current[0]) throw new NotFoundError("Kepesertaan tidak lagi tersedia. Muat ulang portal.");
+  return current[0];
 }
 
 export async function getPortalDelegationService(

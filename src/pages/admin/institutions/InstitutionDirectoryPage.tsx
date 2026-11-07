@@ -9,8 +9,9 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { EmptyState } from "@/components/common/EmptyState";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { InstitutionWorkspaceNav } from "@/components/admin/institutions/InstitutionWorkspaceNav";
-import { Institution, institutionApi } from "@/lib/institutionApi";
-import { Building2, CircleAlert, Download, Edit3, Eye, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from "lucide-react";
+import { Institution, institutionApi, institutionTypeLabel } from "@/lib/institutionApi";
+import { institutionRegionLabel } from "@/lib/institutionRegion";
+import { Building2, CircleAlert, Download, Edit3, Plus, RefreshCw, Search, ShieldCheck, Trash2 } from "lucide-react";
 
 export const InstitutionDirectoryPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -24,6 +25,8 @@ export const InstitutionDirectoryPage: React.FC = () => {
   const [pendingId, setPendingId] = useState("");
   const [refresh, setRefresh] = useState(0);
   const reloadKey = searchParams.toString();
+
+  useEffect(() => { setSearch(searchParams.get("search") || ""); }, [searchParams.get("search")]);
 
   useEffect(() => {
     if (search.trim() === (searchParams.get("search") || "")) return;
@@ -49,7 +52,7 @@ export const InstitutionDirectoryPage: React.FC = () => {
           setMeta({
             page: result.meta?.page || 1,
             pageCount: result.meta?.pageCount || 1,
-            total: result.meta?.total || result.data.length,
+            total: result.meta?.total ?? result.data.length,
           });
           setError("");
         })
@@ -89,10 +92,14 @@ export const InstitutionDirectoryPage: React.FC = () => {
     const rows = [["Kode", "Nama", "Jenis", "Email", "Telepon", "Status", "Verifikasi"], ...items.map((item) => [
       item.code, item.name, item.institutionType || "", item.email || "", item.phone || "", item.status, item.verificationStatus,
     ])];
-    const csv = rows.map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(",")).join("\n");
+    const csv = `\uFEFF${rows.map((row) => row.map((cell) => {
+      const value = String(cell);
+      const safeValue = /^[\s]*[=+@-]/.test(value) ? `'${value}` : value;
+      return `"${safeValue.replace(/"/g, '""')}"`;
+    }).join(",")).join("\n")}`;
     const link = document.createElement("a");
     link.href = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
-    link.download = "direktori-lembaga.csv";
+    link.download = `direktori-lembaga-halaman-${meta.page}.csv`;
     link.click();
     URL.revokeObjectURL(link.href);
   };
@@ -106,7 +113,7 @@ export const InstitutionDirectoryPage: React.FC = () => {
           description="Satu sumber data lembaga, kontak resmi, afiliasi asatidz, dan riwayat undangan."
           breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Lembaga" }]}
           actions={<>
-            <button className="institution-button institution-button--quiet" type="button" onClick={exportCsv} disabled={!items.length}><Download /> Ekspor CSV</button>
+            <button className="institution-button institution-button--quiet" type="button" onClick={exportCsv} disabled={!items.length}><Download /> Ekspor halaman ini</button>
             <Link className="institution-button institution-button--primary" to="/admin/institutions/create"><Plus /> Tambah lembaga</Link>
           </>}
         />
@@ -132,7 +139,7 @@ export const InstitutionDirectoryPage: React.FC = () => {
               <select aria-label="Filter verifikasi" value={searchParams.get("verificationStatus") || "ALL"} onChange={(event) => updateFilter("verificationStatus", event.target.value)}>
                 <option value="ALL">Semua verifikasi</option><option value="VERIFIED">Terverifikasi</option><option value="UNVERIFIED">Belum verifikasi</option>
               </select>
-               <button type="button" className="institution-icon-button" aria-label="Muat ulang" onClick={() => setRefresh((value) => value + 1)}><RefreshCw /></button>
+               <button type="button" className="institution-icon-button" aria-label="Muat ulang" disabled={loading} onClick={() => setRefresh((value) => value + 1)}><RefreshCw /></button>
             </div>
           </div>
 
@@ -147,11 +154,11 @@ export const InstitutionDirectoryPage: React.FC = () => {
                   <thead><tr><th>Lembaga</th><th>Kontak</th><th>Wilayah</th><th>Status</th><th><span className="sr-only">Aksi</span></th></tr></thead>
                   <tbody>{items.map((item) => (
                     <tr key={item.id}>
-                      <td data-label="Lembaga"><strong>{item.name}</strong><span>{item.code} · {item.institutionType || "Jenis belum diisi"}</span></td>
+                      <td data-label="Lembaga"><Link className="institution-table__name" to={`/admin/institutions/${item.id}`}>{item.name}</Link><span>{item.code} · {institutionTypeLabel(item.institutionType)}</span></td>
                       <td data-label="Kontak"><strong>{item.email || "Email belum diisi"}</strong><span>{item.whatsapp || item.phone || "Nomor belum diisi"}</span></td>
-                      <td data-label="Wilayah"><strong>{item.cityCode || "—"}</strong><span>{item.provinceCode ? `Provinsi ${item.provinceCode}` : "Wilayah belum lengkap"}</span></td>
+                      <td data-label="Wilayah"><strong>{institutionRegionLabel(item.cityCode, item.provinceCode).city}</strong><span>{institutionRegionLabel(item.cityCode, item.provinceCode).province}</span></td>
                       <td data-label="Status"><div className="institution-table__badges"><StatusBadge label={item.status === "ACTIVE" ? "Aktif" : "Nonaktif"} variant={item.status === "ACTIVE" ? "success" : "neutral"} /><StatusBadge label={item.verificationStatus === "VERIFIED" ? "Terverifikasi" : "Perlu verifikasi"} variant={item.verificationStatus === "VERIFIED" ? "success" : "warning"} /></div></td>
-                      <td data-label="Aksi"><div className="institution-table__actions"><Link to={`/admin/institutions/${item.id}`} aria-label={`Lihat ${item.name}`}><Eye /></Link><Link to={`/admin/institutions/${item.id}/edit`} aria-label={`Edit ${item.name}`}><Edit3 /></Link>{item.status === "ACTIVE" && <button type="button" disabled={Boolean(pendingId)} onClick={() => void deactivate(item)} aria-label={`Nonaktifkan dan hapus ${item.name} dari daftar aktif`} title="Nonaktifkan (riwayat tetap tersimpan)" className="inline-grid min-h-11 min-w-11 place-items-center rounded-lg text-rose-700 disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>}</div></td>
+                      <td data-label="Aksi"><div className="institution-table__actions"><Link to={`/admin/institutions/${item.id}?tab=invitations`}>Undangan</Link><Link to={`/admin/institutions/${item.id}/edit`} aria-label={`Edit ${item.name}`}><Edit3 /></Link>{item.status === "ACTIVE" && <button type="button" disabled={Boolean(pendingId)} onClick={() => void deactivate(item)} aria-label={`Nonaktifkan ${item.name}`} title="Nonaktifkan (riwayat tetap tersimpan)" className="inline-grid min-h-11 min-w-11 place-items-center rounded-lg text-rose-700 disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>}</div></td>
                     </tr>
                   ))}</tbody>
                 </table>

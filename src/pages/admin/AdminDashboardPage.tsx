@@ -1,11 +1,11 @@
-/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5
- * Hallmark · genre: modern-minimal · macrostructure: Ecosystem Index · tone: utilitarian-professional
- * audience: super admin operasional · primary use: event aktif dan pekerjaan mendesak
+/* Hallmark · pre-emit critique: P5 H4 E5 S5 R4 V4
+ * Hallmark · genre: modern-minimal · macrostructure: Workbench · design-system: design.md · designed-as-app
+ * audience: super admin operasional · primary use: event terpilih dan pekerjaan mendesak
  * nav: N13 command search inside persistent rail · footer: Ft2 · enrichment: none
  * contrast: pass (40–41) · slop: pass (42–49) · mobile: pass (34, 49–57)
  */
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Activity,
   AlertTriangle,
@@ -17,7 +17,6 @@ import {
   CheckCircle2,
   ClipboardCheck,
   Clock3,
-  Combine,
   FileClock,
   ListChecks,
   Mail,
@@ -26,7 +25,8 @@ import {
   RefreshCw,
   Search,
   ShieldCheck,
-  UserRoundCheck,
+  MapPinned,
+  HeartHandshake,
   Users,
   UsersRound,
 } from "lucide-react";
@@ -57,19 +57,17 @@ type Metrics = {
   openRegistrationsCount?: number;
   queuedEmailsCount?: number;
   recentEvents: RecentEvent[];
+  pendingEvent?: { id: string; name: string } | null;
 };
 
 type ActionItem = {
   title: string;
-  description: string;
-  href: string | null;
+  href: string;
   icon: React.ComponentType<{ className?: string }>;
-  keywords?: string;
 };
 
 type ActionGroup = {
   title: string;
-  description: string;
   items: ActionItem[];
 };
 
@@ -101,25 +99,26 @@ const formatDateRange = (event: RecentEvent) => {
   return `${formatShortDate(event.startDate)} – ${formatShortDate(event.endDate)}`;
 };
 
+export const getPendingReviewHref = (eventId?: string | null) => eventId
+  ? `/admin/events/${eventId}/registrations?view=participants&status=PENDING_REVIEW`
+  : "/admin/events";
+
 const AdminAction: React.FC<{ item: ActionItem }> = ({ item }) => {
   const content = (
     <>
       <span className="admin-action__icon" aria-hidden="true"><item.icon className="h-5 w-5" /></span>
       <span className="min-w-0 flex-1">
         <strong>{item.title}</strong>
-        <small>{item.description}</small>
       </span>
-      {item.href && <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />}
+      <ArrowRight className="h-4 w-4 shrink-0" aria-hidden="true" />
     </>
   );
 
-  if (!item.href) {
-    return <div className="admin-action is-disabled" aria-disabled="true" title="Pilih atau buat event terlebih dahulu">{content}</div>;
-  }
   return <Link to={item.href} className="admin-action">{content}</Link>;
 };
 
 export const AdminDashboardPage: React.FC = () => {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [metrics, setMetrics] = useState<Metrics | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -147,8 +146,14 @@ export const AdminDashboardPage: React.FC = () => {
     void loadMetrics();
   }, []);
 
-  const primaryEvent = metrics?.recentEvents?.[0] || null;
+  const selectedEventId = searchParams.get("event");
+  const primaryEvent = metrics?.recentEvents?.find((event) => event.id === selectedEventId) || metrics?.recentEvents?.[0] || null;
   const eventBase = primaryEvent ? `/admin/events/${primaryEvent.id}` : null;
+  const chooseEvent = (eventId: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set("event", eventId);
+    setSearchParams(next);
+  };
 
   const priorities = useMemo(() => {
     if (!metrics) return [];
@@ -156,8 +161,8 @@ export const AdminDashboardPage: React.FC = () => {
       metrics.pendingParticipantsCount > 0
         ? {
             label: `${metrics.pendingParticipantsCount} peserta menunggu tinjauan`,
-            description: "Periksa data dan tetapkan status persetujuan.",
-             href: "/admin/events",
+            description: metrics.pendingEvent ? `Mulai dari ${metrics.pendingEvent.name}.` : "Pilih event untuk meninjau peserta.",
+            href: getPendingReviewHref(metrics.pendingEvent?.id),
             tone: "warning" as StatusVariant,
           }
         : null,
@@ -172,71 +177,59 @@ export const AdminDashboardPage: React.FC = () => {
       metrics.activeEventsCount === 0
         ? {
             label: "Belum ada event aktif",
-            description: "Buat event atau terbitkan event yang masih berupa draf.",
-            href: "/admin/events/create",
+            description: metrics.recentEvents.some((event) => event.status === "DRAFT")
+              ? "Tinjau draf sebelum diterbitkan."
+              : "Buat event daurah pertama.",
+            href: metrics.recentEvents.some((event) => event.status === "DRAFT")
+              ? "/admin/events?status=DRAFT"
+              : "/admin/events/create",
             tone: "neutral" as StatusVariant,
           }
         : null,
     ].filter(Boolean) as Array<{ label: string; description: string; href: string; tone: StatusVariant }>;
-  }, [eventBase, metrics]);
+  }, [metrics]);
 
   const summaryItems = [
     { label: "Event aktif", value: metrics?.activeEventsCount, href: "/admin/events" },
     { label: "Pendaftaran dibuka", value: metrics?.openRegistrationsCount, href: "/admin/events?status=REGISTRATION_OPEN" },
+    { label: "Respons undangan", value: metrics?.totalResponsesCount, href: "/admin/events" },
+    { label: "Peserta disetujui", value: metrics?.approvedParticipantsCount, href: "/admin/events" },
+    { label: "Menunggu persetujuan", value: metrics?.pendingParticipantsCount, href: getPendingReviewHref(metrics?.pendingEvent?.id) },
+    { label: "Catatan hadir semua event", value: metrics?.totalAttendedCount, href: "/admin/events" },
+    { label: "Data lembaga", value: metrics?.invitedInstitutionsCount, href: "/admin/institutions" },
     { label: "Profil asatidz", value: metrics?.asatidzProfilesCount, href: "/admin/ustadz" },
-    { label: "Profil diarsipkan", value: metrics?.archivedProfilesCount, href: "/admin/ustadz?profileStatus=ARCHIVED" },
-    { label: "Menunggu persetujuan", value: metrics?.pendingParticipantsCount, href: "/admin/events" },
-    { label: "Email dalam antrean", value: metrics?.queuedEmailsCount, href: "/admin/email-jobs" },
-    { label: "Lembaga aktif", value: metrics?.invitedInstitutionsCount, href: "/admin/institutions" },
-    { label: "Kehadiran tercatat", value: metrics?.totalAttendedCount, href: eventBase ? `${eventBase}/attendance` : "/admin/events" },
   ];
 
   const actionGroups: ActionGroup[] = [
     {
       title: "Program & event",
-      description: "Siapkan identitas, jadwal, panitia, dan status kegiatan.",
       items: [
-         { title: "Semua event & status", description: "Cari, terbitkan, dan buka/tutup pendaftaran.", href: "/admin/events", icon: CalendarDays },
-        { title: "Buat event", description: "Atur periode, lokasi, kapasitas, dan poster.", href: "/admin/events/create", icon: CalendarPlus },
-         { title: "Jadwal & edit sesi", description: "Atur sesi, waktu dan jendela check-in.", href: eventBase ? `${eventBase}/schedule` : null, icon: Clock3 },
-        { title: "Tim pelaksana", description: "Atur panitia, tugas, dan kewenangan event.", href: eventBase ? `${eventBase}/team` : null, icon: UsersRound },
+        { title: "Semua event", href: "/admin/events", icon: CalendarDays },
+        { title: "Buat event", href: "/admin/events/create", icon: CalendarPlus },
       ],
     },
     {
-      title: "Undangan & peserta",
-      description: "Kelola respons lembaga sampai absensi individu.",
+      title: "Data & akses",
       items: [
-         { title: "Undangan & impor CSV", description: "Buat tautan khusus dan impor peserta dengan progres.", href: eventBase ? `${eventBase}/registrations?view=invitations` : null, icon: ClipboardCheck },
-         { title: "Daftar peserta event", description: "Tinjau, hubungi, dan setujui peserta per event.", href: eventBase ? `${eventBase}/registrations?view=participants` : null, icon: UsersRound },
-        { title: "Absensi harian", description: "Pantau QR, kode peserta, no-show, dan kehadiran per hari.", href: eventBase ? `${eventBase}/attendance` : null, icon: ListChecks },
-        { title: "Komunikasi", description: "Hubungi peserta melalui WhatsApp, email, dan pengumuman.", href: eventBase ? `${eventBase}/communications` : null, icon: Megaphone },
-        { title: "Laporan event", description: "Rekap peserta, lembaga, dan kehadiran untuk ekspor.", href: eventBase ? `${eventBase}/reports` : null, icon: BarChart3 },
+        { title: "Lembaga", href: "/admin/institutions", icon: Building2 },
+        { title: "Asatidz & riwayat", href: "/admin/ustadz", icon: Users },
+        { title: "Panitia & akses", href: "/admin/committee", icon: UsersRound },
       ],
     },
     {
-      title: "Data induk",
-      description: "Jaga data lintas event tetap rapi dan dapat ditelusuri.",
+      title: "Komunikasi & relasi",
       items: [
-        { title: "Data lembaga", description: "Kontak, alamat, undangan, dan riwayat delegasi.", href: "/admin/institutions", icon: Building2 },
-         { title: "Direktori & riwayat asatidz", description: "Profil, kontak, kehadiran lintas event, dan arsip aman.", href: "/admin/ustadz", icon: Users },
-         { title: "Profil diarsipkan", description: "Tinjau dan pulihkan profil yang dihapus dari daftar aktif.", href: "/admin/ustadz?profileStatus=ARCHIVED", icon: UserRoundCheck },
-        { title: "Gabungkan duplikat", description: "Satukan profil tanpa menghilangkan histori event.", href: "/admin/ustadz/merge", icon: Combine },
-        { title: "Panitia & akses", description: "Kelola akun, penugasan, dan batas konfirmasi.", href: "/admin/committee", icon: UserRoundCheck },
+        { title: "BC & template email", href: "/admin/broadcast", icon: Megaphone },
+        { title: "Antrean email", href: "/admin/email-jobs", icon: Mail },
+        { title: "Ruang Asatidz", href: "/admin/ruang-asatidz", icon: HeartHandshake },
+        { title: "Peta Ukhuwah", href: "/admin/peta-ukhuwah", icon: MapPinned },
       ],
     },
     {
-      title: "Komunikasi asatidz",
-       description: "Jaga komunikasi asatidz dengan template dan jadwal email.",
+      title: "Mutu & pengawasan",
       items: [
-         { title: "BC, template & uji kirim", description: "Pratinjau pesan, uji Mailketing, dan batas kirim harian.", href: "/admin/broadcast", icon: Megaphone },
-        { title: "Antrean & email gagal", description: "Periksa jadwal pengiriman, status dan percobaan ulang.", href: "/admin/email-jobs", icon: Mail },
-      ],
-    },
-    {
-      title: "Pengawasan sistem",
-      description: "Telusuri aktivitas dan gangguan operasional.",
-      items: [
-        { title: "Audit aktivitas", description: "Lihat pelaku, perubahan, waktu, dan request ID.", href: "/admin/audit-logs", icon: ShieldCheck },
+        { title: "Audit aktivitas", href: "/admin/audit-logs", icon: ShieldCheck },
+        { title: "Profil diarsipkan", href: "/admin/ustadz?profileStatus=ARCHIVED", icon: FileClock },
       ],
     },
   ];
@@ -245,8 +238,8 @@ export const AdminDashboardPage: React.FC = () => {
     <AdminLayout>
       <div className="admin-dashboard">
         <PageHeader
-          title="Kendali Operasional"
-           description="Pantau pendaftaran, direktori, antrean email dan pekerjaan event dari satu ruang kerja."
+          title="Dashboard Admin"
+          description="Pekerjaan penting, event, dan data daurah dalam satu ruang kerja."
           actions={
             <>
               <button
@@ -281,7 +274,7 @@ export const AdminDashboardPage: React.FC = () => {
           </section>
         )}
 
-        <section className="admin-metric-strip" aria-label="Ringkasan operasional" aria-live="polite">
+        <section className="admin-metric-strip" aria-label="Ringkasan seluruh event" aria-live="polite">
           {summaryItems.map((summary) => (
             <Link key={summary.label} to={summary.href} className="admin-metric">
               {loading ? <span className="admin-metric__skeleton" aria-label="Memuat data" /> : <strong>{summary.value ?? "—"}</strong>}
@@ -295,10 +288,20 @@ export const AdminDashboardPage: React.FC = () => {
             <section className="admin-current-event" aria-labelledby="current-event-heading">
               <header>
                 <div className="min-w-0">
-                  <h2 id="current-event-heading">Event kendali</h2>
-                   <p>Event berlangsung atau pendaftaran terbuka diprioritaskan sebagai konteks pintasan operasional.</p>
+                  <h2 id="current-event-heading">Workspace event</h2>
+                  <p>Pilih event untuk membuka pekerjaan di bawah.</p>
                 </div>
-                <Link to="/admin/events" className="admin-text-link">Ganti event <ArrowRight className="h-4 w-4" /></Link>
+                <div className="admin-event-picker">
+                  {metrics?.recentEvents?.length ? (
+                    <label>
+                      <span className="sr-only">Pilih event</span>
+                      <select value={primaryEvent?.id || ""} onChange={(event) => chooseEvent(event.target.value)}>
+                        {metrics.recentEvents.map((event) => <option key={event.id} value={event.id}>{event.name}</option>)}
+                      </select>
+                    </label>
+                  ) : null}
+                  <Link to="/admin/events" className="admin-text-link">Semua event <ArrowRight className="h-4 w-4" /></Link>
+                </div>
               </header>
 
               {loading ? (
@@ -350,15 +353,14 @@ export const AdminDashboardPage: React.FC = () => {
               <div className="admin-section-heading">
                 <div>
                   <h2 id="module-index-heading">Indeks modul admin</h2>
-                  <p>Fitur disusun mengikuti alur kerja daurah, bukan struktur teknis aplikasi.</p>
+                  <p>Jalur cepat ke pengelolaan lintas event.</p>
                 </div>
-                {!primaryEvent && !loading && <StatusBadge label="Fitur event menunggu event aktif" variant="neutral" />}
               </div>
 
               <div className="admin-module-index">
                 {actionGroups.map((group) => (
                   <section key={group.title} className="admin-module-group">
-                    <header><h3>{group.title}</h3><p>{group.description}</p></header>
+                    <header><h3>{group.title}</h3></header>
                     <div>{group.items.map((item) => <AdminAction key={item.title} item={item} />)}</div>
                   </section>
                 ))}

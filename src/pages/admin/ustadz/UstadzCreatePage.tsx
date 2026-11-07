@@ -2,7 +2,6 @@ import React from "react";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { PageHeader } from "@/components/common/PageHeader";
 import { UstadzForm } from "@/components/admin/ustadz/UstadzForm";
-import { UstadzWorkspaceNav } from "@/components/admin/ustadz/UstadzWorkspaceNav";
 
 export const UstadzCreatePage: React.FC = () => (
   <AdminLayout>
@@ -16,7 +15,6 @@ export const UstadzCreatePage: React.FC = () => (
           { label: "Tambah profil" },
         ]}
       />
-      <UstadzWorkspaceNav />
       <UstadzForm mode="create" />
     </div>
   </AdminLayout>

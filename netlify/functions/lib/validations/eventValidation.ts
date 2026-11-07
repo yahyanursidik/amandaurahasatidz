@@ -74,6 +74,11 @@ export const createEventDaySchema = z.object({
   checkinCloseAt: z.string().optional().nullable(),
 });
 
+export const updateEventDaySchema = createEventDaySchema.partial().refine(
+  (value) => Object.keys(value).length > 0,
+  "Isi setidaknya satu perubahan hari kegiatan.",
+);
+
 export const createEventSessionSchema = z.object({
   eventDayId: z.string().uuid(),
   title: z.string().min(2, "Judul sesi minimal 2 karakter"),

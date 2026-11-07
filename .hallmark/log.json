@@ -1,5 +1,61 @@
 [
   {
+    "date": "2026-11-08",
+    "scope": "app/admin/ustadz navigation",
+    "macrostructure": "Workbench",
+    "theme": "existing emerald-slate",
+    "enrichment": "none",
+    "brief": "Role-aware Asatidz sidebar with direct directory triage, attendance history, and protected management routes"
+  },
+  {
+    "date": "2026-11-07",
+    "scope": "app/admin/ustadz",
+    "macrostructure": "Connected Registry",
+    "theme": "existing emerald-slate",
+    "enrichment": "none",
+    "brief": "Asatidz directory and profile centered on profile discovery, event attendance history, and connected affiliations"
+  },
+  {
+    "date": "2026-11-07",
+    "scope": "app/admin/institutions",
+    "macrostructure": "Catalogue",
+    "theme": "existing emerald-slate",
+    "enrichment": "none",
+    "brief": "Institution directory and profile with mobile-friendly navigation, representative editing, and connected event invitations and delegates"
+  },
+  {
+    "date": "2026-11-07",
+    "scope": "app",
+    "macrostructure": "Workbench",
+    "theme": "existing emerald-slate",
+    "enrichment": "event poster only",
+    "brief": "Admin Event workbench with compact catalog, connected workflow, timezone-correct scheduling and deadlines, and paginated reports"
+  },
+  {
+    "date": "2026-11-07",
+    "scope": "app",
+    "macrostructure": "Workbench",
+    "theme": "existing emerald-slate",
+    "enrichment": "event poster only",
+    "brief": "Asatidz dashboard centered on event status, self confirmation, individual QR, nearest session, and persistent event context"
+  },
+  {
+    "date": "2026-11-07",
+    "scope": "app",
+    "macrostructure": "Workbench",
+    "theme": "existing emerald-slate",
+    "enrichment": "none",
+    "brief": "Admin dashboard audit and compact operational workbench with event context, targeted pending-review links, and cross-module navigation"
+  },
+  {
+    "date": "2026-11-07",
+    "scope": "app",
+    "macrostructure": "Split Studio",
+    "theme": "existing emerald-slate",
+    "enrichment": "existing faceless library interior",
+    "brief": "Role-specific login revamp, account recovery, and seamless portal return"
+  },
+  {
     "date": "2026-09-28",
     "scope": "app",
     "macrostructure": "Narrative Workflow / Workbench",

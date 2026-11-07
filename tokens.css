@@ -41,6 +41,9 @@
   --color-login-admin: oklch(45% 0.13 160);
   --color-login-committee: oklch(41% 0.095 190);
   --color-login-ustadz: oklch(48% 0.11 75);
+  --color-login-admin-tint: oklch(95% 0.018 160);
+  --color-login-committee-tint: oklch(95% 0.018 190);
+  --color-login-ustadz-tint: oklch(96% 0.025 75);
   --color-login-accent-ink: oklch(99% 0.004 160);
   --color-login-focus: oklch(40% 0.15 160);
   --color-login-error: oklch(48% 0.17 25);
@@ -143,6 +146,8 @@
   --color-portal-muted: var(--color-event-muted);
   --color-portal-rule: var(--color-event-rule);
   --color-portal-accent: var(--color-event-accent);
+  --color-portal-accent-hover: oklch(39% 0.12 160);
+  --color-portal-success-paper: oklch(95% 0.03 160);
   --color-portal-accent-ink: var(--color-event-accent-ink);
   --color-portal-focus: var(--color-event-focus);
   --color-portal-warning: oklch(57% 0.14 70);
@@ -164,6 +169,7 @@
   --dur-portal-micro: 120ms;
   --dur-portal-short: 220ms;
   --radius-portal-control: 0.625rem;
+  --radius-portal-panel: 0.875rem;
   --rule-portal: 1px;
 
   --color-poster-night: oklch(19% 0.035 160);

@@ -6,6 +6,7 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import {
   CalendarDays,
   CheckCircle2,
+  ChevronRight,
   Clock3,
   PencilLine,
   ExternalLink,
@@ -23,6 +24,7 @@ import { EventWorkspaceNav } from "@/components/admin/events/EventWorkspaceNav";
 import { eventApi } from "@/lib/eventApi";
 import { CommitteeMember as DirectoryMember, COMMITTEE_ROLES, roleLabel } from "@/lib/committeeApi";
 import { DEFAULT_EVENT_POSTER, posterObjectPosition } from "@/lib/eventPoster";
+import { eventTimezoneLabel, formatEventDate, formatEventDateTime, formatEventTime, fromEventIso, toEventIso } from "@/lib/eventDateTime";
 
 type EventDay = {
   id: string;
@@ -145,6 +147,13 @@ const statusVariant = (status: string): StatusVariant => {
   if (status === "CANCELLED") return "danger";
   return "neutral";
 };
+const eventStatusLabel: Record<string, string> = {
+  DRAFT: "Draft", PUBLISHED: "Terbit", REGISTRATION_OPEN: "Pendaftaran dibuka",
+  REGISTRATION_CLOSED: "Pendaftaran ditutup", ONGOING: "Berlangsung",
+  COMPLETED: "Selesai", CANCELLED: "Dibatalkan", ARCHIVED: "Arsip",
+};
+const audienceLabel: Record<string, string> = { INSTITUTION_INVITATION: "Undangan lembaga", INDIVIDUAL_INVITATION: "Undangan individu", PUBLIC_OPEN: "Pendaftaran reguler", MIXED: "Reguler & undangan" };
+const attendanceModeLabel: Record<string, string> = { DAILY_ONLY: "Harian", SESSION_ONLY: "Per sesi", DAILY_AND_SESSION: "Harian & sesi" };
 
 const transitionOptions: Record<string, Array<{ action: string; label: string; danger?: boolean }>> = {
   DRAFT: [{ action: "PUBLISH", label: "Publikasikan" }, { action: "CANCEL", label: "Batalkan", danger: true }],
@@ -156,11 +165,7 @@ const transitionOptions: Record<string, Array<{ action: string; label: string; d
   CANCELLED: [{ action: "ARCHIVE", label: "Arsipkan" }],
 };
 
-const formatDate = (value: string) =>
-  new Intl.DateTimeFormat("id-ID", { day: "numeric", month: "short", year: "numeric" }).format(new Date(`${value}T00:00:00`));
-
-const formatTime = (value: string) =>
-  new Intl.DateTimeFormat("id-ID", { hour: "2-digit", minute: "2-digit", timeZone: "Asia/Jakarta" }).format(new Date(value));
+const formatDate = formatEventDate;
 
 export const EventShowPage: React.FC = () => {
   const { id = "" } = useParams<{ id: string }>();
@@ -173,6 +178,7 @@ export const EventShowPage: React.FC = () => {
   const [busy, setBusy] = useState("");
   const [notice, setNotice] = useState("");
   const [showDayForm, setShowDayForm] = useState(false);
+  const [editingDay, setEditingDay] = useState<EventDay | null>(null);
   const [showSessionForm, setShowSessionForm] = useState(false);
   const [editingSession, setEditingSession] = useState<EventSession | null>(null);
   const [showTeamForm, setShowTeamForm] = useState(false);
@@ -181,7 +187,6 @@ export const EventShowPage: React.FC = () => {
   const loadEvent = async () => {
     setLoading(true);
     setError("");
-    setNotice("");
     if (import.meta.env.DEV && !isUuid(id)) {
       setData(previewEvent);
       setPreviewMode(true);
@@ -199,6 +204,7 @@ export const EventShowPage: React.FC = () => {
   };
 
   useEffect(() => {
+    setNotice("");
     void loadEvent();
   }, [id]);
 
@@ -238,20 +244,23 @@ export const EventShowPage: React.FC = () => {
   const submitDay = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    const dayIsRunning = Boolean(editingDay && data?.status === "ONGOING");
+    const dayHasSessions = Boolean(editingDay && data?.sessions.some((session) => session.eventDayId === editingDay.id));
     setBusy("day");
     try {
-      await eventApi(`/events/${id}/days`, {
-        method: "POST",
+      await eventApi(`/events/${id}/days${editingDay ? `/${editingDay.id}` : ""}`, {
+        method: editingDay ? "PATCH" : "POST",
         body: JSON.stringify({
-          dayNumber: Number(form.get("dayNumber")),
-          date: form.get("date"),
+          ...(!dayIsRunning && { dayNumber: Number(form.get("dayNumber")) }),
+          ...(!dayIsRunning && !dayHasSessions && { date: form.get("date") }),
           title: form.get("title") || null,
-          checkinOpenAt: form.get("checkinOpenAt") || null,
-          checkinCloseAt: form.get("checkinCloseAt") || null,
+          checkinOpenAt: toEventIso(String(form.get("checkinOpenAt") || ""), data?.timezone || "Asia/Jakarta"),
+          checkinCloseAt: toEventIso(String(form.get("checkinCloseAt") || ""), data?.timezone || "Asia/Jakarta"),
         }),
       });
       setShowDayForm(false);
-      setNotice("Hari kegiatan berhasil ditambahkan.");
+      setNotice(editingDay ? "Hari kegiatan berhasil diperbarui." : "Hari kegiatan berhasil ditambahkan.");
+      setEditingDay(null);
       await loadEvent();
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Hari gagal ditambahkan.");
@@ -271,13 +280,13 @@ export const EventShowPage: React.FC = () => {
           ...(!editingSession && { eventDayId: form.get("eventDayId") }),
           title: form.get("title"),
           sessionType: form.get("sessionType"),
-          startAt: `${form.get("startAt")}:00+07:00`,
-          endAt: `${form.get("endAt")}:00+07:00`,
+          startAt: toEventIso(String(form.get("startAt") || ""), data?.timezone || "Asia/Jakarta"),
+          endAt: toEventIso(String(form.get("endAt") || ""), data?.timezone || "Asia/Jakarta"),
           room: form.get("room") || null,
           attendanceRequired: form.get("attendanceRequired") === "on",
           checkinRequired: form.get("checkinRequired") === "on",
-          checkinOpenAt: form.get("checkinOpenAt") ? `${form.get("checkinOpenAt")}:00+07:00` : null,
-          checkinCloseAt: form.get("checkinCloseAt") ? `${form.get("checkinCloseAt")}:00+07:00` : null,
+          checkinOpenAt: toEventIso(String(form.get("checkinOpenAt") || ""), data?.timezone || "Asia/Jakarta"),
+          checkinCloseAt: toEventIso(String(form.get("checkinCloseAt") || ""), data?.timezone || "Asia/Jakarta"),
         }),
       });
       setShowSessionForm(false);
@@ -290,13 +299,7 @@ export const EventShowPage: React.FC = () => {
       setBusy("");
     }
   };
-  const toLocalInput = (value?: string | null) => {
-    if (!value) return "";
-    const parts = new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Jakarta", year: "numeric", month: "2-digit",
-      day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).formatToParts(new Date(value));
-    const part = (name: string) => parts.find((item) => item.type === name)?.value || "00";
-    return `${part("year")}-${part("month")}-${part("day")}T${part("hour")}:${part("minute")}`;
-  };
+  const toLocalInput = (value?: string | null) => fromEventIso(value, data?.timezone || "Asia/Jakarta");
 
   const submitTeam = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -359,7 +362,7 @@ export const EventShowPage: React.FC = () => {
     <AdminLayout>
       <PageHeader
         title={data.name}
-        description={`${data.code} · ${formatDate(data.startDate)}–${formatDate(data.endDate)}`}
+        description={`${data.code} · ${formatDate(data.startDate)}–${formatDate(data.endDate)} · ${eventTimezoneLabel(data.timezone)}`}
         breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Event", href: "/admin/events" }, { label: data.code }]}
         actions={
           <Link to={`/events/${data.slug}`} target="_blank" className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50">
@@ -390,7 +393,7 @@ export const EventShowPage: React.FC = () => {
             <div className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 p-5">
               <div>
                 <div className="flex flex-wrap items-center gap-2">
-                  <StatusBadge label={data.status.replaceAll("_", " ")} variant={statusVariant(data.status)} />
+                  <StatusBadge label={eventStatusLabel[data.status] || data.status} variant={statusVariant(data.status)} />
                   <span className="font-mono text-[10px] font-bold text-slate-500">{data.code}</span>
                 </div>
                 <p className="mt-3 max-w-2xl text-sm leading-6 text-slate-600">{data.description || "Deskripsi event belum diisi."}</p>
@@ -400,43 +403,42 @@ export const EventShowPage: React.FC = () => {
               {[
                 { label: "Tanggal", value: `${formatDate(data.startDate)}–${formatDate(data.endDate)}`, icon: CalendarDays },
                 { label: "Lokasi", value: data.venueName || "Belum ditentukan", icon: MapPin },
-                { label: "Jalur peserta", value: data.audienceMode.replaceAll("_", " "), icon: Users },
+                { label: "Jalur peserta", value: audienceLabel[data.audienceMode] || data.audienceMode, icon: Users },
                 { label: "Kapasitas total", value: data.capacity == null ? "Tidak dibatasi" : `${data.capacity} peserta`, icon: Users },
                 { label: "Kuota reguler", value: data.regularQuota == null ? "Mengikuti kapasitas total" : `${data.regularQuota} peserta`, icon: Users },
                 { label: "Kuota undangan", value: data.invitationQuota == null ? "Mengikuti kapasitas total" : `${data.invitationQuota} peserta`, icon: Users },
-                { label: "Mode presensi", value: data.attendanceMode.replaceAll("_", " "), icon: ShieldCheck },
-                { label: "Batas respons undangan", value: data.invitationResponseDeadline ? new Date(data.invitationResponseDeadline).toLocaleString("id-ID") : "Tidak dibatasi", icon: Clock3 },
-                { label: "Batas konfirmasi hadir", value: data.attendanceConfirmationDeadline ? new Date(data.attendanceConfirmationDeadline).toLocaleString("id-ID") : "Tidak dibatasi", icon: CheckCircle2 },
+                { label: "Mode presensi", value: attendanceModeLabel[data.attendanceMode] || data.attendanceMode, icon: ShieldCheck },
+                { label: "Batas respons undangan", value: data.invitationResponseDeadline ? `${formatEventDateTime(data.invitationResponseDeadline, data.timezone)} ${eventTimezoneLabel(data.timezone)}` : "Tidak dibatasi", icon: Clock3 },
+                { label: "Batas konfirmasi hadir", value: data.attendanceConfirmationDeadline ? `${formatEventDateTime(data.attendanceConfirmationDeadline, data.timezone)} ${eventTimezoneLabel(data.timezone)}` : "Tidak dibatasi", icon: CheckCircle2 },
               ].map((item) => (
                 <div key={item.label} className="flex gap-3 border-b border-r border-slate-100 p-5">
                   <item.icon className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
-                  <div><dt className="text-[10px] font-black uppercase tracking-wide text-slate-400">{item.label}</dt><dd className="mt-1 text-xs font-bold text-slate-800">{item.value}</dd></div>
+                  <div><dt className="text-xs font-bold text-slate-500">{item.label}</dt><dd className="mt-1 text-sm font-bold text-slate-800">{item.value}</dd></div>
                 </div>
               ))}
             </dl>
           </section>
           <aside className="space-y-4">
             <section className="border border-slate-200 bg-white p-4">
-              <h2 className="text-xs font-black text-slate-900">Kesiapan event</h2>
-              <ul className="mt-3 space-y-2 text-[11px] text-slate-600">
+              <h2 className="text-base font-black text-slate-900">Alur kerja event</h2>
+              <nav aria-label="Langkah pengelolaan event" className="mt-3 divide-y divide-slate-100">
                 {[
-                  { label: "Rincian dasar", ready: Boolean(data.name && data.startDate && data.endDate) },
-                  { label: "Lokasi", ready: Boolean(data.venueName) },
-                  { label: "Hari kegiatan", ready: data.days.length > 0 },
-                  { label: "Sesi kegiatan", ready: data.sessions.length > 0 },
-                  { label: "Panitia", ready: data.committee.length > 0 },
-                  { label: "Poster event", ready: Boolean(data.posterUrl) },
-                ].map((item) => (
-                  <li key={item.label} className="flex items-center justify-between gap-2 border-b border-slate-100 py-2">
-                    <span>{item.label}</span>
-                    <StatusBadge label={item.ready ? "Siap" : "Belum"} variant={item.ready ? "success" : "warning"} />
-                  </li>
-                ))}
-              </ul>
+                  { label: "Rincian & poster", href: `/admin/events/${id}/edit`, ready: Boolean(data.name && data.venueName && data.posterUrl) },
+                  { label: "Jadwal & sesi", href: `/admin/events/${id}/schedule`, ready: data.days.length > 0 && data.sessions.length > 0 },
+                  { label: "Panitia", href: `/admin/events/${id}/team`, ready: data.committee.length > 0 },
+                  ...(["INSTITUTION_INVITATION", "INDIVIDUAL_INVITATION", "MIXED"].includes(data.audienceMode) ? [{ label: "Undangan", href: `/admin/events/${id}/registrations?view=invitations`, ready: false }] : []),
+                  { label: "Peserta", href: `/admin/events/${id}/registrations?view=participants`, ready: false },
+                  { label: "Kehadiran & rapor", href: `/admin/events/${id}/attendance`, ready: false },
+                ].map((item) => <Link key={item.label} to={item.href} className="flex min-h-12 items-center gap-2 py-2 text-sm font-bold text-slate-800 hover:text-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700">
+                  <span className="min-w-0 flex-1">{item.label}</span>
+                  {item.ready && <CheckCircle2 className="h-4 w-4 text-emerald-700" aria-label="Siap" />}
+                  <ChevronRight className="h-4 w-4 shrink-0 text-slate-400" aria-hidden="true" />
+                </Link>)}
+              </nav>
             </section>
             <section className="border-t-2 border-emerald-700 bg-emerald-50 p-4">
                <h2 className="text-sm font-black text-emerald-950">Publikasi & pendaftaran event</h2>
-               <p className="mt-2 text-xs leading-5 text-emerald-900">Terbitkan event agar halaman publik tersedia. Buka pendaftaran agar formulir reguler aktif; tutup atau buka kembali sesuai kebutuhan. Jalur undangan memakai tautan unik dari menu Undangan.</p>
+               <p className="mt-2 text-sm leading-6 text-emerald-900">Terbitkan event, lalu buka pendaftaran sesuai jalur peserta.</p>
               <div className="mt-3 space-y-2">
                 {(transitionOptions[data.status] || []).map((option) => (
                   <button
@@ -461,42 +463,40 @@ export const EventShowPage: React.FC = () => {
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div><h2 className="text-base font-black text-slate-900">Jadwal dan sesi</h2><p className="mt-1 text-xs text-slate-500">Susun hari, waktu sesi, ruangan, dan kebutuhan check-in.</p></div>
             <div className="flex gap-2">
-              <button type="button" onClick={() => setShowDayForm((value) => !value)} disabled={previewMode} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold disabled:opacity-50"><Plus className="h-4 w-4" /> Tambah hari</button>
+              <button type="button" onClick={() => { setEditingDay(null); setShowDayForm((value) => !value); }} disabled={previewMode} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold disabled:opacity-50"><Plus className="h-4 w-4" /> Tambah hari</button>
                <button type="button" onClick={() => { setEditingSession(null); setShowSessionForm((value) => !value); }} disabled={previewMode || data.days.length === 0} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white disabled:opacity-50"><Plus className="h-4 w-4" /> Tambah sesi</button>
             </div>
           </div>
 
           {showDayForm && (
-            <form onSubmit={submitDay} className="grid gap-3 border-t-2 border-emerald-700 bg-white p-4 sm:grid-cols-2 lg:grid-cols-3">
-              <label className="text-xs font-bold text-slate-700">Nomor hari<input name="dayNumber" type="number" min="1" required className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
-              <label className="text-xs font-bold text-slate-700">Tanggal kegiatan<input name="date" type="date" min={data.startDate} max={data.endDate} required className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
-              <label className="text-xs font-bold text-slate-700">Judul hari<input name="title" placeholder="Contoh: Hari pembukaan" className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
-              <label className="text-xs font-bold text-slate-700">Check-in harian dibuka<input name="checkinOpenAt" type="datetime-local" className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
-              <label className="text-xs font-bold text-slate-700">Check-in harian ditutup<input name="checkinCloseAt" type="datetime-local" className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
-              <button disabled={busy === "day"} className="mt-auto min-h-[44px] rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white">Simpan hari</button>
+            <form id="event-day-form" key={editingDay?.id || "new-day"} onSubmit={submitDay} className="grid gap-3 border-t-2 border-emerald-700 bg-white p-4 sm:grid-cols-2 lg:grid-cols-3">
+              <h3 className="text-base font-black text-slate-900 sm:col-span-2 lg:col-span-3">{editingDay ? "Ubah hari kegiatan" : "Tambah hari kegiatan"} · {eventTimezoneLabel(data.timezone)}</h3>
+              <label className="text-sm font-bold text-slate-700">Nomor hari<input name="dayNumber" type="number" min="1" defaultValue={editingDay?.dayNumber} disabled={Boolean(editingDay && data.status === "ONGOING")} required className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100" /></label>
+              <label className="text-sm font-bold text-slate-700">Tanggal kegiatan<input name="date" type="date" min={data.startDate} max={data.endDate} defaultValue={editingDay?.date} disabled={Boolean(editingDay && (data.status === "ONGOING" || data.sessions.some((session) => session.eventDayId === editingDay.id)))} required className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100" /></label>
+              <label className="text-sm font-bold text-slate-700">Judul hari<input name="title" defaultValue={editingDay?.title || ""} placeholder="Contoh: Hari pembukaan" className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+              <label className="text-sm font-bold text-slate-700">Check-in harian dibuka<input name="checkinOpenAt" type="datetime-local" defaultValue={toLocalInput(editingDay?.checkinOpenAt)} className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+              <label className="text-sm font-bold text-slate-700">Check-in harian ditutup<input name="checkinCloseAt" type="datetime-local" defaultValue={toLocalInput(editingDay?.checkinCloseAt)} className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+              {editingDay && (data.status === "ONGOING" || data.sessions.some((session) => session.eventDayId === editingDay.id)) && <p className="text-sm text-slate-600 sm:col-span-2 lg:col-span-3">Tanggal terkunci saat event berlangsung atau hari sudah memiliki sesi.</p>}
+              <div className="flex gap-2 lg:col-start-3"><button disabled={busy === "day"} className="min-h-[44px] flex-1 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white disabled:opacity-50">{busy === "day" ? "Menyimpan…" : "Simpan hari"}</button><button type="button" onClick={() => { setEditingDay(null); setShowDayForm(false); }} className="min-h-11 rounded-lg border border-slate-300 px-3 text-sm font-bold">Batal</button></div>
             </form>
           )}
 
           {showSessionForm && (
              <form key={editingSession?.id || "new-session"} onSubmit={submitSession} className="grid gap-3 border-t-2 border-emerald-700 bg-white p-4 sm:grid-cols-2 lg:grid-cols-3">
-               <h3 className="sm:col-span-2 lg:col-span-3 text-sm font-black">{editingSession ? `Ubah sesi: ${editingSession.title}` : "Tambah sesi"} · waktu WIB</h3>
-               <select name="eventDayId" defaultValue={editingSession?.eventDayId} disabled={Boolean(editingSession)} required className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs">
-                {data.days.map((day) => <option key={day.id} value={day.id}>Hari {day.dayNumber} · {day.title || day.date}</option>)}
-              </select>
-               <input name="title" defaultValue={editingSession?.title} required placeholder="Judul sesi" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-               <select name="sessionType" defaultValue={editingSession?.sessionType} className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs">
-                {["MATERIAL", "BREAK", "OPENING", "CLOSING"].map((type) => <option key={type}>{type}</option>)}
-              </select>
-               <input name="startAt" type="datetime-local" defaultValue={toLocalInput(editingSession?.startAt)} required className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-               <input name="endAt" type="datetime-local" defaultValue={toLocalInput(editingSession?.endAt)} required className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-               <input name="room" defaultValue={editingSession?.room || ""} placeholder="Ruangan" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-               <input name="checkinOpenAt" type="datetime-local" defaultValue={toLocalInput(editingSession?.checkinOpenAt)} aria-label="Check-in sesi dibuka" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-               <input name="checkinCloseAt" type="datetime-local" defaultValue={toLocalInput(editingSession?.checkinCloseAt)} aria-label="Check-in sesi ditutup" className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs" />
-              <div className="flex flex-wrap items-center gap-4 rounded-lg bg-slate-50 px-3 text-xs font-bold text-slate-700">
+               <h3 className="text-base font-black text-slate-900 sm:col-span-2 lg:col-span-3">{editingSession ? `Ubah sesi: ${editingSession.title}` : "Tambah sesi"} · {eventTimezoneLabel(data.timezone)}</h3>
+               <label className="text-sm font-bold text-slate-700">Hari kegiatan<select name="eventDayId" defaultValue={editingSession?.eventDayId} disabled={Boolean(editingSession)} required className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100">{data.days.map((day) => <option key={day.id} value={day.id}>Hari {day.dayNumber} · {day.title || day.date}</option>)}</select></label>
+               <label className="text-sm font-bold text-slate-700">Judul sesi<input name="title" defaultValue={editingSession?.title} required placeholder="Contoh: Pembukaan" className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+               <label className="text-sm font-bold text-slate-700">Jenis sesi<select name="sessionType" defaultValue={editingSession?.sessionType} className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm"><option value="MATERIAL">Materi</option><option value="BREAK">Istirahat</option><option value="OPENING">Pembukaan</option><option value="CLOSING">Penutupan</option></select></label>
+               <label className="text-sm font-bold text-slate-700">Mulai<input name="startAt" type="datetime-local" defaultValue={toLocalInput(editingSession?.startAt)} required className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+               <label className="text-sm font-bold text-slate-700">Selesai<input name="endAt" type="datetime-local" defaultValue={toLocalInput(editingSession?.endAt)} required className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+               <label className="text-sm font-bold text-slate-700">Ruang<input name="room" defaultValue={editingSession?.room || ""} placeholder="Ruang utama" className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+               <label className="text-sm font-bold text-slate-700">Check-in dibuka<input name="checkinOpenAt" type="datetime-local" defaultValue={toLocalInput(editingSession?.checkinOpenAt)} className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+               <label className="text-sm font-bold text-slate-700">Check-in ditutup<input name="checkinCloseAt" type="datetime-local" defaultValue={toLocalInput(editingSession?.checkinCloseAt)} className="mt-1 min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-sm" /></label>
+              <div className="flex flex-wrap items-center gap-4 rounded-lg bg-slate-50 px-3 text-sm font-bold text-slate-700">
                  <label className="flex items-center gap-2"><input name="attendanceRequired" type="checkbox" defaultChecked={editingSession?.attendanceRequired ?? true} /> Wajib hadir</label>
                  <label className="flex items-center gap-2"><input name="checkinRequired" type="checkbox" defaultChecked={editingSession?.checkinRequired ?? true} /> Wajib check-in</label>
               </div>
-               <div className="flex gap-2 lg:col-start-3"><button disabled={busy === "session"} className="min-h-[44px] flex-1 rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white">{editingSession ? "Simpan perubahan" : "Simpan sesi"}</button><button type="button" onClick={() => { setEditingSession(null); setShowSessionForm(false); }} className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-xs font-bold">Batal</button></div>
+               <div className="flex gap-2 lg:col-start-3"><button disabled={busy === "session"} className="min-h-[44px] flex-1 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white disabled:opacity-50">{busy === "session" ? "Menyimpan…" : editingSession ? "Simpan perubahan" : "Simpan sesi"}</button><button type="button" onClick={() => { setEditingSession(null); setShowSessionForm(false); }} className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-sm font-bold">Batal</button></div>
             </form>
           )}
 
@@ -505,16 +505,17 @@ export const EventShowPage: React.FC = () => {
           ) : daysWithSessions.map((day) => (
             <article key={day.id} className="border border-slate-200 bg-white">
               <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-5 py-4">
-                <div><p className="text-[10px] font-black uppercase tracking-wide text-emerald-700">Hari {day.dayNumber}</p><h3 className="mt-1 text-sm font-black text-slate-900">{day.title || formatDate(day.date)}</h3></div>
+                <div><p className="text-xs font-bold text-emerald-700">Hari {day.dayNumber}</p><h3 className="mt-1 text-base font-black text-slate-900">{day.title || formatDate(day.date)}</h3></div>
                 <time className="text-xs font-bold text-slate-500">{formatDate(day.date)}</time>
+                <button type="button" disabled={previewMode} onClick={() => { setEditingDay(day); setShowDayForm(true); window.requestAnimationFrame(() => document.getElementById("event-day-form")?.scrollIntoView({ block: "center" })); }} className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 hover:bg-slate-100 disabled:opacity-50"><PencilLine className="h-4 w-4" /> Edit hari</button>
               </header>
               {day.sessions.length === 0 ? <p className="p-5 text-xs text-slate-500">Belum ada sesi.</p> : (
                 <ol className="divide-y divide-slate-100">
                   {day.sessions.map((session) => (
                      <li key={session.id} className="grid gap-2 p-4 sm:grid-cols-[8rem_minmax(0,1fr)_10rem_auto] sm:items-center">
-                      <span className="font-mono text-xs font-black text-emerald-800"><Clock3 className="mr-1 inline h-3.5 w-3.5" />{formatTime(session.startAt)}–{formatTime(session.endAt)}</span>
-                      <div><h4 className="text-xs font-black text-slate-900">{session.title}</h4><p className="mt-1 text-[10px] text-slate-500">{session.sessionType.replaceAll("_", " ")} · {session.attendanceRequired ? "wajib hadir" : "opsional"} · {session.checkinRequired ? "check-in aktif" : "tanpa check-in"}</p></div>
-                      <span className="text-[11px] font-bold text-slate-600">{session.room || "Ruang belum diisi"}</span>
+                      <span className="font-mono text-xs font-black text-emerald-800"><Clock3 className="mr-1 inline h-3.5 w-3.5" />{formatEventTime(session.startAt, data.timezone)}–{formatEventTime(session.endAt, data.timezone)} {eventTimezoneLabel(data.timezone)}</span>
+                      <div><h4 className="text-sm font-black text-slate-900">{session.title}</h4><p className="mt-1 text-sm text-slate-600">{session.sessionType === "MATERIAL" ? "Materi" : session.sessionType === "BREAK" ? "Istirahat" : session.sessionType === "OPENING" ? "Pembukaan" : "Penutupan"} · {session.attendanceRequired ? "wajib hadir" : "opsional"} · {session.checkinRequired ? "check-in aktif" : "tanpa check-in"}</p></div>
+                      <span className="text-sm font-bold text-slate-600">{session.room || "Ruang belum diisi"}</span>
                       <button type="button" disabled={previewMode} onClick={() => { setEditingSession(session); setShowSessionForm(true); window.requestAnimationFrame(() => document.querySelector('input[name="title"]')?.scrollIntoView({ behavior: "smooth", block: "center" })); }} className="inline-flex min-h-11 items-center gap-1 rounded-lg border border-slate-300 px-3 text-xs font-bold disabled:opacity-50"><PencilLine className="h-4 w-4" /> Edit</button>
                     </li>
                   ))}

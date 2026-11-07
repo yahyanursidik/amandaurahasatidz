@@ -6,7 +6,8 @@ import { PortalGreeting } from "../../src/components/portal/PortalGreeting";
 describe("warm personalized portal HOME greeting", () => {
   it("welcomes the participant by their safely rendered profile name", () => {
     const html = renderToStaticMarkup(<PortalGreeting fullName="  Abdullah, Lc.  " activeTab="HOME" />);
-    expect(html).toContain("Assalamu’alaikum, Abdullah, Lc..");
+    expect(html).toContain("Assalamu’alaikum, Abdullah, Lc.");
+    expect(html).not.toContain("Lc..");
     expect(html).toContain("Semoga Allah memberkahi ilmu");
     expect(html).toContain('aria-labelledby="portal-greeting-title"');
     expect(html).toContain("[overflow-wrap:anywhere]");

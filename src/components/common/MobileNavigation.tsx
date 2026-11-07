@@ -17,7 +17,7 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({ items, onMen
   const visible = onMenuOpen && hasMore
     ? (adminPreferred.length ? [primary[0], primary[1], ...adminPreferred] : primary).slice(0, 4)
     : primary.slice(0, 5);
-  const hiddenActive = items.filter((item) => !visible.includes(item)).some((item) => isNavigationItemActive(location.pathname, item));
+  const hiddenActive = items.filter((item) => !visible.includes(item)).some((item) => isNavigationItemActive(location.pathname, item, location.search));
 
   return (
     <nav
@@ -25,7 +25,7 @@ export const MobileNavigation: React.FC<MobileNavigationProps> = ({ items, onMen
       className="fixed bottom-0 left-0 right-0 z-40 flex items-center justify-around border-t border-slate-200 bg-white px-2 pb-[max(.25rem,env(safe-area-inset-bottom))] pt-1 shadow-lg md:hidden"
     >
       {visible.map((item) => {
-        const isActive = isNavigationItemActive(location.pathname, item);
+        const isActive = isNavigationItemActive(location.pathname, item, location.search);
         return (
           <Link
             key={item.href}
