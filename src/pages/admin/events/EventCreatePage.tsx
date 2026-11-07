@@ -4,6 +4,7 @@ import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { PageHeader } from "@/components/common/PageHeader";
 import { EventForm, EventFormValues } from "@/components/admin/events/EventForm";
 import { eventApi } from "@/lib/eventApi";
+import { toEventIso } from "@/lib/eventDateTime";
 
 export const EventCreatePage: React.FC = () => {
   const navigate = useNavigate();
@@ -18,6 +19,10 @@ export const EventCreatePage: React.FC = () => {
         method: "POST",
         body: JSON.stringify({
           ...values,
+          registrationOpenAt: toEventIso(values.registrationOpenAt, values.timezone),
+          registrationCloseAt: toEventIso(values.registrationCloseAt, values.timezone),
+          invitationResponseDeadline: toEventIso(values.invitationResponseDeadline, values.timezone),
+          attendanceConfirmationDeadline: toEventIso(values.attendanceConfirmationDeadline, values.timezone),
           capacity: values.capacity ? Number(values.capacity) : null,
           defaultInstitutionQuota: values.defaultInstitutionQuota ? Number(values.defaultInstitutionQuota) : null,
           regularQuota: values.regularQuota === "" ? null : Number(values.regularQuota),

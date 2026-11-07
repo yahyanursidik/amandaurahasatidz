@@ -43,6 +43,7 @@ import { BulkParticipantApprovalPanel } from "@/components/participants/BulkPart
 import { canApproveParticipant, eligibleApprovalIds } from "@/lib/participantBulkApproval";
 import { buildInstitutionInvitationPath } from "@/lib/invitationUrl";
 import { parseParticipantCsv } from "@/lib/participantImportCsv";
+import { eventTimezoneLabel, fromEventIso, toEventIso } from "@/lib/eventDateTime";
 
 type Invitation = {
   id: string;
@@ -79,6 +80,7 @@ type Participant = {
   confirmationStatus: string;
   approvalStatus: string;
   statusReason?: string | null;
+  institutionId?: string | null;
   institutionName: string | null;
   registrationSource: string | null;
   registeredAt: string | null;
@@ -130,6 +132,7 @@ type ParticipantImportPreview = {
 };
 type EventDeadline = {
   name?: string;
+  timezone?: string;
   slug?: string;
   startDate?: string | null;
   endDate?: string | null;
@@ -231,6 +234,15 @@ const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   return result.data as T;
 };
 
+const loadActiveInstitutions = async () => {
+  const institutions: Institution[] = [];
+  for (let page = 1; ; page += 1) {
+    const batch = await api<Institution[]>(`/institutions?status=ACTIVE&pageSize=100&page=${page}`);
+    institutions.push(...batch);
+    if (batch.length < 100) return institutions;
+  }
+};
+
 const formatRegisteredAt = (value: string | null) => {
   if (!value) return { date: "Belum tersedia", time: "—" };
   const date = new Date(value);
@@ -300,6 +312,8 @@ export const EventRegistrationsPage: React.FC = () => {
   const { id = "" } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
   const participantView = searchParams.get("view") === "participants";
+  const requestedInstitutionId = searchParams.get("institutionId") || "";
+  const requestedStatus = searchParams.get("status") || "ALL";
   const demoMode = import.meta.env.DEV && !isUuid(id);
   const activeEventId = useRef(id);
   activeEventId.current = id;
@@ -308,8 +322,10 @@ export const EventRegistrationsPage: React.FC = () => {
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("ALL");
+  const [representativeContacts, setRepresentativeContacts] = useState<Record<string, { email?: string | null; phone?: string | null }>>({});
+  const [search, setSearch] = useState(() => searchParams.get("search") || "");
+  useEffect(() => { setSearch(searchParams.get("search") || ""); }, [searchParams]);
+  const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") || "ALL");
   const [participantPage, setParticipantPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -335,7 +351,7 @@ export const EventRegistrationsPage: React.FC = () => {
   const [linkBusy, setLinkBusy] = useState("");
   const [eventDeadline, setEventDeadline] = useState<EventDeadline | null>(null);
   const [form, setForm] = useState({
-    institutionId: "",
+    institutionId: requestedInstitutionId,
     invitationNumber: "",
     quota: 2,
     responseDeadline: "",
@@ -356,6 +372,7 @@ export const EventRegistrationsPage: React.FC = () => {
       ]);
       setEventDeadline({
         name: "Contoh Daurah Asatidz",
+        timezone: "Asia/Jakarta",
         invitationResponseDeadline: "2026-08-05T16:59:59Z",
         attendanceConfirmationDeadline: null,
         attendanceConfirmationRequired: true,
@@ -368,18 +385,27 @@ export const EventRegistrationsPage: React.FC = () => {
       const [invitationData, participantData, institutionData, deadlineData] = await Promise.all([
         api<Invitation[]>(`/events/${id}/invitations`),
         api<Participant[]>(`/events/${id}/participants`),
-        api<Institution[] | { data: Institution[] }>("/institutions?pageSize=100"),
+        loadActiveInstitutions(),
         api<EventDeadline>(`/events/${id}`),
       ]);
       if (!isCurrent()) return false;
       setInvitations(invitationData || []);
       setParticipants(participantData || []);
       setApprovalRequiresRefresh(false);
-      setInstitutions(Array.isArray(institutionData) ? institutionData : institutionData.data || []);
+      const listedInstitutions = institutionData;
+      if (requestedInstitutionId && !listedInstitutions.some((institution) => institution.id === requestedInstitutionId)) {
+        try {
+          const selectedInstitution = await api<Institution>(`/institutions/${requestedInstitutionId}`);
+          if (isCurrent()) listedInstitutions.push(selectedInstitution);
+        } catch { /* The historic institution may no longer be available for new invitations. */ }
+      }
+      if (!isCurrent()) return false;
+      setInstitutions(listedInstitutions);
       setEventDeadline(deadlineData);
       setForm((current) => ({
         ...current,
-        responseDeadline: current.responseDeadline || (deadlineData.invitationResponseDeadline ? deadlineData.invitationResponseDeadline.slice(0, 10) : ""),
+        institutionId: requestedInstitutionId || current.institutionId,
+        responseDeadline: current.responseDeadline || fromEventIso(deadlineData.invitationResponseDeadline, deadlineData.timezone || "Asia/Jakarta").slice(0, 10),
       }));
       return true;
     } catch (loadError) {
@@ -407,15 +433,22 @@ export const EventRegistrationsPage: React.FC = () => {
     if (participantView) void loadData();
   }, [participantView]);
 
+  useEffect(() => {
+    setStatusFilter(participantView && ["PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED"].includes(requestedStatus)
+      ? requestedStatus
+      : "ALL");
+  }, [participantView, requestedStatus]);
+  useEffect(() => { if (requestedInstitutionId) setForm((current) => ({ ...current, institutionId: requestedInstitutionId })); }, [requestedInstitutionId]);
+
   const filtered = useMemo(
     () =>
       invitations.filter((invitation) => {
         const matchesSearch = `${invitation.institutionName} ${invitation.invitationNumber}`
           .toLowerCase()
           .includes(search.toLowerCase());
-        return matchesSearch && (statusFilter === "ALL" || invitation.status === statusFilter);
+        return matchesSearch && (!requestedInstitutionId || invitation.institutionId === requestedInstitutionId) && (statusFilter === "ALL" || invitation.status === statusFilter);
       }),
-    [invitations, search, statusFilter]
+    [invitations, search, statusFilter, requestedInstitutionId]
   );
   const filteredParticipants = useMemo(
     () =>
@@ -423,9 +456,9 @@ export const EventRegistrationsPage: React.FC = () => {
         const matchesSearch = `${participant.ustadzName} ${participant.participantCode} ${participant.institutionName || ""}`
           .toLowerCase()
           .includes(search.toLowerCase());
-        return matchesSearch && (statusFilter === "ALL" || participant.approvalStatus === statusFilter);
+        return matchesSearch && (!requestedInstitutionId || participant.institutionId === requestedInstitutionId) && (statusFilter === "ALL" || participant.approvalStatus === statusFilter);
       }),
-    [participants, search, statusFilter]
+    [participants, search, statusFilter, requestedInstitutionId]
   );
   const participantPageCount = Math.max(1, Math.ceil(filteredParticipants.length / 25));
   const visibleParticipantPage = Math.min(participantPage, participantPageCount);
@@ -443,6 +476,19 @@ export const EventRegistrationsPage: React.FC = () => {
   const toAbsoluteInvitationUrl = (publicUrl: string) => new URL(publicUrl, window.location.origin).toString();
   const institutionForInvitation = (invitation: Invitation) =>
     institutions.find((institution) => institution.id === invitation.institutionId);
+  const contactForInvitation = (invitation: Invitation) => {
+    const institution = institutionForInvitation(invitation);
+    const representative = invitation.institutionId ? representativeContacts[invitation.institutionId] : undefined;
+    return { email: institution?.email || representative?.email, whatsapp: institution?.whatsapp || institution?.phone || representative?.phone };
+  };
+  const loadRepresentativeContact = async (institutionId: string | null) => {
+    if (demoMode || !institutionId) return;
+    try {
+      const institution = await api<{ representatives?: Array<{ email: string; phone?: string | null; isPrimary: boolean }> }>(`/institutions/${institutionId}`);
+      const representative = institution.representatives?.find((rep) => rep.isPrimary) || institution.representatives?.[0];
+      if (representative) setRepresentativeContacts((current) => ({ ...current, [institutionId]: representative }));
+    } catch { /* Official institution contacts remain available for sharing. */ }
+  };
   const shareContextFor = (invitation: Invitation, invitationUrl: string) => ({
     institutionName: invitation.institutionName || institutionForInvitation(invitation)?.name || "Lembaga penerima",
     eventName: eventDeadline?.name || "Daurah Asatidz",
@@ -471,7 +517,7 @@ export const EventRegistrationsPage: React.FC = () => {
           status: "DRAFT",
           sentAt: null,
           respondedAt: null,
-          responseDeadline: form.responseDeadline ? `${form.responseDeadline}T23:59:59+07:00` : null,
+          responseDeadline: toEventIso(form.responseDeadline ? `${form.responseDeadline}T23:59:59` : "", eventDeadline?.timezone || "Asia/Jakarta"),
         });
       } else {
         const created = await api<{ invitation: Invitation; publicUrl: string; accessCode: string }>(`/events/${id}/invitations`, {
@@ -479,7 +525,7 @@ export const EventRegistrationsPage: React.FC = () => {
           body: JSON.stringify({
             ...form,
             invitationNumber: form.invitationNumber.trim(),
-            responseDeadline: form.responseDeadline ? `${form.responseDeadline}T23:59:59+07:00` : null,
+            responseDeadline: toEventIso(form.responseDeadline ? `${form.responseDeadline}T23:59:59` : "", eventDeadline?.timezone || "Asia/Jakarta"),
             invitationType: "INSTITUTION",
           }),
         });
@@ -490,6 +536,7 @@ export const EventRegistrationsPage: React.FC = () => {
         setInvitationLinks((current) => ({ ...current, [created.invitation.id]: absoluteUrl }));
         setInvitationAccessCodes((current) => ({ ...current, [created.invitation.id]: created.accessCode }));
         await loadData();
+        await loadRepresentativeContact(created.invitation.institutionId);
       }
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Undangan gagal dibuat.");
@@ -534,6 +581,7 @@ export const EventRegistrationsPage: React.FC = () => {
       const absoluteUrl = toAbsoluteInvitationUrl(regenerated.publicUrl);
       setInvitationLinks((current) => ({ ...current, [invitation.id]: absoluteUrl }));
       setInvitationAccessCodes((current) => ({ ...current, [invitation.id]: regenerated.accessCode }));
+      await loadRepresentativeContact(invitation.institutionId);
     } catch (linkError) {
       setError(linkError instanceof Error ? linkError.message : "Tautan undangan gagal dibuat ulang.");
     } finally {
@@ -764,6 +812,7 @@ export const EventRegistrationsPage: React.FC = () => {
           breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Event", href: "/admin/events" }, { label: "Peserta" }]}
         />
         <EventWorkspaceNav eventId={id} />
+        {requestedInstitutionId && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-l-4 border-emerald-600 bg-emerald-50 px-4 py-3 text-sm text-emerald-950"><span>Peserta dari {institutions.find((institution) => institution.id === requestedInstitutionId)?.name || "lembaga terpilih"}</span><Link className="font-bold underline" to={`/admin/events/${id}/registrations?view=participants`}>Tampilkan semua</Link></div>}
         {demoMode && (
           <div className="mb-5 border-t-2 border-amber-500 bg-amber-50 p-3 text-xs text-amber-950">
             Mode pratinjau aktif. Tindakan persetujuan tidak mengubah database.
@@ -1053,6 +1102,7 @@ export const EventRegistrationsPage: React.FC = () => {
         }
       />
       <EventWorkspaceNav eventId={id} />
+      {requestedInstitutionId && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-l-4 border-emerald-600 bg-emerald-50 px-4 py-3 text-sm text-emerald-950"><span>Undangan untuk {institutions.find((institution) => institution.id === requestedInstitutionId)?.name || "lembaga terpilih"}</span><Link className="font-bold underline" to={`/admin/events/${id}/registrations?view=invitations`}>Tampilkan semua</Link></div>}
 
       {eventDeadline && (
         <div className="mb-5 grid gap-3 border-y border-slate-200 bg-white p-4 text-sm sm:grid-cols-2">
@@ -1139,7 +1189,6 @@ export const EventRegistrationsPage: React.FC = () => {
             <div className="space-y-3">
               {filtered.map((invitation) => {
                 const delegates = participants.filter((participant) => participant.invitationId === invitation.id);
-                const recipientInstitution = institutionForInvitation(invitation);
                 return (
                   <article key={invitation.id} className="rounded-xl border border-slate-200 bg-white shadow-sm">
                     <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start sm:justify-between">
@@ -1239,8 +1288,8 @@ export const EventRegistrationsPage: React.FC = () => {
                         )}
                         <InvitationShareActions
                           context={shareContextFor(invitation, invitationLinks[invitation.id])}
-                          recipientWhatsapp={recipientInstitution?.whatsapp || recipientInstitution?.phone}
-                          recipientEmail={recipientInstitution?.email}
+                          recipientWhatsapp={contactForInvitation(invitation).whatsapp}
+                          recipientEmail={contactForInvitation(invitation).email}
                         />
                       </div>
                     )}
@@ -1333,13 +1382,13 @@ export const EventRegistrationsPage: React.FC = () => {
                 />
               </div>
               <div>
-                <label htmlFor="deadline" className="mb-1.5 block text-[11px] font-bold text-slate-700">Batas respons</label>
+                <label htmlFor="deadline" className="mb-1.5 block text-sm font-bold text-slate-700">Batas respons · {eventTimezoneLabel(eventDeadline?.timezone || "Asia/Jakarta")}</label>
                 <input
                   id="deadline"
                   type="date"
                   value={form.responseDeadline}
                   onChange={(event) => setForm({ ...form, responseDeadline: event.target.value })}
-                  className="min-h-[44px] w-full rounded-lg border border-slate-300 px-2 text-[11px] focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700"
+                  className="min-h-[44px] w-full rounded-lg border border-slate-300 px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700"
                 />
               </div>
             </div>
@@ -1377,8 +1426,8 @@ export const EventRegistrationsPage: React.FC = () => {
               {createdInvitation ? (
                 <InvitationShareActions
                   context={shareContextFor(createdInvitation, createdLink)}
-                  recipientWhatsapp={institutionForInvitation(createdInvitation)?.whatsapp || institutionForInvitation(createdInvitation)?.phone}
-                  recipientEmail={institutionForInvitation(createdInvitation)?.email}
+                  recipientWhatsapp={contactForInvitation(createdInvitation).whatsapp}
+                  recipientEmail={contactForInvitation(createdInvitation).email}
                 />
               ) : null}
             </div>

@@ -1,7 +1,6 @@
-/* Hallmark · macrostructure: Map / Diagram · tone: utilitarian · anchor hue: emerald
- * genre: modern-minimal · theme: existing emerald-slate · nav: N3 · footer: Ft2
- * audience: peserta/asatidz · use: memastikan kesiapan hadir dan check-in individu
- * Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5
+/* Hallmark · genre: modern-minimal · macrostructure: Workbench · design-system: design.md · designed-as-app
+ * audience: peserta/asatidz · use: status acara, konfirmasi hadir, dan QR individu
+ * Hallmark · pre-emit critique: P5 H5 E4 S5 R4 V4
  */
 import React, { useEffect, useMemo, useState, useCallback, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
@@ -13,6 +12,7 @@ import {
   Check,
   CheckCircle2,
   Clock3,
+  ClipboardCheck,
   Copy,
   ExternalLink,
   FileText,
@@ -33,6 +33,7 @@ import { StatusBadge, StatusVariant } from "@/components/common/StatusBadge";
 import { eventApi } from "@/lib/eventApi";
 import { ProfileEditor, type PortalProfile } from "@/components/portal/ProfileEditor";
 import { PortalGreeting } from "@/components/portal/PortalGreeting";
+import { choosePortalParticipationId, readPortalParticipationSelection, savePortalParticipationSelection } from "@/lib/portalParticipation";
 
 type PortalTab =
   | "HOME"
@@ -95,6 +96,7 @@ type PortalParticipation = {
   mapsUrl?: string | null;
   invitationResponseDeadline?: string | null;
   attendanceConfirmationDeadline?: string | null;
+  attendanceConfirmationRequired?: boolean | null;
   sessions: PortalSession[];
   attendance: PortalAttendance[];
 };
@@ -150,6 +152,11 @@ type PortalQr = {
 };
 
 const DEFAULT_POSTER = "/images/event-poster-library-interior.png";
+const previewDay = (offset: number) => {
+  const date = new Date();
+  date.setDate(date.getDate() + offset);
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+};
 
 const previewOverview: PortalOverview = {
   profile: {
@@ -189,23 +196,24 @@ const previewOverview: PortalOverview = {
       eventStatus: "PUBLISHED",
       posterUrl: DEFAULT_POSTER,
       posterAlt: "Interior perpustakaan sebagai poster Daurah Asatidz",
-      startDate: "2026-08-15",
-      endDate: "2026-08-18",
+      startDate: previewDay(7),
+      endDate: previewDay(10),
       venueName: "Bandung",
       venueAddress: "Alamat lengkap akan diinformasikan panitia.",
       mapsUrl: null,
-      invitationResponseDeadline: "2026-08-05T23:59:00+07:00",
-      attendanceConfirmationDeadline: "2026-08-10T23:59:00+07:00",
+      invitationResponseDeadline: `${previewDay(5)}T23:59:00+07:00`,
+      attendanceConfirmationDeadline: `${previewDay(6)}T23:59:00+07:00`,
+      attendanceConfirmationRequired: true,
       sessions: [
         {
           id: "preview-session-1",
           dayNumber: 1,
-          dayDate: "2026-08-15",
+          dayDate: previewDay(7),
           dayTitle: "Pembukaan",
           title: "Registrasi ulang dan pembukaan",
           sessionType: "OPENING",
-          startAt: "2026-08-15T08:00:00+07:00",
-          endAt: "2026-08-15T09:30:00+07:00",
+          startAt: `${previewDay(7)}T08:00:00+07:00`,
+          endAt: `${previewDay(7)}T09:30:00+07:00`,
           room: "Ruang utama",
           attendanceRequired: true,
           checkinRequired: true,
@@ -213,12 +221,12 @@ const previewOverview: PortalOverview = {
         {
           id: "preview-session-2",
           dayNumber: 1,
-          dayDate: "2026-08-15",
+          dayDate: previewDay(7),
           dayTitle: "Materi",
           title: "Penguatan amanah dakwah",
           sessionType: "MATERIAL",
-          startAt: "2026-08-15T10:00:00+07:00",
-          endAt: "2026-08-15T12:00:00+07:00",
+          startAt: `${previewDay(7)}T10:00:00+07:00`,
+          endAt: `${previewDay(7)}T12:00:00+07:00`,
           room: "Ruang utama",
           attendanceRequired: true,
           checkinRequired: true,
@@ -252,8 +260,8 @@ const tabByPath: Record<string, PortalTab> = {
 
 const tabMeta: Record<PortalTab, { title: string; description: string }> = {
   HOME: {
-    title: "Beranda peserta",
-    description: "Lihat posisi Anda dalam alur persiapan dan tindakan yang perlu diselesaikan.",
+    title: "Beranda Asatidz",
+    description: "Status acara dan kartu kehadiran Anda.",
   },
   INVITATIONS: {
     title: "Pendaftaran saya",
@@ -313,6 +321,40 @@ const sourceLabel = (source: string) =>
       ? "Undangan individual"
       : "Pendaftaran mandiri";
 
+const approvalLabel: Record<string, string> = {
+  APPROVED: "Disetujui",
+  PENDING_REVIEW: "Menunggu tinjauan",
+  WAITLISTED: "Daftar tunggu",
+  DECLINED: "Tidak disetujui",
+};
+
+const confirmationLabel: Record<string, string> = {
+  CONFIRMED: "Hadir",
+  ACCEPTED: "Diterima",
+  INVITED: "Diundang",
+  PENDING: "Menunggu konfirmasi",
+  CANCELLED: "Dibatalkan",
+  REPLACED: "Diganti",
+};
+
+const attendanceLabel: Record<string, string> = {
+  PRESENT: "Hadir",
+  LATE: "Terlambat",
+  ABSENT: "Tidak hadir",
+  EXCUSED: "Berhalangan",
+};
+
+const checkinMethodLabel: Record<string, string> = {
+  QR: "Pindai QR",
+  MANUAL: "Kode peserta",
+  CODE: "Kode peserta",
+};
+
+const todayLocal = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+};
+
 export const ParticipantPortalPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -322,10 +364,18 @@ export const ParticipantPortalPage: React.FC = () => {
   const [announcementError, setAnnouncementError] = useState("");
   const [readingAnnouncementIds, setReadingAnnouncementIds] = useState<string[]>([]);
   const [selectedParticipantId, setSelectedParticipantId] = useState("");
+  const selectParticipation = (participantId: string) => {
+    setSelectedParticipantId(participantId);
+    savePortalParticipationSelection(participantId);
+    setQr(null);
+    setConfirmError("");
+  };
   const [qr, setQr] = useState<PortalQr | null>(null);
   const [loading, setLoading] = useState(true);
   const [qrLoading, setQrLoading] = useState(false);
   const [qrError, setQrError] = useState("");
+  const [confirmBusy, setConfirmBusy] = useState(false);
+  const [confirmError, setConfirmError] = useState("");
   const [copyError, setCopyError] = useState("");
   const [preview, setPreview] = useState(false);
   const [error, setError] = useState("");
@@ -373,14 +423,18 @@ export const ParticipantPortalPage: React.FC = () => {
         if (cancelled) return;
         setOverview(overviewData);
         setAnnouncements(announcementData);
-        setSelectedParticipantId(overviewData.participations[0]?.participantId || "");
+        setSelectedParticipantId(choosePortalParticipationId(
+          overviewData.participations,
+          readPortalParticipationSelection(),
+          todayLocal(),
+        ));
       } catch (loadError) {
         if (cancelled) return;
         if (import.meta.env.DEV) {
           setPreview(true);
           setOverview(previewOverview);
           setAnnouncements(previewAnnouncements);
-          setSelectedParticipantId(previewOverview.participations[0].participantId);
+          setSelectedParticipantId(choosePortalParticipationId(previewOverview.participations, readPortalParticipationSelection(), todayLocal()));
         } else {
           setOverview(null);
           setAnnouncements([]);
@@ -410,6 +464,23 @@ export const ParticipantPortalPage: React.FC = () => {
       null,
     [overview, selectedParticipantId],
   );
+  const eventFinished = Boolean(selectedParticipation &&
+    (selectedParticipation.endDate < todayLocal() || ["COMPLETED", "CANCELLED", "ARCHIVED"].includes(selectedParticipation.eventStatus)));
+  const qrReady = selectedParticipation?.approvalStatus === "APPROVED" &&
+    !["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus) && !eventFinished;
+  const confirmationNeeded = Boolean(selectedParticipation && !eventFinished && selectedParticipation.attendanceConfirmationRequired !== false &&
+    selectedParticipation.confirmationStatus !== "CONFIRMED");
+  const checkinReady = qrReady && !confirmationNeeded;
+  const canSelfConfirm = Boolean(selectedParticipation && confirmationNeeded &&
+    !["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus) &&
+    !["CANCELLED", "ARCHIVED"].includes(selectedParticipation.eventStatus) &&
+    selectedParticipation.approvalStatus !== "DECLINED");
+  const participationUnavailable = Boolean(selectedParticipation &&
+    (["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus) || selectedParticipation.approvalStatus === "DECLINED"));
+  const unreadAnnouncements = announcements.filter((item) => !item.isRead).length;
+  const nextSession = selectedParticipation?.sessions
+    .filter((session) => Date.parse(session.endAt) >= Date.now())
+    .sort((a, b) => Date.parse(a.startAt) - Date.parse(b.startAt))[0] || null;
 
   useEffect(() => {
     let cancelled = false;
@@ -417,7 +488,7 @@ export const ParticipantPortalPage: React.FC = () => {
     setCopyError("");
     setCopyDone(false);
     if (activeTab !== "QR" || !selectedParticipation) return;
-    if (selectedParticipation.approvalStatus !== "APPROVED" || ["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus)) {
+    if (!checkinReady) {
       setQr(null);
       setQrLoading(false);
       return;
@@ -447,45 +518,50 @@ export const ParticipantPortalPage: React.FC = () => {
       })
       .finally(() => { if (!cancelled) setQrLoading(false); });
     return () => { cancelled = true; };
-  }, [activeTab, overview?.profile.fullName, preview, selectedParticipation]);
+  }, [activeTab, checkinReady, overview?.profile.fullName, preview, selectedParticipation]);
+
+  const confirmAttendance = async () => {
+    if (!selectedParticipation || confirmBusy || preview) return;
+    setConfirmBusy(true);
+    setConfirmError("");
+    try {
+      const result = await eventApi<{ confirmationStatus: string; approvalStatus: string; confirmedAt: string | null }>(
+        `/portal/participations/${selectedParticipation.participantId}/confirm`, { method: "POST" },
+      );
+      setOverview((current) => current ? {
+        ...current,
+        participations: current.participations.map((item) => item.participantId === selectedParticipation.participantId
+          ? { ...item, ...result }
+          : item),
+      } : current);
+    } catch (cause) {
+      setConfirmError(cause instanceof Error ? cause.message : "Konfirmasi hadir gagal disimpan. Coba lagi atau hubungi panitia.");
+    } finally {
+      setConfirmBusy(false);
+    }
+  };
 
   const readiness = useMemo(() => {
     if (!overview || !selectedParticipation) return [];
     const hasContact = Boolean(overview.profile.whatsapp || overview.profile.phone);
     return [
       {
-        label: "Terdaftar",
-        detail: `${sourceLabel(selectedParticipation.registrationSource)} · ${formatDate(selectedParticipation.registeredAt, true)}`,
-        complete: true,
-        href: "/portal/invitations",
-      },
-      {
-        label: "Disetujui",
-        detail:
-          selectedParticipation.approvalStatus === "APPROVED"
-            ? "Data peserta telah disetujui."
-            : "Menunggu pemeriksaan panitia.",
+        label: "Persetujuan",
         complete: selectedParticipation.approvalStatus === "APPROVED",
         href: "/portal/invitations",
       },
       {
-        label: "Kontak siap",
-        detail: hasContact ? "Nomor WhatsApp tersedia." : "Lengkapi nomor WhatsApp.",
+        label: "Kontak",
         complete: hasContact,
         href: "/portal/profile",
       },
-      {
+      ...(!eventFinished ? [{
         label: "QR individu",
-        detail: selectedParticipation.approvalStatus === "APPROVED" ? "Siapkan sebelum tiba di meja registrasi." : "QR untuk presensi berlaku setelah disetujui panitia.",
-        complete: selectedParticipation.approvalStatus === "APPROVED" && ["CONFIRMED", "ACCEPTED"].includes(selectedParticipation.confirmationStatus),
+        complete: Boolean(checkinReady),
         href: "/portal/qr",
-      },
+      }] : []),
     ];
-  }, [overview, selectedParticipation]);
-
-  const completion = readiness.length
-    ? Math.round((readiness.filter((item) => item.complete).length / readiness.length) * 100)
-    : 0;
+  }, [overview, selectedParticipation, checkinReady, eventFinished]);
 
   const markRead = async (announcementId: string) => {
     if (readingAnnouncementIds.includes(announcementId)) return;
@@ -505,7 +581,7 @@ export const ParticipantPortalPage: React.FC = () => {
 
   const loadDelegation = async (participantId: string) => {
     const request = ++delegationRequest.current;
-    setSelectedParticipantId(participantId);
+    selectParticipation(participantId);
     setDelegation(null);
     setDelegationLoading(true);
     setDelegationError("");
@@ -673,8 +749,8 @@ export const ParticipantPortalPage: React.FC = () => {
         actions={
           selectedParticipation ? (
             <StatusBadge
-              label={selectedParticipation.confirmationStatus}
-              variant={statusVariant(selectedParticipation.confirmationStatus)}
+              label={approvalLabel[selectedParticipation.approvalStatus] || selectedParticipation.approvalStatus}
+              variant={statusVariant(selectedParticipation.approvalStatus)}
             />
           ) : undefined
         }
@@ -708,7 +784,7 @@ export const ParticipantPortalPage: React.FC = () => {
         </section>
       )}
 
-      {selectedParticipation && selectedParticipation.approvalStatus !== "APPROVED" && (
+      {activeTab !== "HOME" && selectedParticipation && !eventFinished && selectedParticipation.approvalStatus !== "APPROVED" && (
         <div className="portal-status-guide" role="status">
           <Info aria-hidden="true" />
           <p><strong>Pendaftaran tersimpan, menunggu pemeriksaan panitia.</strong> Anda dapat melengkapi profil dan membaca jadwal. QR belum dapat digunakan untuk check-in sampai status disetujui.</p>
@@ -716,14 +792,14 @@ export const ParticipantPortalPage: React.FC = () => {
       )}
 
       {selectedParticipation && (
-        <section className="mb-6 grid overflow-hidden border border-slate-200 bg-white shadow-sm lg:grid-cols-[13rem_minmax(0,1fr)_17rem]">
-          <img
+        <section className={`portal-event-context ${activeTab === "HOME" ? "is-home" : "is-compact"}`} aria-label="Event terpilih">
+          {activeTab === "HOME" && <img
             src={selectedParticipation.posterUrl || DEFAULT_POSTER}
             alt={selectedParticipation.posterAlt || `Poster ${selectedParticipation.eventName}`}
             width={520}
             height={680}
             className="h-44 w-full object-cover lg:h-full"
-          />
+          />}
           <div className="min-w-0 p-5 sm:p-6">
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-mono text-xs font-black text-emerald-800">
@@ -733,6 +809,10 @@ export const ParticipantPortalPage: React.FC = () => {
                 label={sourceLabel(selectedParticipation.registrationSource)}
                 variant="info"
               />
+              <StatusBadge
+                label={approvalLabel[selectedParticipation.approvalStatus] || selectedParticipation.approvalStatus}
+                variant={statusVariant(selectedParticipation.approvalStatus)}
+              />
             </div>
             <h2 className="mt-3 min-w-0 text-xl font-black leading-tight text-slate-950 [overflow-wrap:anywhere] sm:text-2xl">
               {selectedParticipation.eventName}
@@ -741,13 +821,13 @@ export const ParticipantPortalPage: React.FC = () => {
               {formatDate(selectedParticipation.startDate)} – {formatDate(selectedParticipation.endDate)}
               {selectedParticipation.venueName ? ` · ${selectedParticipation.venueName}` : ""}
             </p>
-            <div className="mt-4 flex flex-wrap gap-3">
+            {activeTab === "HOME" && <div className="mt-4 flex flex-wrap gap-3">
               <Link
-                to="/portal/qr"
+                to={checkinReady ? "/portal/qr" : eventFinished ? "/portal/attendance" : "/portal/invitations"}
                 className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-800 px-4 text-sm font-bold text-white transition hover:bg-emerald-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 active:translate-y-px"
               >
                 <QrCode className="h-4 w-4" />
-                Buka QR individu
+                {checkinReady ? "Buka QR individu" : eventFinished ? "Lihat kehadiran" : "Lihat pendaftaran"}
               </Link>
               {selectedParticipation.mapsUrl && (
                 <a
@@ -760,7 +840,7 @@ export const ParticipantPortalPage: React.FC = () => {
                   Buka lokasi
                 </a>
               )}
-            </div>
+            </div>}
           </div>
           <div className="border-t border-slate-200 bg-slate-50 p-5 lg:border-l lg:border-t-0">
             <label htmlFor="participant-event" className="text-xs font-bold text-slate-600">
@@ -769,15 +849,12 @@ export const ParticipantPortalPage: React.FC = () => {
             <select
               id="participant-event"
               value={selectedParticipation.participantId}
-              onChange={(event) => {
-                setSelectedParticipantId(event.target.value);
-                setQr(null);
-              }}
+              onChange={(event) => selectParticipation(event.target.value)}
               className="mt-2 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold outline outline-2 outline-transparent focus-visible:outline-emerald-700"
             >
               {overview.participations.map((participation) => (
                 <option key={participation.participantId} value={participation.participantId}>
-                  {participation.eventCode} · {participation.eventName}
+                  {participation.eventName}
                 </option>
               ))}
             </select>
@@ -792,78 +869,56 @@ export const ParticipantPortalPage: React.FC = () => {
       )}
 
       {activeTab === "HOME" && selectedParticipation && (
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1.35fr)_minmax(18rem,.65fr)]">
-          <section className="border border-slate-200 bg-white p-5 sm:p-6">
-            <div className="flex flex-wrap items-start justify-between gap-3">
-              <div>
-                <h2 className="text-lg font-black text-slate-950">Jalur kesiapan Anda</h2>
-                <p className="mt-1 text-sm text-slate-600">
-                  Selesaikan setiap titik sebelum hari pelaksanaan.
-                </p>
-              </div>
-              <span className="font-mono text-2xl font-black tabular-nums text-emerald-800">
-                {completion}%
-              </span>
+        <div className="portal-home">
+          <section className="portal-home__status" data-state={checkinReady ? "ready" : canSelfConfirm ? "confirm" : "waiting"} aria-labelledby="portal-status-heading">
+            <div>
+              <span>Status keikutsertaan</span>
+              <h2 id="portal-status-heading">{eventFinished ? "Acara telah selesai" : participationUnavailable ? "Kepesertaan tidak aktif" : canSelfConfirm ? "Konfirmasi kehadiran Anda" : checkinReady ? "Siap menunjukkan QR" : "Menunggu persetujuan panitia"}</h2>
+              <p>{eventFinished ? "Riwayat check-in Anda tetap dapat dilihat." : participationUnavailable ? "Lihat status pendaftaran atau hubungi panitia bila perlu." : canSelfConfirm ? `Batas konfirmasi: ${formatDate(selectedParticipation.attendanceConfirmationDeadline, true)}.` : checkinReady ? "QR ini milik Anda sendiri, termasuk jika didaftarkan oleh lembaga." : "Pantau status pendaftaran; QR aktif setelah syarat kehadiran terpenuhi."}</p>
             </div>
-            <div className="mt-6 h-2 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
-              <div
-                className="h-full origin-left rounded-full bg-emerald-700 transition-transform duration-300 motion-reduce:transition-none"
-                style={{ transform: `scaleX(${completion / 100})` }}
-              />
-            </div>
-            <ol className="mt-6 grid gap-3 md:grid-cols-2">
-              {readiness.map((item, index) => (
-                <li key={item.label}>
-                  <Link
-                    to={item.href}
-                    className="group flex min-h-[112px] items-start gap-4 rounded-xl border border-slate-200 p-4 transition hover:border-emerald-300 hover:bg-emerald-50/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
-                  >
-                    <span
-                      className={`grid h-9 w-9 shrink-0 place-items-center rounded-full font-mono text-xs font-black ${
-                        item.complete
-                          ? "bg-emerald-800 text-white"
-                          : "border border-slate-300 bg-white text-slate-500"
-                      }`}
-                    >
-                      {item.complete ? <Check className="h-4 w-4" /> : index + 1}
-                    </span>
-                    <span className="min-w-0">
-                      <span className="block font-black text-slate-950">{item.label}</span>
-                      <span className="mt-1 block text-xs leading-5 text-slate-600">{item.detail}</span>
-                    </span>
-                    <ArrowRight className="ml-auto h-4 w-4 shrink-0 text-slate-400 transition-transform group-hover:translate-x-0.5" />
-                  </Link>
-                </li>
-              ))}
-            </ol>
+            {canSelfConfirm ? <button type="button" onClick={() => void confirmAttendance()} disabled={confirmBusy || preview}>
+              <CheckCircle2 aria-hidden="true" />
+              {confirmBusy ? "Menyimpan…" : "Konfirmasi hadir"}
+            </button> : <Link to={checkinReady ? "/portal/qr" : eventFinished ? "/portal/attendance" : "/portal/invitations"}>
+              {checkinReady ? <QrCode aria-hidden="true" /> : eventFinished ? <Clock3 aria-hidden="true" /> : <ClipboardCheck aria-hidden="true" />}
+              {checkinReady ? "Tampilkan QR" : eventFinished ? "Riwayat hadir" : "Lihat status"}
+              <ArrowRight aria-hidden="true" />
+            </Link>}
+            {confirmError && <p role="alert" className="portal-home__confirm-error">{confirmError}</p>}
           </section>
 
-          <aside className="space-y-4">
-            <div className="border-t-4 border-emerald-800 bg-emerald-950 p-5 text-white">
-              <ShieldCheck className="h-6 w-6 text-emerald-300" />
-              <h2 className="mt-4 text-lg font-black">Check-in tetap per individu</h2>
-              <p className="mt-2 text-sm leading-6 text-emerald-100">
-                Pendaftaran melalui lembaga tidak menggabungkan presensi. QR Anda terikat pada
-                identitas peserta dan event ini.
-              </p>
-              <Link
-                to="/portal/qr"
-                className="mt-5 inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap text-sm font-black text-emerald-200 underline decoration-emerald-500 underline-offset-4"
-              >
-                Siapkan kartu QR
-                <ArrowRight className="h-4 w-4" />
-              </Link>
-            </div>
-            <div className="border border-slate-200 bg-white p-5">
-              <p className="text-xs font-bold text-slate-500">Batas konfirmasi hadir</p>
-              <p className="mt-2 text-base font-black text-slate-950">
-                {formatDate(selectedParticipation.attendanceConfirmationDeadline, true)}
-              </p>
-              <p className="mt-3 text-xs leading-5 text-slate-600">
-                Jika data belum sesuai, hubungi panitia sebelum batas waktu.
-              </p>
-            </div>
-          </aside>
+          <div className="portal-home__grid">
+            <section className="portal-home__panel" aria-labelledby="portal-next-heading">
+              <header><h2 id="portal-next-heading">Jadwal terdekat</h2><CalendarDays aria-hidden="true" /></header>
+              {nextSession ? <div>
+                <strong>{nextSession.title}</strong>
+                <p>{formatDate(nextSession.startAt)} · {formatTime(nextSession.startAt)}–{formatTime(nextSession.endAt)}</p>
+                {nextSession.room && <p>{nextSession.room}</p>}
+              </div> : <p>Belum ada sesi mendatang untuk event ini.</p>}
+              <Link to="/portal/schedule">Lihat jadwal <ArrowRight aria-hidden="true" /></Link>
+            </section>
+
+            <section className="portal-home__panel" aria-labelledby="portal-ready-heading">
+              <header><h2 id="portal-ready-heading">Persiapan Anda</h2><CheckCircle2 aria-hidden="true" /></header>
+              <ul className="portal-home__checklist">
+                {readiness.map((item) => <li key={item.label}>
+                  <Link to={item.href}>
+                    <span className={item.complete ? "is-complete" : ""}>{item.complete ? <Check aria-hidden="true" /> : <Clock3 aria-hidden="true" />}</span>
+                    <strong>{item.label}</strong>
+                    <ArrowRight aria-hidden="true" />
+                  </Link>
+                </li>)}
+              </ul>
+            </section>
+          </div>
+
+          <nav className="portal-home__quick-links" aria-label="Akses cepat peserta">
+            <Link to="/portal/announcements"><Bell aria-hidden="true" /> Pengumuman{unreadAnnouncements > 0 ? ` · ${unreadAnnouncements} baru` : ""}</Link>
+            <Link to="/portal/attendance"><CheckCircle2 aria-hidden="true" /> Riwayat hadir</Link>
+            {selectedParticipation.isDelegationLead && (selectedParticipation.invitationId || selectedParticipation.publicGroupId) &&
+              <Link to="/portal/invitations"><Crown aria-hidden="true" /> Rombongan</Link>}
+            <Link to="/programs"><CalendarDays aria-hidden="true" /> Program lain</Link>
+          </nav>
         </div>
       )}
 
@@ -881,11 +936,11 @@ export const ParticipantPortalPage: React.FC = () => {
                     variant="info"
                   />
                   <StatusBadge
-                    label={participation.approvalStatus}
+                    label={approvalLabel[participation.approvalStatus] || participation.approvalStatus}
                     variant={statusVariant(participation.approvalStatus)}
                   />
                   <StatusBadge
-                    label={participation.confirmationStatus}
+                    label={confirmationLabel[participation.confirmationStatus] || participation.confirmationStatus}
                     variant={statusVariant(participation.confirmationStatus)}
                   />
                 </div>
@@ -931,7 +986,7 @@ export const ParticipantPortalPage: React.FC = () => {
                   <button
                     type="button"
                     onClick={() => {
-                      setSelectedParticipantId(participation.participantId);
+                      selectParticipation(participation.participantId);
                       navigate("/portal/qr");
                     }}
                     className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 active:translate-y-px"
@@ -1135,10 +1190,10 @@ export const ParticipantPortalPage: React.FC = () => {
       {activeTab === "QR" && selectedParticipation && (
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="border border-slate-200 bg-white p-5 text-center sm:p-8 print:border-0">
-            <img src="/images/tarbiyah-sunnah-logo.svg" alt="Tarbiyah Sunnah" width="150" height="43" className="mx-auto mb-5 h-auto w-[150px] object-contain" />
+            <p className="mx-auto mb-5 text-sm font-black tracking-tight text-emerald-900">Aman Daurah Asatidz</p>
             <StatusBadge
-              label="Bukti pendaftaran dan QR kehadiran"
-              variant="success"
+              label={checkinReady ? "QR kehadiran individu" : "Kartu pendaftaran peserta"}
+              variant={checkinReady ? "success" : "neutral"}
               icon={<ShieldCheck className="h-3.5 w-3.5" />}
             />
             <h2 className="mx-auto mt-4 max-w-2xl text-xl font-black text-slate-950">
@@ -1152,10 +1207,20 @@ export const ParticipantPortalPage: React.FC = () => {
             </p>
             {qrError && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{qrError}</p>}
             <div className="mx-auto mt-7 grid min-h-[248px] w-full max-w-[248px] place-items-center rounded-2xl border-8 border-slate-950 bg-white p-4 shadow-lg">
-              {selectedParticipation.approvalStatus !== "APPROVED" ? (
+              {eventFinished ? (
+                <div className="max-w-[190px] text-sm font-bold text-slate-700">
+                  <p>Acara telah selesai. Lihat catatan kehadiran Anda.</p>
+                  <Link to="/portal/attendance" className="mt-3 inline-flex min-h-11 items-center text-emerald-800 underline">Riwayat hadir</Link>
+                </div>
+              ) : selectedParticipation.approvalStatus !== "APPROVED" ? (
                 <p className="max-w-[190px] text-sm font-bold text-slate-700">QR tersedia setelah panitia menyetujui pendaftaran.</p>
               ) : ["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus) ? (
                 <p className="max-w-[190px] text-sm font-bold text-slate-700">QR tidak aktif karena pendaftaran dibatalkan atau diganti.</p>
+              ) : confirmationNeeded ? (
+                <div className="max-w-[190px] text-sm font-bold text-slate-700">
+                  <p>Konfirmasi kehadiran dahulu agar QR dapat dipakai check-in.</p>
+                  <Link to="/portal" className="mt-3 inline-flex min-h-11 items-center text-emerald-800 underline">Ke beranda</Link>
+                </div>
               ) : qrLoading ? (
                 <Loader2 className="h-8 w-8 animate-spin text-emerald-700 motion-reduce:animate-none" />
               ) : !qr ? (
@@ -1171,14 +1236,15 @@ export const ParticipantPortalPage: React.FC = () => {
               )}
             </div>
             <div className="mx-auto mt-6 max-w-md rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-bold text-slate-500">Kode peserta{selectedParticipation.approvalStatus === "APPROVED" ? " · fallback manual" : " · belum berlaku untuk presensi"}</p>
+              <p className="text-xs font-bold text-slate-500">Kode peserta{checkinReady ? " · fallback manual" : " · belum berlaku untuk presensi"}</p>
               <p className="mt-2 font-mono text-lg font-black tracking-wider text-emerald-900">
                 {selectedParticipation.participantCode}
               </p>
               <button
                 type="button"
                 onClick={copyParticipantCode}
-                className="mt-3 inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg px-3 text-xs font-black text-emerald-800 hover:bg-emerald-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+                disabled={!checkinReady}
+                className="mt-3 inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg px-3 text-xs font-black text-emerald-800 hover:bg-emerald-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {copyDone ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
                 {copyDone ? "Kode tersalin" : "Salin kode"}
@@ -1275,11 +1341,11 @@ export const ParticipantPortalPage: React.FC = () => {
                     {record.sessionTitle || "Presensi event"}
                   </h2>
                   <p className="mt-1 text-sm text-slate-600">
-                    {formatDate(record.checkinAt, true)} · {record.checkinMethod || "Metode tidak dicatat"}
+                    {formatDate(record.checkinAt, true)} · {record.checkinMethod ? checkinMethodLabel[record.checkinMethod] || record.checkinMethod : "Metode tidak dicatat"}
                   </p>
                 </div>
                 <StatusBadge
-                  label={record.attendanceStatus}
+                  label={attendanceLabel[record.attendanceStatus] || record.attendanceStatus}
                   variant={statusVariant(record.attendanceStatus)}
                 />
               </article>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useGetIdentity } from "@refinedev/core";
 import {
@@ -24,25 +24,40 @@ import {
 } from "lucide-react";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { PageHeader } from "@/components/common/PageHeader";
-import { UstadzWorkspaceNav } from "@/components/admin/ustadz/UstadzWorkspaceNav";
-import { institutionApi, Institution } from "@/lib/institutionApi";
+import { Institution, listAllActiveInstitutions } from "@/lib/institutionApi";
 import { UstadzProfile, ustadzApi } from "@/lib/ustadzApi";
 import { getUstadzPreviewProfile } from "@/lib/ustadzPreview";
 import { AuthIdentity } from "@/lib/refine/authProvider";
+import { canManageUstadz, canMergeUstadz } from "@/lib/ustadzPermissions";
 import { canAccessYtsNotes } from "@/lib/ustadzNotes";
 import { YtsNotesPanel } from "@/components/admin/ustadz/YtsNotesPanel";
+import { institutionRegionLabel } from "@/lib/institutionRegion";
 
 type Tab = "PROFILE" | "AFFILIATIONS" | "EVENTS" | "QUALITY" | "NOTES";
 
 const formatDate = (value?: string | null) => {
   if (!value) return "Belum tersedia";
-  return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" }).format(new Date(value));
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? "Tanggal belum valid" : new Intl.DateTimeFormat("id-ID", { dateStyle: "medium" }).format(date);
+};
+
+const approvalLabel: Record<string, string> = {
+  APPROVED: "Disetujui", PENDING_REVIEW: "Menunggu peninjauan", WAITLISTED: "Daftar tunggu",
+  REJECTED: "Ditolak", DECLINED: "Dibatalkan", CANCELLED: "Dibatalkan",
+};
+const attendanceLabel: Record<string, string> = {
+  COMPLETE: "Hadir lengkap", PARTIAL: "Hadir sebagian", NOT_ATTENDED: "Belum hadir",
+  TIDAK_HADIR: "Tidak hadir", HADIR_SEBAGIAN: "Hadir sebagian", HADIR_LENGKAP: "Hadir lengkap",
+  NOT_STARTED: "Belum dimulai", NO_REQUIREMENT: "Tanpa presensi wajib",
+};
+const registrationLabel: Record<string, string> = {
+  DIRECT_PUBLIC: "Pendaftaran publik", DIRECT_ADMIN_UPLOAD: "Unggahan admin", ADMIN_ENTRY: "Entri admin",
+  INSTITUTION_DELEGATION: "Undangan lembaga", INSTITUTION_DELEGATION_REPLACEMENT: "Pengganti delegasi",
+  INDIVIDUAL_INVITATION: "Undangan individu",
 };
 
 const missingLabels: Array<[keyof UstadzProfile, string]> = [
   ["email", "Email"],
-  ["phone", "Telepon"],
-  ["whatsapp", "WhatsApp"],
   ["address", "Alamat"],
   ["cityCode", "Kota/kabupaten"],
   ["provinceCode", "Provinsi"],
@@ -54,6 +69,8 @@ export const UstadzShowPage: React.FC = () => {
   const { id = "" } = useParams<{ id: string }>();
   const { data: identity } = useGetIdentity<AuthIdentity>();
   const canReadNotes = canAccessYtsNotes(identity?.assignments ?? []);
+  const canManage = canManageUstadz(identity?.assignments);
+  const canMerge = canMergeUstadz(identity?.assignments);
   const [searchParams, setSearchParams] = useSearchParams();
   const [profile, setProfile] = useState<UstadzProfile | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>("PROFILE");
@@ -62,50 +79,62 @@ export const UstadzShowPage: React.FC = () => {
   const [preview, setPreview] = useState(false);
   const [showAffiliationForm, setShowAffiliationForm] = useState(false);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
+  const [institutionError, setInstitutionError] = useState("");
   const [institutionId, setInstitutionId] = useState("");
   const [position, setPosition] = useState("");
   const [isPrimary, setIsPrimary] = useState(false);
   const [savingAffiliation, setSavingAffiliation] = useState(false);
   const [actionMessage, setActionMessage] = useState("");
+  const [actionError, setActionError] = useState("");
   const [duplicates, setDuplicates] = useState<UstadzProfile[]>([]);
+  const [duplicateError, setDuplicateError] = useState("");
+  const [affiliationBusy, setAffiliationBusy] = useState(false);
+  const loadVersion = useRef(0);
   useEffect(() => {
     const requested = searchParams.get("tab");
     setActiveTab(requested === "notes" && canReadNotes ? "NOTES" : requested === "affiliations" ? "AFFILIATIONS" : requested === "events" ? "EVENTS" : requested === "quality" ? "QUALITY" : "PROFILE");
   }, [searchParams, canReadNotes, id]);
 
   const loadProfile = async () => {
+    const version = ++loadVersion.current;
     setLoading(true);
     setError("");
+    setProfile(null);
     try {
       if (import.meta.env.DEV && id.startsWith("preview-")) {
-        setProfile(getUstadzPreviewProfile(id));
-        setPreview(true);
+        if (version === loadVersion.current) { setProfile(getUstadzPreviewProfile(id)); setPreview(true); }
       } else {
-        setProfile(await ustadzApi.get(id));
-        setPreview(false);
+        const nextProfile = await ustadzApi.get(id);
+        if (version === loadVersion.current) { setProfile(nextProfile); setPreview(false); }
       }
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Profil belum dapat dimuat.");
+      if (version === loadVersion.current) {
+        setProfile(null);
+        setError(loadError instanceof Error ? loadError.message : "Profil belum dapat dimuat.");
+      }
     } finally {
-      setLoading(false);
+      if (version === loadVersion.current) setLoading(false);
     }
   };
 
   useEffect(() => {
     void loadProfile();
+    return () => { loadVersion.current += 1; };
   }, [id]);
 
   useEffect(() => {
     if (!showAffiliationForm) return;
-    const params = new URLSearchParams({ page: "1", pageSize: "100", status: "ACTIVE" });
-    institutionApi
-      .list(params)
-      .then((response) => setInstitutions(response.data))
-      .catch(() => setInstitutions([]));
+    let active = true;
+    setInstitutionError("");
+    listAllActiveInstitutions()
+      .then((items) => { if (active) setInstitutions(items); })
+      .catch((cause) => { if (active) setInstitutionError(cause instanceof Error ? cause.message : "Daftar lembaga gagal dimuat."); });
+    return () => { active = false; };
   }, [showAffiliationForm]);
 
   useEffect(() => {
     if (activeTab !== "QUALITY" || !profile) return;
+    setDuplicateError("");
     if (preview) {
       setDuplicates(profile.hasDuplicateAlert ? [getUstadzPreviewProfile("preview-ustadz-3")] : []);
       return;
@@ -118,11 +147,14 @@ export const UstadzShowPage: React.FC = () => {
         excludeId: profile.id,
       })
       .then(setDuplicates)
-      .catch(() => setDuplicates([]));
+      .catch((cause) => { setDuplicates([]); setDuplicateError(cause instanceof Error ? cause.message : "Pemeriksaan duplikat gagal."); });
   }, [activeTab, preview, profile]);
 
   const missingFields = useMemo(
-    () => (profile ? missingLabels.filter(([key]) => !profile[key]).map(([, label]) => label) : []),
+    () => (profile ? [
+      ...missingLabels.filter(([key]) => !profile[key]).map(([, label]) => label),
+      ...(!profile.phone && !profile.whatsapp ? ["Telepon atau WhatsApp"] : []),
+    ] : []),
     [profile],
   );
 
@@ -136,6 +168,7 @@ export const UstadzShowPage: React.FC = () => {
     }
     setSavingAffiliation(true);
     setActionMessage("");
+    setActionError("");
     try {
       await ustadzApi.addAffiliation(profile.id, { institutionId, position, isPrimary });
       setInstitutionId("");
@@ -145,7 +178,7 @@ export const UstadzShowPage: React.FC = () => {
       setActionMessage("Afiliasi berhasil ditambahkan.");
       await loadProfile();
     } catch (affiliationError) {
-      setActionMessage(
+      setActionError(
         affiliationError instanceof Error ? affiliationError.message : "Afiliasi belum dapat disimpan.",
       );
     } finally {
@@ -154,38 +187,45 @@ export const UstadzShowPage: React.FC = () => {
   };
 
   const markPrimary = async (affiliationId: string) => {
-    if (!profile) return;
+    if (!profile || affiliationBusy) return;
     if (preview) {
       setActionMessage("Mode pratinjau: pilihan afiliasi utama tidak mengubah database.");
       return;
     }
+    setAffiliationBusy(true); setActionError(""); setActionMessage("");
     try {
       await ustadzApi.updateAffiliation(profile.id, affiliationId, { isPrimary: true });
       setActionMessage("Afiliasi utama diperbarui.");
       await loadProfile();
     } catch (actionError) {
-      setActionMessage(actionError instanceof Error ? actionError.message : "Aksi belum dapat diproses.");
+      setActionError(actionError instanceof Error ? actionError.message : "Aksi belum dapat diproses.");
+    } finally {
+      setAffiliationBusy(false);
     }
   };
 
   const endAffiliation = async (affiliationId: string) => {
-    if (!profile) return;
+    if (!profile || affiliationBusy) return;
     if (!window.confirm("Akhiri afiliasi ini? Riwayatnya tetap disimpan.")) return;
     if (preview) {
       setActionMessage("Mode pratinjau: afiliasi tidak diubah.");
       return;
     }
+    setAffiliationBusy(true); setActionError(""); setActionMessage("");
     try {
       await ustadzApi.endAffiliation(profile.id, affiliationId);
       setActionMessage("Afiliasi diakhiri dan riwayat tetap tersimpan.");
       await loadProfile();
     } catch (actionError) {
-      setActionMessage(actionError instanceof Error ? actionError.message : "Aksi belum dapat diproses.");
+      setActionError(actionError instanceof Error ? actionError.message : "Aksi belum dapat diproses.");
+    } finally {
+      setAffiliationBusy(false);
     }
   };
 
-  const whatsappHref = profile?.whatsapp || profile?.phone
-    ? `https://wa.me/${(profile.whatsapp || profile.phone || "").replace(/\D/g, "")}?text=${encodeURIComponent(
+  const whatsappDigits = (profile?.whatsapp || profile?.phone || "").replace(/\D/g, "").replace(/^0/, "62");
+  const whatsappHref = profile && whatsappDigits
+    ? `https://wa.me/${whatsappDigits}?text=${encodeURIComponent(
         `Assalamu'alaikum warahmatullahi wabarakatuh, Ustadz ${profile.fullName}. Saya admin Aman Daurah Asatidz.`,
       )}`
     : "";
@@ -202,17 +242,16 @@ export const UstadzShowPage: React.FC = () => {
             { label: profile?.fullName || "Detail" },
           ]}
           actions={
-            profile ? (
+            profile && canManage ? (
               <div className="ustadz-page-actions">
-                {profile.deletedAt ? <button type="button" onClick={async () => { try { await ustadzApi.restore(profile.id); await loadProfile(); setActionMessage("Profil dipulihkan ke direktori."); } catch (cause) { setActionMessage(cause instanceof Error ? cause.message : "Profil gagal dipulihkan."); } }} className="ustadz-button ustadz-button--primary"><RotateCcw aria-hidden="true" /> Pulihkan profil</button> : <>
-                  <Link to={`/admin/ustadz/merge?source=${profile.id}`} className="ustadz-button ustadz-button--warning"><GitMerge aria-hidden="true" /><span>Gabungkan</span></Link>
+                {profile.deletedAt ? <button type="button" onClick={async () => { try { await ustadzApi.restore(profile.id); await loadProfile(); setActionMessage("Profil dipulihkan ke direktori."); } catch (cause) { setActionError(cause instanceof Error ? cause.message : "Profil gagal dipulihkan."); } }} className="ustadz-button ustadz-button--primary"><RotateCcw aria-hidden="true" /> Pulihkan profil</button> : <>
+                  {canMerge && <Link to={`/admin/ustadz/merge?source=${profile.id}`} className="ustadz-button ustadz-button--warning"><GitMerge aria-hidden="true" /><span>Gabungkan</span></Link>}
                   <Link to={`/admin/ustadz/${profile.id}/edit`} className="ustadz-button ustadz-button--primary"><Edit3 aria-hidden="true" /><span>Edit profil</span></Link>
                 </>}
               </div>
             ) : undefined
           }
         />
-        <UstadzWorkspaceNav />
 
         {loading && (
           <div className="ustadz-loading" role="status">
@@ -240,6 +279,7 @@ export const UstadzShowPage: React.FC = () => {
                 <CheckCircle2 aria-hidden="true" /> {actionMessage}
               </div>
             )}
+            {actionError && <div className="ustadz-form__message ustadz-form__message--error" role="alert"><AlertTriangle aria-hidden="true" /> {actionError}</div>}
 
             <section className="ustadz-profile-band">
               <div className="ustadz-profile-band__identity">
@@ -247,11 +287,11 @@ export const UstadzShowPage: React.FC = () => {
                   {profile.fullName.split(/\s+/).slice(0, 2).map((word) => word[0]).join("")}
                 </span>
                 <div>
-                  <p>Profil terverifikasi internal</p>
+                  <p>Profil asatidz</p>
                   <h2>
                     {[profile.titlePrefix, profile.fullName, profile.titleSuffix].filter(Boolean).join(" ")}
                   </h2>
-                  <span>ID {profile.id}</span>
+                  <span title={profile.id}>ID {profile.id.slice(0, 8)}</span>
                 </div>
               </div>
               <div className="ustadz-profile-band__score">
@@ -303,7 +343,7 @@ export const UstadzShowPage: React.FC = () => {
                   <div><dt>WhatsApp</dt><dd><MessageCircle aria-hidden="true" />{profile.whatsapp || "Belum tersedia"}</dd></div>
                   <div><dt>Tempat, tanggal lahir</dt><dd>{profile.birthPlace || "—"}, {formatDate(profile.birthDate)}</dd></div>
                   <div><dt>Domisili</dt><dd><MapPin aria-hidden="true" />{profile.address || "Belum tersedia"}</dd></div>
-                  <div><dt>Kode wilayah</dt><dd>{profile.cityCode || "—"} / {profile.provinceCode || "—"}</dd></div>
+                  <div><dt>Wilayah</dt><dd>{institutionRegionLabel(profile.cityCode, profile.provinceCode).city} · {institutionRegionLabel(profile.cityCode, profile.provinceCode).province}</dd></div>
                 </dl>
                 <div className="ustadz-narratives">
                   <article><BookOpenCheck aria-hidden="true" /><div><h3>Ringkasan pendidikan</h3><p>{profile.educationSummary || "Belum ada ringkasan pendidikan."}</p></div></article>
@@ -316,9 +356,9 @@ export const UstadzShowPage: React.FC = () => {
               <section className="ustadz-panel">
                 <div className="ustadz-panel__head">
                   <div><p>Relasi kelembagaan</p><h2>Afiliasi aktif dan riwayat</h2></div>
-                  <button type="button" className="ustadz-button ustadz-button--primary" onClick={() => setShowAffiliationForm(true)}>
+                  {canManage && !profile.deletedAt && <button type="button" className="ustadz-button ustadz-button--primary" onClick={() => setShowAffiliationForm(true)}>
                     <Plus aria-hidden="true" /> Tambah afiliasi
-                  </button>
+                  </button>}
                 </div>
                 {showAffiliationForm && (
                   <form className="ustadz-inline-form" onSubmit={handleAddAffiliation}>
@@ -327,6 +367,7 @@ export const UstadzShowPage: React.FC = () => {
                       <button type="button" onClick={() => setShowAffiliationForm(false)} aria-label="Tutup formulir"><X aria-hidden="true" /></button>
                     </div>
                     <label><span>Lembaga</span><select value={institutionId} onChange={(event) => setInstitutionId(event.target.value)} required><option value="">Pilih lembaga</option>{institutions.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.code})</option>)}</select></label>
+                    {institutionError && <p role="alert" className="text-sm text-rose-800">Daftar lembaga belum tersedia: {institutionError}</p>}
                     <label><span>Posisi</span><input value={position} onChange={(event) => setPosition(event.target.value)} placeholder="Pengasuh / pembina / pengajar" /></label>
                     <label className="ustadz-checkbox"><input type="checkbox" checked={isPrimary} onChange={(event) => setIsPrimary(event.target.checked)} /><span>Jadikan afiliasi utama</span></label>
                     <button className="ustadz-button ustadz-button--primary" type="submit" disabled={savingAffiliation}><Save aria-hidden="true" />{savingAffiliation ? "Menyimpan…" : "Simpan afiliasi"}</button>
@@ -340,14 +381,14 @@ export const UstadzShowPage: React.FC = () => {
                       <article key={affiliation.id} data-primary={affiliation.isPrimary}>
                         <Building2 aria-hidden="true" />
                         <div>
-                          <div><strong>{affiliation.institutionName}</strong>{affiliation.isPrimary && <span>Utama</span>}</div>
+                          <div><strong><Link to={`/admin/institutions/${affiliation.institutionId}`}>{affiliation.institutionName}</Link></strong>{affiliation.isPrimary && <span>Utama</span>}</div>
                           <p>{affiliation.institutionCode} · {affiliation.position || "Posisi belum dicatat"}</p>
                           <small>{formatDate(affiliation.startDate)} — {affiliation.endDate ? formatDate(affiliation.endDate) : "sekarang"}</small>
                         </div>
-                        {affiliation.status === "ACTIVE" && (
+                        {canManage && !profile.deletedAt && affiliation.status === "ACTIVE" && (
                           <div>
-                            {!affiliation.isPrimary && <button type="button" onClick={() => markPrimary(affiliation.id)}>Jadikan utama</button>}
-                            <button type="button" onClick={() => endAffiliation(affiliation.id)}>Akhiri</button>
+                            {!affiliation.isPrimary && <button type="button" disabled={affiliationBusy} onClick={() => markPrimary(affiliation.id)}>Jadikan utama</button>}
+                            <button type="button" disabled={affiliationBusy} onClick={() => endAffiliation(affiliation.id)}>Akhiri</button>
                           </div>
                         )}
                       </article>
@@ -376,8 +417,8 @@ export const UstadzShowPage: React.FC = () => {
                     profile.eventHistory?.map((event) => (
                       <article key={event.participantId}>
                         <time>{formatDate(event.eventStartDate)}</time>
-                         <div><strong>{event.eventName}</strong><span>{event.eventCode} · Peserta {event.participantCode}</span><small>{event.institutionName || "Peserta individual"} · {event.registrationSource.replaceAll("_", " ")}</small><small>Status: {event.approvalStatus.replaceAll("_", " ")}{event.statusReason ? ` · Alasan: ${event.statusReason}` : ["REJECTED", "DECLINED", "WAITLISTED"].includes(event.approvalStatus) ? " · Alasan belum dicatat panitia" : ""}</small></div>
-                        <div><span>{event.attendanceStatus.replaceAll("_", " ")}</span><strong>{event.attendedUnits}/{event.requiredUnits} unit · {event.completionPercentage}%</strong></div>
+                        <div><strong><Link to={`/admin/events/${event.eventId}`}>{event.eventName}</Link></strong><span>{event.eventCode} · Peserta {event.participantCode}</span><small>{event.institutionId ? <Link to={`/admin/institutions/${event.institutionId}`}>{event.institutionName}</Link> : "Peserta individu"} · {registrationLabel[event.registrationSource] || event.registrationSource.replaceAll("_", " ")}</small><small>Status: {approvalLabel[event.approvalStatus] || event.approvalStatus.replaceAll("_", " ")}{event.statusReason ? ` · Alasan: ${event.statusReason}` : ["REJECTED", "DECLINED", "WAITLISTED"].includes(event.approvalStatus) ? " · Alasan belum dicatat panitia" : ""}</small><Link to={`/admin/events/${event.eventId}/registrations?view=participants&search=${encodeURIComponent(event.participantCode)}`}>Buka pendaftaran peserta</Link></div>
+                        <div><span>{attendanceLabel[event.attendanceStatus] || event.attendanceStatus.replaceAll("_", " ")}</span><strong>{event.attendedUnits}/{event.requiredUnits} unit · {event.completionPercentage}%</strong><Link to={`/admin/events/${event.eventId}/attendance/${event.participantId}/report`}>Lihat rapor kehadiran</Link></div>
                       </article>
                     ))
                   )}
@@ -392,12 +433,12 @@ export const UstadzShowPage: React.FC = () => {
                   <article>
                     <h3>Data yang perlu dilengkapi</h3>
                     {missingFields.length === 0 ? <p>Semua data utama telah tersedia.</p> : <ul>{missingFields.map((label) => <li key={label}>{label}</li>)}</ul>}
-                    <Link to={`/admin/ustadz/${profile.id}/edit`}>Lengkapi profil</Link>
+                    {canManage && !profile.deletedAt && <Link to={`/admin/ustadz/${profile.id}/edit`}>Lengkapi profil</Link>}
                   </article>
                   <article>
                     <h3>Profil serupa</h3>
-                    {duplicates.length === 0 ? <p>Tidak ditemukan profil serupa dari nama dan kontak.</p> : <ul>{duplicates.map((candidate) => <li key={candidate.id}><Link to={`/admin/ustadz/${candidate.id}`}>{candidate.fullName}</Link><span>{candidate.phone || candidate.email || "Tanpa kontak"}</span></li>)}</ul>}
-                    {duplicates.length > 0 && <Link to={`/admin/ustadz/merge?source=${profile.id}`}>Buka proses penggabungan</Link>}
+                    {duplicateError ? <p role="alert">Pemeriksaan belum berhasil: {duplicateError}</p> : duplicates.length === 0 ? <p>Tidak ditemukan profil serupa dari nama dan kontak.</p> : <ul>{duplicates.map((candidate) => <li key={candidate.id}><Link to={`/admin/ustadz/${candidate.id}`}>{candidate.fullName}</Link><span>{candidate.phone || candidate.email || "Tanpa kontak"}</span></li>)}</ul>}
+                    {canMerge && duplicates.length > 0 && <Link to={`/admin/ustadz/merge?source=${profile.id}`}>Buka proses penggabungan</Link>}
                   </article>
                 </div>
               </section>

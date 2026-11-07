@@ -64,7 +64,7 @@ afterEach(() => {
 
 describe("lazy route loading", () => {
   it("keeps all page modules and the check-in layout behind literal lazy imports", () => {
-    expect(loaders).toHaveLength(42);
+    expect(loaders).toHaveLength(43);
     expect(appSource).not.toMatch(/import\s+.*from\s+["']\.\/pages\//);
     expect(loaders.map(([, name]) => name)).toContain("CommitteeLayout");
   });

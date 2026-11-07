@@ -1,3 +1,6 @@
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4
+ * genre: modern-minimal · macrostructure: Workbench · design-system: design.md · designed-as-app
+ */
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -44,10 +47,7 @@ type AttendanceRecap = {
 
 type ReportResult = {
   data?: Array<Record<string, unknown>>;
-  meta?: Record<string, unknown>;
-  total?: number;
-  page?: number;
-  pageSize?: number;
+  meta?: { total: number; page: number; pageSize: number; pageCount: number };
 };
 
 const reportTypes = [
@@ -59,6 +59,12 @@ const reportTypes = [
   { value: "no-show", label: "Peserta tidak hadir" },
   { value: "returning-participants", label: "Peserta berulang" },
 ];
+const attendanceStatusLabel: Record<string, string> = {
+  HADIR_PENUH: "Hadir penuh", HADIR_SEBAGIAN: "Hadir sebagian", TERLAMBAT: "Terlambat",
+  IZIN: "Izin", TIDAK_HADIR: "Tidak hadir", BELUM_DIMULAI: "Belum dimulai",
+  PRESENT: "Hadir", LATE: "Terlambat", EXCUSED: "Izin", PERMITTED: "Diizinkan",
+  ABSENT: "Tidak hadir", NOT_RECORDED: "Belum tercatat",
+};
 
 export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
   const { id = "" } = useParams<{ id: string }>();
@@ -69,8 +75,10 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
   const [notice, setNotice] = useState("");
   const [attendance, setAttendance] = useState<AttendanceRecap | null>(null);
   const [reportType, setReportType] = useState("invitations");
+  const [reportPage, setReportPage] = useState(1);
   const [report, setReport] = useState<ReportResult | null>(null);
   const [communicationRefreshKey, setCommunicationRefreshKey] = useState(0);
+  const [attendanceSearch, setAttendanceSearch] = useState("");
 
   const load = async () => {
     if (mode === "communications") {
@@ -90,7 +98,7 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
           participantDetails: [],
         });
       } else {
-        setReport({ data: [], total: 0, page: 1, pageSize: 25 });
+        setReport({ data: [], meta: { total: 0, page: 1, pageSize: 25, pageCount: 1 } });
       }
       setNotice("Mode pratinjau: struktur submodul dapat dicoba, tetapi data tidak disimpan.");
       setLoading(false);
@@ -100,9 +108,11 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
       if (mode === "attendance") {
         setAttendance(await eventApi<AttendanceRecap>(`/events/${id}/attendance/recap`));
       } else {
-        setReport(await eventApi<ReportResult>(`/reports/${reportType}?eventId=${encodeURIComponent(id)}&page=1&pageSize=25`));
+        setReport(await eventApi<ReportResult>(`/reports/${reportType}?eventId=${encodeURIComponent(id)}&page=${reportPage}&pageSize=25`));
       }
     } catch (loadError) {
+      if (mode === "attendance") setAttendance(null);
+      else setReport(null);
       setError(loadError instanceof Error ? loadError.message : "Data submodul gagal dimuat.");
     } finally {
       setLoading(false);
@@ -111,7 +121,7 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
 
   useEffect(() => {
     void load();
-  }, [id, mode, reportType]);
+  }, [id, mode, reportType, reportPage]);
 
   const exportReport = async () => {
     if (previewMode) {
@@ -150,6 +160,9 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
       : mode === "communications"
         ? "Kelola pengumuman dan komunikasi kepada peserta berdasarkan segmentasi."
         : "Tinjau dan ekspor laporan khusus event tanpa mencampur data event lain.";
+  const filteredParticipants = attendance?.participantDetails.filter((item) =>
+    `${item.ustadzName} ${item.participantCode} ${item.institutionName || ""}`.toLocaleLowerCase("id-ID")
+      .includes(attendanceSearch.trim().toLocaleLowerCase("id-ID"))) || [];
 
   return (
     <AdminLayout>
@@ -188,30 +201,31 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
               </div>
             ))}
           </section>
+          <label className="relative block max-w-xl"><span className="sr-only">Cari peserta dalam rekap kehadiran</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-500" aria-hidden="true" /><input type="search" value={attendanceSearch} onChange={(event) => setAttendanceSearch(event.target.value)} placeholder="Cari nama, kode, atau lembaga" className="min-h-11 w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700" /></label>
           <div className="overflow-hidden border border-slate-200 bg-white">
             <div className="hidden grid-cols-[9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_8rem_9rem_7rem] gap-3 bg-slate-50 px-4 py-3 text-[10px] font-black uppercase tracking-wide text-slate-500 lg:grid">
               <span>Kode</span><span>Asatidz</span><span>Lembaga</span><span>Unit hadir</span><span>Status</span><span>Rapor</span>
             </div>
-            {loading ? <div className="h-64 animate-pulse bg-slate-100" /> : attendance?.participantDetails.length ? (
+            {loading ? <div className="h-64 animate-pulse bg-slate-100" /> : filteredParticipants.length ? (
               <ul className="divide-y divide-slate-100">
-                {attendance.participantDetails.map((participant) => (
-                  <li key={participant.participantId} className="grid gap-2 px-4 py-4 text-xs lg:grid-cols-[9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_8rem_9rem_7rem] lg:items-center lg:gap-3">
+                {filteredParticipants.map((participant) => (
+                  <li key={participant.participantId} className="grid gap-2 px-4 py-4 text-sm lg:grid-cols-[9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_8rem_9rem_7rem] lg:items-center lg:gap-3">
                     <span className="font-mono font-bold text-emerald-800">{participant.participantCode}</span>
                     <span className="font-black text-slate-900">{participant.ustadzName}</span>
                     <span className="text-slate-500">{participant.institutionName || "Individu"}</span>
                     <span className="font-bold tabular-nums text-slate-700">{participant.totalUnitsAttended ?? participant.totalSessionsAttended}/{participant.requiredUnits ?? "—"}</span>
-                    <StatusBadge label={participant.statusCategory.replaceAll("_", " ")} variant={participant.statusCategory === "HADIR_PENUH" ? "success" : participant.statusCategory === "TIDAK_HADIR" ? "danger" : participant.statusCategory === "BELUM_DIMULAI" ? "neutral" : "warning"} />
+                    <StatusBadge label={attendanceStatusLabel[participant.statusCategory] || participant.statusCategory.replaceAll("_", " ")} variant={participant.statusCategory === "HADIR_PENUH" ? "success" : participant.statusCategory === "TIDAK_HADIR" ? "danger" : participant.statusCategory === "BELUM_DIMULAI" ? "neutral" : "warning"} />
                     <Link to={`/admin/events/${id}/attendance/${participant.participantId}/report`} className="inline-flex min-h-[40px] items-center justify-center whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-3 font-bold text-emerald-900 hover:bg-emerald-100">Buka rapor</Link>
                   </li>
                 ))}
               </ul>
-            ) : <div className="p-10 text-center text-xs text-slate-500">Belum ada data kehadiran untuk event ini.</div>}
+            ) : <div className="p-10 text-center text-sm text-slate-600">{attendanceSearch ? "Tidak ada peserta yang cocok." : "Belum ada data kehadiran untuk event ini."}</div>}
           </div>
           {attendance?.requiredUnits?.length ? (
             <section className="border border-slate-200 bg-white">
               <div className="border-b border-slate-200 p-4">
                 <h2 className="text-sm font-black text-slate-900">Matriks kehadiran wajib</h2>
-                <p className="mt-1 text-xs text-slate-500">Mode {attendance.attendanceMode?.replaceAll("_", " ")} · tanggal tanpa kegiatan tidak dihitung.</p>
+                <p className="mt-1 text-sm text-slate-600">Mode {attendance.attendanceMode === "DAILY_ONLY" ? "harian" : attendance.attendanceMode === "SESSION_ONLY" ? "per sesi" : "harian & sesi"} · tanggal tanpa kegiatan tidak dihitung.</p>
               </div>
               <div className="overflow-x-auto">
                 <table className="min-w-max text-left text-xs">
@@ -222,7 +236,7 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {attendance.participantDetails.map((participant) => <tr key={participant.participantId}><th className="sticky left-0 z-10 border-r border-slate-200 bg-white px-4 py-3"><span className="block font-black text-slate-900">{participant.ustadzName}</span><span className="mt-1 block font-mono text-[10px] text-slate-500">{participant.participantCode}</span></th>{attendance.requiredUnits!.map((unit) => { const status = participant.unitStatuses?.find((item) => item.unitId === unit.id)?.status || "NOT_RECORDED"; return <td key={unit.id} className="border-r border-slate-100 px-3 py-3"><StatusBadge label={status.replaceAll("_", " ")} variant={["PRESENT", "LATE"].includes(status) ? "success" : ["EXCUSED", "PERMITTED"].includes(status) ? "warning" : status === "ABSENT" ? "danger" : "neutral"} /></td>; })}</tr>)}
+                    {filteredParticipants.map((participant) => <tr key={participant.participantId}><th className="sticky left-0 z-10 border-r border-slate-200 bg-white px-4 py-3"><span className="block font-black text-slate-900">{participant.ustadzName}</span><span className="mt-1 block font-mono text-[10px] text-slate-500">{participant.participantCode}</span></th>{attendance.requiredUnits!.map((unit) => { const status = participant.unitStatuses?.find((item) => item.unitId === unit.id)?.status || "NOT_RECORDED"; return <td key={unit.id} className="border-r border-slate-100 px-3 py-3"><StatusBadge label={attendanceStatusLabel[status] || status.replaceAll("_", " ")} variant={["PRESENT", "LATE"].includes(status) ? "success" : ["EXCUSED", "PERMITTED"].includes(status) ? "warning" : status === "ABSENT" ? "danger" : "neutral"} /></td>; })}</tr>)}
                   </tbody>
                 </table>
               </div>
@@ -238,17 +252,25 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
       {mode === "reports" && (
         <div className="space-y-5">
           <div className="grid gap-3 border border-slate-200 bg-white p-4 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <label><span className="mb-1.5 block text-xs font-bold text-slate-700">Jenis laporan</span><select value={reportType} onChange={(event) => setReportType(event.target.value)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold">{reportTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
+            <label><span className="mb-1.5 block text-sm font-bold text-slate-700">Jenis laporan</span><select value={reportType} onChange={(event) => { setReportType(event.target.value); setReportPage(1); setReport(null); }} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold">{reportTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
             <button type="button" onClick={() => void exportReport()} disabled={busy} className="mt-auto inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" /> Ekspor CSV</button>
           </div>
           <div className="overflow-x-auto border border-slate-200 bg-white">
             {loading ? <div className="h-64 animate-pulse bg-slate-100" /> : report?.data?.length ? (
               <table className="min-w-full text-left text-xs">
-                <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500"><tr>{Object.keys(report.data[0]).slice(0, 6).map((key) => <th key={key} className="whitespace-nowrap px-4 py-3">{key.replaceAll("_", " ")}</th>)}</tr></thead>
-                <tbody className="divide-y divide-slate-100">{report.data.map((row, index) => <tr key={String(row.id || index)}>{Object.keys(report.data![0]).slice(0, 6).map((key) => <td key={key} className="max-w-64 truncate whitespace-nowrap px-4 py-3 text-slate-700">{String(row[key] ?? "—")}</td>)}</tr>)}</tbody>
+                <thead className="bg-slate-50 text-xs font-black text-slate-600"><tr>{Object.keys(report.data[0]).map((key) => <th key={key} className="whitespace-nowrap px-4 py-3">{key.replaceAll("_", " ")}</th>)}</tr></thead>
+                <tbody className="divide-y divide-slate-100">{report.data.map((row, index) => <tr key={String(row.id || index)}>{Object.keys(report.data![0]).map((key) => <td key={key} title={String(row[key] ?? "—")} className="max-w-64 truncate whitespace-nowrap px-4 py-3 text-sm text-slate-700">{String(row[key] ?? "—")}</td>)}</tr>)}</tbody>
               </table>
-            ) : <div className="p-10 text-center text-xs text-slate-500">Belum ada data untuk laporan ini.</div>}
+            ) : <div className="p-10 text-center text-sm text-slate-600">Belum ada data untuk laporan ini.</div>}
           </div>
+          {report?.meta && report.meta.total > 0 && <nav aria-label="Halaman laporan event" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm">
+            <span>{(report.meta.page - 1) * report.meta.pageSize + 1}–{Math.min(report.meta.page * report.meta.pageSize, report.meta.total)} dari {report.meta.total} data</span>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setReportPage((page) => Math.max(1, page - 1))} disabled={loading || report.meta.page <= 1} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Sebelumnya</button>
+              <span className="whitespace-nowrap">{report.meta.page}/{report.meta.pageCount}</span>
+              <button type="button" onClick={() => setReportPage((page) => page + 1)} disabled={loading || report.meta.page >= report.meta.pageCount} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Berikutnya</button>
+            </div>
+          </nav>}
         </div>
       )}
     </AdminLayout>

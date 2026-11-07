@@ -9,7 +9,7 @@ import {
   ustadzProfiles,
   ustadzInstitutionAffiliations,
 } from "../db/schema";
-import { eq, ilike, and, or, isNull, count, desc } from "drizzle-orm";
+import { eq, ilike, and, or, isNull, count, desc, sql } from "drizzle-orm";
 
 export interface InstitutionQueryParams {
   page?: number;
@@ -94,6 +94,13 @@ export async function findInstitutionsRepository(params: InstitutionQueryParams)
       summary: summaryResult,
     },
   };
+}
+
+export async function findInstitutionByCodeRepository(code: string) {
+  const db = getDbClient();
+  const rows = await db.select({ id: institutions.id }).from(institutions)
+    .where(sql`lower(${institutions.code}) = lower(${code})`).limit(1);
+  return rows[0] || null;
 }
 
 export async function findInstitutionByIdRepository(id: string) {

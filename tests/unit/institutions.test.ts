@@ -33,6 +33,12 @@ describe("Master Data Lembaga Unit & Business Rule Tests", () => {
     expect(parsed.success).toBe(false);
   });
 
+  it("trims identity fields before storing and rejects whitespace-only names", () => {
+    expect(createInstitutionSchema.parse({ code: "  MISB-01  ", name: "  Ma'had Sunnah  " }))
+      .toMatchObject({ code: "MISB-01", name: "Ma'had Sunnah" });
+    expect(createInstitutionSchema.safeParse({ code: "MISB-01", name: "   " }).success).toBe(false);
+  });
+
   it("should parse query filters with defaults", () => {
     const query = queryInstitutionSchema.parse({
       search: "Bandung",

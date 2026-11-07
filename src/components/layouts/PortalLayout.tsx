@@ -3,14 +3,21 @@ import { AppShell } from "../common/AppShell";
 import { User, QrCode, Calendar, Bell, Home, Mail, CheckCircle2, CalendarRange, HeartHandshake, MessageCircle, BookOpen, HandHeart, Lightbulb, MapPinned } from "lucide-react";
 import { SidebarNavItem } from "../common/Sidebar";
 
-const portalNavItems: SidebarNavItem[] = [
+export const portalNavItems: SidebarNavItem[] = [
   { label: "Beranda Asatidz", shortLabel: "Beranda", href: "/portal", icon: <Home />, exact: true, mobilePrimary: true },
+  { label: "Pendaftaran Saya", shortLabel: "Daftar", href: "/portal/invitations", icon: <Mail />, mobilePrimary: true },
+  { label: "QR Kehadiran", shortLabel: "QR", href: "/portal/qr", icon: <QrCode />, mobilePrimary: true },
+  { label: "Jadwal Daurah", shortLabel: "Jadwal", href: "/portal/schedule", icon: <Calendar />, mobilePrimary: true },
+  { label: "Riwayat Kehadiran", shortLabel: "Riwayat", href: "/portal/attendance", icon: <CheckCircle2 /> },
+  { label: "Pengumuman", shortLabel: "Info", href: "/portal/announcements", icon: <Bell /> },
+  { label: "Kegiatan Saya", shortLabel: "Kegiatan", href: "/portal/activities", icon: <CalendarRange /> },
+  { label: "Profil Saya", shortLabel: "Profil", href: "/portal/profile", icon: <User /> },
   {
-    label: "Ruang Asatidz", shortLabel: "Ruang", href: "/portal/ruang-asatidz", icon: <HeartHandshake />, mobilePrimary: true,
-    description: "Disapa, didengar, dan terhubung dengan YTS.", keywords: ["saran", "pengalaman", "kebutuhan", "pesan"],
+    label: "Ruang Asatidz", shortLabel: "Ruang", href: "/portal/ruang-asatidz", icon: <HeartHandshake />,
+    description: "Saran, pengalaman, dan pesan untuk panitia.", keywords: ["saran", "pengalaman", "kebutuhan", "pesan"],
     children: [
-      { label: "Disapa · Kabar YTS", href: "/portal/ruang-asatidz", icon: <HeartHandshake />, exact: true },
-      { label: "Saran untuk YTS", href: "/portal/ruang-asatidz/saran", icon: <Lightbulb />, exact: true },
+      { label: "Kabar Asatidz", href: "/portal/ruang-asatidz", icon: <HeartHandshake />, exact: true },
+      { label: "Saran", href: "/portal/ruang-asatidz/saran", icon: <Lightbulb />, exact: true },
       { label: "Berbagi pengalaman", href: "/portal/ruang-asatidz/pengalaman", icon: <BookOpen />, exact: true },
       { label: "Ajukan kebutuhan", href: "/portal/ruang-asatidz/kebutuhan", icon: <HandHeart />, exact: true },
       { label: "Pesan & tanggapan saya", href: "/portal/ruang-asatidz/pesan", icon: <MessageCircle /> },
@@ -25,13 +32,6 @@ const portalNavItems: SidebarNavItem[] = [
       { label: "Buat laporan", href: "/portal/peta-ukhuwah/laporan/baru", icon: <Lightbulb />, exact: true },
       { label: "Laporan saya", href: "/portal/peta-ukhuwah/laporan-saya", icon: <MessageCircle />, exact: true },
     ] },
-  { label: "Pendaftaran Saya", shortLabel: "Daftar", href: "/portal/invitations", icon: <Mail />, mobilePrimary: true },
-  { label: "Kegiatan Saya", shortLabel: "Kegiatan", href: "/portal/activities", icon: <CalendarRange /> },
-  { label: "Jadwal Daurah", shortLabel: "Jadwal", href: "/portal/schedule", icon: <Calendar /> },
-  { label: "QR Kehadiran", shortLabel: "QR", href: "/portal/qr", icon: <QrCode />, mobilePrimary: true },
-  { label: "Pengumuman", shortLabel: "Info", href: "/portal/announcements", icon: <Bell />, mobilePrimary: true },
-  { label: "Riwayat Kehadiran", shortLabel: "Riwayat", href: "/portal/attendance", icon: <CheckCircle2 /> },
-  { label: "Profil Saya", shortLabel: "Profil", href: "/portal/profile", icon: <User />, mobilePrimary: true },
 ];
 
 export const PortalLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {

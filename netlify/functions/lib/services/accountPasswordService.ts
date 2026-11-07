@@ -16,6 +16,7 @@ type ChallengePayload = {
   portal: PortalCode;
   issuedAt: number;
   expiresAt: number;
+  credentialVersion: string;
 };
 
 const PORTAL_ROLES: Record<PortalCode, RoleCode[]> = {
@@ -74,6 +75,12 @@ function codeForChallenge(challengeToken: string) {
   return (digest.readUInt32BE(0) % 1_000_000).toString().padStart(6, "0");
 }
 
+export function credentialVersionForPasswordSetup(userId: string, passwordHash: string | null) {
+  return createHmac("sha256", getSecret())
+    .update(`${userId}:${passwordHash || "uninitialized"}`)
+    .digest("base64url");
+}
+
 async function findPortalAccount(email: string, portal: PortalCode) {
   const db = getDbClient();
   const normalizedEmail = email.trim().toLowerCase();
@@ -106,6 +113,7 @@ export async function requestPasswordSetupService(
     portal,
     issuedAt: Date.now(),
     expiresAt: Date.now() + 10 * 60 * 1000,
+    credentialVersion: credentialVersionForPasswordSetup(account.id, account.passwordHash),
   };
   const challengeToken = encode(payload);
   const code = codeForChallenge(challengeToken);
@@ -155,8 +163,11 @@ export async function completePasswordSetupService(
     throw new UnauthorizedError("Kode aktivasi tidak sesuai.");
   }
   const account = await findPortalAccount(email, input.portal);
-  if (!account || account.id !== payload.userId) {
-    throw new UnauthorizedError("Akun aktif untuk portal ini tidak ditemukan.");
+  if (
+    !account || account.id !== payload.userId ||
+    payload.credentialVersion !== credentialVersionForPasswordSetup(account.id, account.passwordHash)
+  ) {
+    throw new UnauthorizedError("Kode aktivasi sudah tidak berlaku. Minta kode baru.");
   }
   const db = getDbClient();
   await db

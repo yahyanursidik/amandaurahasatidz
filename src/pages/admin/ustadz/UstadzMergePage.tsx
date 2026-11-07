@@ -13,7 +13,6 @@ import {
 } from "lucide-react";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { PageHeader } from "@/components/common/PageHeader";
-import { UstadzWorkspaceNav } from "@/components/admin/ustadz/UstadzWorkspaceNav";
 import { UstadzProfile, ustadzApi } from "@/lib/ustadzApi";
 import { ustadzPreviewProfiles } from "@/lib/ustadzPreview";
 
@@ -58,25 +57,29 @@ export const UstadzMergePage: React.FC = () => {
   const [success, setSuccess] = useState("");
 
   useEffect(() => {
-    const params = new URLSearchParams({ page: "1", pageSize: "100", profileStatus: "ACTIVE" });
-    ustadzApi
-      .list(params)
-      .then((response) => {
-        setProfiles(response.data);
+    let active = true;
+    ustadzApi.listAllUnmerged()
+      .then((items) => {
+        if (!active) return;
+        setProfiles(items);
         setPreview(false);
       })
       .catch((loadError) => {
-        setProfiles(import.meta.env.DEV ? ustadzPreviewProfiles.filter((profile) => profile.profileStatus === "ACTIVE") : []);
+        if (!active) return;
+        setProfiles(import.meta.env.DEV ? ustadzPreviewProfiles.filter((profile) => profile.profileStatus !== "MERGED") : []);
         setPreview(import.meta.env.DEV);
         setError(loadError instanceof Error ? loadError.message : "Profil asatidz gagal dimuat.");
       })
-      .finally(() => setLoading(false));
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, []);
+
+  useEffect(() => { setSourceId(searchParams.get("source") || ""); }, [searchParams]);
 
   const source = useMemo(() => profiles.find((profile) => profile.id === sourceId), [profiles, sourceId]);
   const target = useMemo(() => profiles.find((profile) => profile.id === targetId), [profiles, targetId]);
   const isValid =
-    Boolean(source && target) &&
+    Boolean(source && target && target.profileStatus === "ACTIVE") &&
     sourceId !== targetId &&
     notes.trim().length >= 5 &&
     confirmation === "GABUNGKAN";
@@ -120,7 +123,6 @@ export const UstadzMergePage: React.FC = () => {
             { label: "Gabungkan profil" },
           ]}
         />
-        <UstadzWorkspaceNav />
 
         {preview && (
           <div className="ustadz-preview-notice" role="status">
@@ -158,13 +160,13 @@ export const UstadzMergePage: React.FC = () => {
               <span>Profil inilah yang dipertahankan dan digunakan selanjutnya.</span>
               <select id="merge-target" value={targetId} onChange={(event) => setTargetId(event.target.value)} required>
                 <option value="">Pilih profil target</option>
-                {profiles.filter((profile) => profile.id !== sourceId).map((profile) => <option key={profile.id} value={profile.id}>{profile.fullName}</option>)}
+                {profiles.filter((profile) => profile.profileStatus === "ACTIVE" && profile.id !== sourceId).map((profile) => <option key={profile.id} value={profile.id}>{profile.fullName}</option>)}
               </select>
             </div>
           </section>
 
           {loading ? (
-            <div className="ustadz-loading" role="status"><Loader2 className="animate-spin" aria-hidden="true" /> Memuat profil aktif…</div>
+            <div className="ustadz-loading" role="status"><Loader2 className="animate-spin" aria-hidden="true" /> Memuat profil…</div>
           ) : (
             <div className="ustadz-merge-comparison">
               <ProfileCard profile={source} tone="source" />

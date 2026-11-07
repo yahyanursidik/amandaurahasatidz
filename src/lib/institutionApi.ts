@@ -3,6 +3,12 @@ import { ENV } from "@/config/env";
 export type InstitutionStatus = "ACTIVE" | "INACTIVE";
 export type InstitutionVerificationStatus = "VERIFIED" | "UNVERIFIED";
 
+const institutionTypeLabels: Record<string, string> = {
+  COMMUNITY: "Komunitas / majelis",
+  SCHOOL: "Sekolah",
+};
+export const institutionTypeLabel = (value?: string | null) => institutionTypeLabels[value || ""] || value || "Jenis belum diisi";
+
 export interface Institution {
   id: string;
   code: string;
@@ -148,6 +154,16 @@ const cleanPayload = (values: InstitutionFormValues) =>
   Object.fromEntries(
     Object.entries(values).map(([key, value]) => [key, typeof value === "string" && value.trim() === "" ? null : value])
   );
+
+export async function listAllActiveInstitutions(): Promise<Institution[]> {
+  const institutions: Institution[] = [];
+  for (let page = 1; ; page += 1) {
+    const response = await request<Institution[]>(`/institutions?${new URLSearchParams({ page: String(page), pageSize: "100", status: "ACTIVE" })}`);
+    institutions.push(...response.data);
+    if (page >= (response.meta?.pageCount ?? 1) || response.data.length === 0) break;
+  }
+  return institutions.sort((a, b) => a.name.localeCompare(b.name, "id-ID"));
+}
 
 export const institutionApi = {
   list: async (params: URLSearchParams) => request<Institution[]>(`/institutions?${params.toString()}`),

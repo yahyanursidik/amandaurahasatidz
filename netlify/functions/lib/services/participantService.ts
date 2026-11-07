@@ -126,6 +126,9 @@ export async function updateParticipantStatusService(
 
   let lateReview = false;
   if (toStatus === "CONFIRMED") {
+    if (["CANCELLED", "REPLACED"].includes(existing.confirmationStatus) || existing.approvalStatus === "DECLINED") {
+      throw new ValidationError("Peserta yang dibatalkan, diganti, atau ditolak tidak dapat dikonfirmasi hadir.");
+    }
     const event = await findEventByIdRepository(existing.eventId);
     if (!event) throw new NotFoundError("Event peserta tidak ditemukan.");
     lateReview = assertAttendanceConfirmationAllowed(event).needsReview;

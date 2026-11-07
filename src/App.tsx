@@ -26,6 +26,7 @@ const UstadzCreatePage = lazy(() => import("./pages/admin/ustadz/UstadzCreatePag
 const UstadzEditPage = lazy(() => import("./pages/admin/ustadz/UstadzEditPage").then((module) => ({ default: module.UstadzEditPage })));
 const UstadzShowPage = lazy(() => import("./pages/admin/ustadz/UstadzShowPage").then((module) => ({ default: module.UstadzShowPage })));
 const UstadzMergePage = lazy(() => import("./pages/admin/ustadz/UstadzMergePage").then((module) => ({ default: module.UstadzMergePage })));
+const UstadzManageGuard = lazy(() => import("./components/admin/ustadz/UstadzManageGuard").then((module) => ({ default: module.UstadzManageGuard })));
 
 const EventListPage = lazy(() => import("./pages/admin/events/EventListPage").then((module) => ({ default: module.EventListPage })));
 const EventCreatePage = lazy(() => import("./pages/admin/events/EventCreatePage").then((module) => ({ default: module.EventCreatePage })));
@@ -263,7 +264,7 @@ export const App: React.FC = () => {
             path="/admin/ustadz/create"
             element={
               <ProtectedRoute>
-                <UstadzCreatePage />
+                <UstadzManageGuard><UstadzCreatePage /></UstadzManageGuard>
               </ProtectedRoute>
             }
           />
@@ -271,7 +272,7 @@ export const App: React.FC = () => {
             path="/admin/ustadz/merge"
             element={
               <ProtectedRoute>
-                <UstadzMergePage />
+                  <UstadzManageGuard action="merge"><UstadzMergePage /></UstadzManageGuard>
               </ProtectedRoute>
             }
           />
@@ -279,7 +280,7 @@ export const App: React.FC = () => {
             path="/admin/ustadz/:id/edit"
             element={
               <ProtectedRoute>
-                <UstadzEditPage />
+                <UstadzManageGuard><UstadzEditPage /></UstadzManageGuard>
               </ProtectedRoute>
             }
           />

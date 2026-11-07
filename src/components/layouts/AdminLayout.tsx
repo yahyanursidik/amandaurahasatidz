@@ -1,4 +1,5 @@
 import React, { useMemo } from "react";
+import { useGetIdentity } from "@refinedev/core";
 import { useLocation } from "react-router-dom";
 import {
   Activity,
@@ -22,9 +23,14 @@ import {
   UserRoundCog,
   Users,
   UsersRound,
+  CircleAlert,
+  UserCheck,
+  Archive,
 } from "lucide-react";
 import { AppShell } from "../common/AppShell";
 import { SidebarNavItem } from "../common/Sidebar";
+import { AuthIdentity } from "@/lib/refine/authProvider";
+import { canManageUstadz, canMergeUstadz } from "@/lib/ustadzPermissions";
 
 const eventIdFromPath = (pathname: string) => {
   const match = pathname.match(/^\/admin\/events\/([^/]+)/);
@@ -32,7 +38,7 @@ const eventIdFromPath = (pathname: string) => {
   return match[1];
 };
 
-export const getAdminNavItems = (pathname: string): SidebarNavItem[] => {
+export const getAdminNavItems = (pathname: string, canManageUstadz = true, canMergeUstadz = canManageUstadz): SidebarNavItem[] => {
   const eventId = eventIdFromPath(pathname);
   const eventBase = eventId ? `/admin/events/${eventId}` : null;
 
@@ -94,9 +100,14 @@ export const getAdminNavItems = (pathname: string): SidebarNavItem[] => {
       description: "Profil asatidz, afiliasi, dan riwayat kehadiran.",
       keywords: ["ustadz", "peserta", "riwayat"],
       children: [
-        { label: "Direktori asatidz", href: "/admin/ustadz", icon: <Users />, exact: true, keywords: ["daftar", "profil"] },
-        { label: "Tambah asatidz", href: "/admin/ustadz/create", icon: <Plus />, exact: true, keywords: ["baru"] },
-        { label: "Gabungkan duplikat", href: "/admin/ustadz/merge", icon: <Combine />, exact: true, keywords: ["merge", "kualitas data"] },
+        { label: "Direktori asatidz", href: "/admin/ustadz", icon: <Users />, exact: true, inactiveWhenQueryHas: ["quality", "duplicate", "participation", "profileStatus"], keywords: ["daftar", "profil"] },
+        { label: "Perlu dilengkapi", href: "/admin/ustadz?quality=incomplete", icon: <ClipboardList />, exact: true, inactiveWhenQueryHas: ["duplicate", "participation", "profileStatus"], keywords: ["kelengkapan", "kualitas"] },
+        { label: "Potensi duplikat", href: "/admin/ustadz?duplicate=true", icon: <CircleAlert />, exact: true, inactiveWhenQueryHas: ["quality", "participation", "profileStatus"], keywords: ["profil serupa", "gabung"] },
+        { label: "Pernah hadir", href: "/admin/ustadz?participation=attended", icon: <UserCheck />, exact: true, inactiveWhenQueryHas: ["quality", "duplicate", "profileStatus"], keywords: ["riwayat", "absensi", "kehadiran"] },
+        { label: "Nonaktif", href: "/admin/ustadz?profileStatus=INACTIVE", icon: <Archive />, exact: true, inactiveWhenQueryHas: ["quality", "duplicate", "participation"], keywords: ["status"] },
+        { label: "Arsip profil", href: "/admin/ustadz?profileStatus=ARCHIVED", icon: <Archive />, exact: true, inactiveWhenQueryHas: ["quality", "duplicate", "participation"], keywords: ["pulihkan"] },
+        ...(canManageUstadz ? [{ label: "Tambah asatidz", href: "/admin/ustadz/create", icon: <Plus />, exact: true, keywords: ["baru"] }] satisfies SidebarNavItem[] : []),
+        ...(canMergeUstadz ? [{ label: "Gabungkan duplikat", href: "/admin/ustadz/merge", icon: <Combine />, exact: true, keywords: ["merge", "kualitas data"] }] satisfies SidebarNavItem[] : []),
       ],
     },
     {
@@ -134,13 +145,13 @@ export const getAdminNavItems = (pathname: string): SidebarNavItem[] => {
       shortLabel: "Ruang",
       href: "/admin/ruang-asatidz",
       icon: <HeartHandshake />,
-      description: "Dengarkan asatidz, tanggapi kebutuhan, dan jaga hubungan dengan YTS.",
+      description: "Dengarkan asatidz, tanggapi kebutuhan, dan jaga hubungan.",
       keywords: ["saran", "pengalaman", "kebutuhan", "sapaan", "tindak lanjut"],
       children: [
         { label: "Kotak masuk", href: "/admin/ruang-asatidz", icon: <MessageCircle />, exact: true },
         { label: "Tindak lanjut", href: "/admin/ruang-asatidz/tindak-lanjut", icon: <ListChecks />, exact: true },
         { label: "Moderasi pengalaman", href: "/admin/ruang-asatidz/moderasi", icon: <ShieldCheck />, exact: true },
-        { label: "Sapaan & kabar YTS", href: "/admin/ruang-asatidz/sapaan", icon: <Megaphone />, exact: true },
+        { label: "Sapaan & kabar", href: "/admin/ruang-asatidz/sapaan", icon: <Megaphone />, exact: true },
       ],
     },
     {
@@ -172,7 +183,10 @@ export const getAdminNavItems = (pathname: string): SidebarNavItem[] => {
 
 export const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const location = useLocation();
-  const navItems = useMemo(() => getAdminNavItems(location.pathname), [location.pathname]);
+  const { data: identity } = useGetIdentity<AuthIdentity>();
+  const hasUstadzWriteAccess = canManageUstadz(identity?.assignments);
+  const hasUstadzMergeAccess = canMergeUstadz(identity?.assignments);
+  const navItems = useMemo(() => getAdminNavItems(location.pathname, hasUstadzWriteAccess, hasUstadzMergeAccess), [location.pathname, hasUstadzWriteAccess, hasUstadzMergeAccess]);
   const isEventWorkspace = location.pathname.startsWith("/admin/events");
   const isInstitutionWorkspace = location.pathname.startsWith("/admin/institutions");
   const isUstadzWorkspace = location.pathname.startsWith("/admin/ustadz");

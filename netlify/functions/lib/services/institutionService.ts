@@ -1,5 +1,6 @@
 import {
   findInstitutionsRepository,
+  findInstitutionByCodeRepository,
   findInstitutionByIdRepository,
   createInstitutionRepository,
   updateInstitutionRepository,
@@ -28,8 +29,8 @@ export async function getInstitutionByIdService(id: string) {
 }
 
 export async function createInstitutionService(data: any, actorUserId: string, requestId: string) {
-  const existing = await findInstitutionsRepository({ search: data.code, pageSize: 1 });
-  if (existing.data.some((i) => i.code.toLowerCase() === data.code.toLowerCase())) {
+  const existing = await findInstitutionByCodeRepository(data.code);
+  if (existing) {
     throw new ConflictError(`Kode lembaga '${data.code}' sudah digunakan.`);
   }
 
@@ -49,6 +50,10 @@ export async function createInstitutionService(data: any, actorUserId: string, r
 
 export async function updateInstitutionService(id: string, data: any, actorUserId: string, requestId: string) {
   const existing = await getInstitutionByIdService(id);
+  if (data.code && data.code.toLowerCase() !== existing.code.toLowerCase()) {
+    const codeOwner = await findInstitutionByCodeRepository(data.code);
+    if (codeOwner && codeOwner.id !== id) throw new ConflictError(`Kode lembaga '${data.code}' sudah digunakan.`);
+  }
   const updateData = data.status === "ACTIVE" ? { ...data, deletedAt: null } : data;
   const updated = await updateInstitutionRepository(id, updateData);
 
