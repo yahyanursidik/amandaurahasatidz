@@ -58,6 +58,15 @@ describe("Event, Sesi & State Transition Machine Unit Tests", () => {
     expect(createEventSchema.safeParse({ ...base, posterFocalPoint: "LEFT" }).success).toBe(false);
   });
 
+  it("menerima hanya nomor WhatsApp panitia Indonesia yang valid", () => {
+    const base = { code: "DAURAH-KONTAK", slug: "daurah-kontak", name: "Daurah Kontak",
+      startDate: "2026-08-15", endDate: "2026-08-16" };
+    expect(createEventSchema.safeParse({ ...base, publicContactWhatsapp: "081234567890" }).success).toBe(true);
+    expect(createEventSchema.safeParse({ ...base, publicContactWhatsapp: "" }).success).toBe(true);
+    expect(createEventSchema.safeParse({ ...base, publicContactWhatsapp: "abc" }).success).toBe(false);
+    expect(createEventSchema.safeParse({ ...base, publicContactWhatsapp: "abc081234567890" }).success).toBe(false);
+  });
+
   it("should validate event session schema with checkin window", () => {
     const sessionPayload = {
       eventDayId: "00000000-0000-0000-0000-000000000001",

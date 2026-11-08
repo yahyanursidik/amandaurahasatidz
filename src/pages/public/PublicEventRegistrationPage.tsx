@@ -1,12 +1,13 @@
 /* Hallmark · genre: modern-minimal · macrostructure: Narrative Workflow · design-system: design.md · designed-as-app */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { ArrowLeft, ArrowRight, CheckCircle2, Plus, ShieldCheck, Trash2, Users } from "lucide-react";
+import { ArrowLeft, ArrowRight, Plus, ShieldCheck, Trash2, Users } from "lucide-react";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { ENV } from "@/config/env";
 import { RegionFields, type RegionValue } from "@/components/public/RegionFields";
 import { getRegularRegistrationState } from "@/lib/regularRegistration";
-import { ParticipantQrCard, type ParticipantCardDetails } from "@/components/public/ParticipantQrCard";
+import { PublicRegistrationReceipt } from "@/components/public/PublicRegistrationReceipt";
+import type { ReceiptParticipant } from "@/lib/publicRegistrationReceipt";
 import { readRegistrationProof, saveRegistrationProof } from "@/lib/registrationProof";
 
 type EventSummary = {
@@ -15,13 +16,13 @@ type EventSummary = {
   startDate: string;
   endDate: string;
   venueName: string | null;
+  publicContactWhatsapp?: string | null;
   status: string;
   audienceMode: string;
   regularQuota: number | null;
   regularApproved: number;
   capacity: number | null;
   invitationApproved: number;
-  defaultInstitutionQuota?: number | null;
   registrationOpenAt: string | null;
   registrationCloseAt: string | null;
 };
@@ -31,7 +32,7 @@ type RegistrationResult = {
   approvalStatus: string;
   portalLoginUrl: string;
   passwordSetupRequired: boolean;
-  participants: Array<ParticipantCardDetails & { passwordSetupRequired: boolean }>;
+  participants: ReceiptParticipant[];
   emailQueued: number;
 };
 
@@ -60,6 +61,14 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
   const [region, setRegion] = useState<RegionValue>(emptyRegion);
   const [delegates, setDelegates] = useState<Delegate[]>([]);
   const [result, setResult] = useState<RegistrationResult | null>(() => readRegistrationProof<EventSummary, RegistrationResult>(proofKey)?.result || null);
+  const receiptHeadingRef = useRef<HTMLElement>(null);
+  const scrollAfterSubmit = useRef(false);
+
+  useEffect(() => {
+    if (!result || !scrollAfterSubmit.current) return;
+    scrollAfterSubmit.current = false;
+    receiptHeadingRef.current?.scrollIntoView({ block: "start" });
+  }, [result]);
 
   useEffect(() => {
     const proof = readRegistrationProof<EventSummary, RegistrationResult>(proofKey);
@@ -77,7 +86,10 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
   }, [slug, embeddedEvent, proofKey]);
 
   const registration = event ? getRegularRegistrationState(event) : null;
-  const maxGroupSize = event ? Math.min(20, event.defaultInstitutionQuota || 20, event.regularQuota || 20) : 20;
+  const maxGroupSize = event ? Math.max(1, Math.min(20,
+    event.regularQuota == null ? 20 : event.regularQuota - event.regularApproved,
+    event.capacity == null ? 20 : event.capacity - event.regularApproved - event.invitationApproved,
+  )) : 20;
 
   const submit = async (formEvent: React.FormEvent) => {
     formEvent.preventDefault();
@@ -94,6 +106,7 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
           consentConfirmed: true }) },
       ));
       setResult(data);
+      scrollAfterSubmit.current = true;
       if (event) saveRegistrationProof(proofKey, { event, result: data });
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Pendaftaran belum tersimpan.");
@@ -103,29 +116,15 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
   const content = (
     <div className="public-register">
       {!embeddedEvent && <nav aria-label="Navigasi pendaftaran" className="public-register__back"><Link to={`/events/${slug}`}><ArrowLeft aria-hidden="true" /> Informasi program</Link></nav>}
-      <header className="public-register__header">
+      <header ref={receiptHeadingRef} className="public-register__header scroll-mt-24">
         <div>
-          <p>Pendaftaran reguler</p>
-           {embeddedEvent ? <h2>Formulir pendaftaran reguler</h2> : <h1>{event?.name || "Daftar program daurah"}</h1>}
-            <span>Daftar langsung di halaman ini, sendiri atau sebagai kepala rombongan. Setiap asatidz langsung memperoleh kode peserta dan kartu QR pribadi.</span>
+          <p>{result ? "Bukti pendaftaran" : "Pendaftaran reguler"}</p>
+           {embeddedEvent ? <h2>{result ? "Kartu peserta Anda" : "Formulir pendaftaran reguler"}</h2> : <h1>{event?.name || "Daftar program daurah"}</h1>}
+            <span>{result ? "Simpan QR tiap peserta. Rundown dan akses portal tersedia setelah kartu." : "Daftarkan diri sendiri atau rombongan. Setiap asatidz mendapat kode, QR, dan akses portal pribadi."}</span>
         </div>
       </header>
       {loading ? <p role="status" className="public-register__notice">Memuat informasi program…</p> : !event ? <p role="alert" className="public-register__error">{error || "Program tidak tersedia."}</p> : result ? (
-        <section className="public-register__success" aria-live="polite">
-          <CheckCircle2 aria-hidden="true" />
-           <h2>Pendaftaran berhasil — QR siap digunakan</h2>
-           <p>{result.participants.length} peserta telah terdaftar dan disetujui. Simpan kartu masing-masing atau bagikan secara pribadi kepada peserta yang bersangkutan.</p>
-          {result.emailQueued < result.participants.length && <p role="status">Sebagian email informasi belum masuk antrean. Data pendaftaran tetap tersimpan; gunakan kode di bawah dan hubungi panitia bila email tidak tiba.</p>}
-          <h3 className="mt-5 font-bold">Akses Portal Asatidz masing-masing peserta</h3>
-           <div className="mt-4 grid gap-4 sm:grid-cols-2">{result.participants.map((person) => <ParticipantQrCard key={person.participantCode} eventName={event.name} person={person} />)}</div>
-           <ul className="public-register__result-list">{result.participants.map((person) => <li key={person.participantCode}><strong>{person.fullName}</strong><span>Username portal: <strong>{person.email}</strong></span><span>Password: {person.passwordSetupRequired ? "belum dibuat; aktivasi dengan kode yang dikirim ke email ini" : "gunakan password akun yang sudah Anda miliki"}</span></li>)}</ul>
-          <ol>
-             <li>Kartu QR tersedia sekarang; setiap peserta mendapat tautan pribadi melalui email bila email berhasil diproses.</li>
-            <li>Jika password belum dibuat, buka Portal Asatidz dan pilih “Aktivasi atau atur ulang password”. Kode aktivasi dikirim ke email masing-masing, bukan ditampilkan di halaman ini.</li>
-             <li>Setiap anggota masuk dengan emailnya sendiri bila ingin melihat kartu di portal.</li>
-          </ol>
-          <Link to="/login/ustadz" className="public-register__primary">Buka Portal Asatidz <ArrowRight aria-hidden="true" /></Link>
-        </section>
+        <PublicRegistrationReceipt event={event} participants={result.participants} emailQueued={result.emailQueued} />
       ) : !registration?.open ? <div className="public-register__notice" role="status"><strong>Formulir reguler belum dapat diisi.</strong><p>{registration?.reason}</p></div> : (
         <div className="public-register__layout">
           <section className="public-register__form-panel">
@@ -148,7 +147,7 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
                  <div className="public-register__group-head"><div><Users aria-hidden="true" /><h3 id="group-members-title">Anggota rombongan</h3><p>Maksimal {maxGroupSize} orang termasuk kepala rombongan; Anda dapat menambahkan {maxGroupSize - 1} orang.</p></div><button type="button" disabled={delegates.length >= maxGroupSize - 1} onClick={() => setDelegates((current) => [...current, emptyDelegate()])}><Plus aria-hidden="true" /> Tambah asatidz</button></div>
                  {delegates.map((delegate, index) => <fieldset key={index} className="public-register__member"><legend>Asatidz {index + 2}</legend><button type="button" onClick={() => setDelegates((current) => current.filter((_, itemIndex) => itemIndex !== index))} aria-label={`Hapus asatidz ${index + 2}`}><Trash2 aria-hidden="true" /> Hapus</button><label htmlFor={`group-name-${index}`}>Nama lengkap *</label><input id={`group-name-${index}`} required minLength={3} maxLength={150} value={delegate.fullName} onChange={(event) => setDelegates((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, fullName: event.target.value } : item))} /><label htmlFor={`group-email-${index}`}>Email pribadi untuk portal *</label><input id={`group-email-${index}`} type="email" required value={delegate.email} onChange={(event) => setDelegates((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, email: event.target.value } : item))} /><label htmlFor={`group-whatsapp-${index}`}>WhatsApp aktif *</label><input id={`group-whatsapp-${index}`} type="tel" required minLength={9} value={delegate.whatsapp} onChange={(event) => setDelegates((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, whatsapp: event.target.value } : item))} /><RegionFields prefix={`group-${index}`} value={delegate.region} onChange={(next) => setDelegates((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, region: next } : item))} /><label htmlFor={`group-address-${index}`}>Alamat domisili <span>(opsional)</span></label><textarea id={`group-address-${index}`} rows={2} maxLength={500} value={delegate.address} onChange={(event) => setDelegates((current) => current.map((item, itemIndex) => itemIndex === index ? { ...item, address: event.target.value } : item))} /></fieldset>)}
               </section>
-              <label className="public-register__consent"><input type="checkbox" required /> <span>Saya telah mendapat persetujuan anggota rombongan untuk menyerahkan data kontak mereka kepada panitia dan mengirimkan informasi program melalui email.</span></label>
+              <label className="public-register__consent"><input type="checkbox" required /> <span>Saya telah mendapat persetujuan anggota rombongan untuk menyerahkan data kontak mereka kepada panitia. Saya akan memberikan QR dan sandi sementara masing-masing secara pribadi.</span></label>
               <button disabled={busy} type="submit" className="public-register__primary">{busy ? "Menyimpan…" : "Kirim pendaftaran"} <ArrowRight aria-hidden="true" /></button>
              </form>
           </section>

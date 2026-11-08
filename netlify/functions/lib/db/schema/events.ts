@@ -22,6 +22,7 @@ export const events = pgTable(
     endDate: date("end_date").notNull(),
     venueName: text("venue_name"),
     venueAddress: text("venue_address"),
+    publicContactWhatsapp: text("public_contact_whatsapp"),
     mapsUrl: text("maps_url"),
     registrationOpenAt: timestamp("registration_open_at", { withTimezone: true }),
     registrationCloseAt: timestamp("registration_close_at", { withTimezone: true }),

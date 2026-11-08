@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { StatusBadge, StatusVariant } from "@/components/common/StatusBadge";
 import { ENV } from "@/config/env";
@@ -42,6 +42,7 @@ type PublicEvent = {
   endDate: string;
   venueName: string | null;
   venueAddress: string | null;
+  publicContactWhatsapp?: string | null;
   mapsUrl: string | null;
   status: string;
   audienceMode: string;
@@ -125,6 +126,7 @@ const formatTime = (value: string) =>
 
 export const EventPublicPage: React.FC = () => {
   const { slug = "" } = useParams<{ slug: string }>();
+  const location = useLocation();
   const [eventData, setEventData] = useState<PublicEvent | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -165,6 +167,12 @@ export const EventPublicPage: React.FC = () => {
     [eventData]
   );
   const regularEnabled = Boolean(eventData && ["PUBLIC_OPEN", "MIXED"].includes(eventData.audienceMode));
+
+  useEffect(() => {
+    if (loading || !eventData || location.hash !== "#jadwal-kegiatan") return;
+    const frame = window.requestAnimationFrame(() => document.getElementById("jadwal-kegiatan")?.scrollIntoView());
+    return () => window.cancelAnimationFrame(frame);
+  }, [loading, eventData, location.hash]);
 
   return (
     <PublicLayout>
@@ -279,7 +287,7 @@ export const EventPublicPage: React.FC = () => {
               </section>
             )}
 
-            <section className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
+            <section id="jadwal-kegiatan" className="scroll-mt-24 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
               <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
                 <Clock className="h-5 w-5 text-emerald-700" />
                 <div>

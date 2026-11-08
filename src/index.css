@@ -6968,3 +6968,61 @@
 @media (min-width: 80rem) { .ustadz-workspace-nav { display: none; } }
 @media (max-width: 39.999rem) { .ustadz-access-denied { padding: var(--space-ustadz-md); } }
 @media (prefers-reduced-motion: reduce) { .ustadz-access-denied a:active { transform: none; } }
+
+/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4
+ * genre: modern-minimal · tone: calm-warm · macrostructure: Index-First · design-system: design.md
+ * Public registration receipt: one QR at a time, then a short action index.
+ */
+.public-receipt { min-width: 0; margin-block: var(--space-public-xl); color: var(--color-public-ink); font-family: var(--font-public-body); }
+.public-receipt__header { display: flex; align-items: center; gap: var(--space-public-md); border-bottom: 1px solid var(--color-public-rule); padding-bottom: var(--space-public-md); }
+.public-receipt__header > svg { width: 2rem; height: 2rem; flex: none; color: var(--color-public-accent); }
+.public-receipt h2, .public-receipt h3 { min-width: 0; margin: 0; overflow-wrap: anywhere; font-family: var(--font-public-display); font-style: normal; }
+.public-receipt h2 { font-size: 1.5rem; line-height: 1.2; }
+.public-receipt__header p, .public-receipt__group-note, .public-receipt__wa-note, .public-receipt__actions p, .public-receipt__access p { margin: var(--space-public-xs) 0 0; color: var(--color-public-muted); font-size: var(--text-public-small); line-height: 1.55; }
+.public-receipt__notice { margin-block: var(--space-public-md) 0; border: 1px solid var(--color-public-rule); border-radius: var(--radius-public-control); background: var(--color-public-success-paper); padding: var(--space-public-sm); font-size: var(--text-public-small); line-height: 1.5; }
+.public-receipt__layout { display: grid; gap: var(--space-public-lg); margin-top: var(--space-public-lg); }
+.public-receipt__card-column, .public-receipt__next { min-width: 0; }
+.public-receipt__select { display: grid; gap: var(--space-public-xs); margin-bottom: var(--space-public-md); font-size: var(--text-public-body); font-weight: 800; }
+.public-receipt__select span { display: inline-flex; align-items: center; gap: var(--space-public-xs); }
+.public-receipt__select svg { width: 1.25rem; height: 1.25rem; color: var(--color-public-accent); }
+.public-receipt__select select { min-width: 0; width: 100%; min-height: 3rem; border: 1px solid var(--color-public-rule); border-radius: var(--radius-public-control); background: var(--color-public-paper); color: var(--color-public-ink); padding-inline: var(--space-public-sm); font-size: var(--text-public-body); outline: 2px solid transparent; }
+.public-receipt__select select:hover:not(:disabled) { border-color: var(--color-public-accent); }
+.public-receipt__select select:focus-visible { outline-color: var(--color-public-focus); outline-offset: 1px; }
+.public-receipt__select select:disabled { cursor: not-allowed; opacity: 0.55; }
+.public-receipt__next { display: grid; align-content: start; gap: var(--space-public-md); }
+.public-receipt__next > h3, .public-receipt__access h3 { font-size: 1.25rem; }
+.public-receipt__actions { display: grid; gap: var(--space-public-sm); }
+.public-receipt__actions > div { border-bottom: 1px solid var(--color-public-rule); padding-bottom: var(--space-public-sm); }
+.public-receipt__actions a { display: flex; min-height: 3rem; align-items: center; gap: var(--space-public-sm); width: fit-content; color: var(--color-public-accent); font-size: var(--text-public-body); text-decoration: none; white-space: nowrap; }
+.public-receipt__actions a > svg:first-child { width: 1.4rem; height: 1.4rem; }
+.public-receipt__actions a > svg:last-child { width: 1rem; height: 1rem; }
+.public-receipt__actions a:hover { text-decoration: underline; text-underline-offset: 0.2em; }
+.public-receipt__actions a:active, .public-receipt__access a:active, .participant-qr-card button:active { transform: translateY(1px); }
+.public-receipt__wa-note { margin-top: 0; }
+.public-receipt__access { min-width: 0; border-radius: var(--radius-public-panel); background: var(--color-public-paper); padding: var(--space-public-md); }
+.public-receipt__access > svg { width: 1.5rem; height: 1.5rem; margin-bottom: var(--space-public-xs); color: var(--color-public-accent); }
+.public-receipt__access dl { display: grid; gap: var(--space-public-xs); margin-block: var(--space-public-md); }
+.public-receipt__access dt { color: var(--color-public-muted); font-size: var(--text-public-small); }
+.public-receipt__access dd { min-width: 0; margin: 0 0 var(--space-public-sm); overflow-wrap: anywhere; font-size: var(--text-public-body); font-weight: 800; }
+.public-receipt__access a { display: inline-flex; min-height: 3rem; align-items: center; justify-content: center; gap: var(--space-public-xs); border-radius: var(--radius-public-control); background: var(--color-public-accent); color: var(--color-public-accent-ink); padding-inline: var(--space-public-md); font-weight: 800; text-decoration: none; white-space: nowrap; }
+.public-receipt__access a:hover { background: var(--color-public-focus); }
+.participant-qr-card button:hover:not(:disabled) { background: var(--color-public-focus); }
+.public-receipt__access a svg { width: 1rem; height: 1rem; }
+.public-receipt a:focus-visible, .public-receipt button:focus-visible, .participant-qr-card a:focus-visible, .participant-qr-card button:focus-visible { outline: 3px solid var(--color-public-focus); outline-offset: 2px; }
+.participant-qr-card { min-width: 0; box-shadow: none; }
+.participant-qr-card > div:last-child { align-items: center; }
+.participant-qr-card > div:last-child > * { display: inline-flex; min-height: 3rem; align-items: center; justify-content: center; white-space: nowrap; font-size: var(--text-public-small); }
+@media (min-width: 52rem) { .public-receipt__layout { grid-template-columns: minmax(0, 1fr) minmax(0, 0.82fr); } }
+@media (max-width: 39.999rem) { .public-receipt__header { align-items: flex-start; } .public-receipt__access a { width: 100%; } .participant-qr-card > div:last-child > * { width: 100%; } }
+@media (prefers-reduced-motion: reduce) { .public-receipt__actions a:active, .public-receipt__access a:active, .participant-qr-card button:active { transform: none; } }
+
+/* Hallmark · public receipt extension · one-time personal access, readable at phone widths. */
+.public-receipt__password { display: block; max-width: 100%; overflow-wrap: anywhere; border: 1px solid var(--color-public-rule); border-radius: var(--radius-public-control); background: var(--color-public-surface); color: var(--color-public-ink); padding: var(--space-public-sm); font-family: var(--font-public-body); font-size: var(--text-public-body); font-weight: 800; letter-spacing: 0.02em; user-select: all; }
+.public-receipt__credential-tools { display: grid; gap: var(--space-public-xs); margin-bottom: var(--space-public-md); }
+.public-receipt__credential-tools button { min-height: 3rem; width: fit-content; border: 1px solid var(--color-public-accent); border-radius: var(--radius-public-control); background: var(--color-public-surface); color: var(--color-public-accent); padding-inline: var(--space-public-md); font-weight: 800; white-space: nowrap; }
+.public-receipt__credential-tools button:active { transform: translateY(1px); }
+.public-receipt__credential-tools p, .public-receipt__copy-status, .public-receipt__recovery { margin-block: 0 var(--space-public-sm); color: var(--color-public-muted); font-size: var(--text-public-small); line-height: 1.5; }
+.public-receipt__copy-status { color: var(--color-public-accent); }
+@media (hover: hover) and (pointer: fine) { .public-receipt__credential-tools button:hover { background: var(--color-public-success-paper); } }
+@media (max-width: 39.999rem) { .public-receipt__credential-tools button { width: 100%; } }
+@media (prefers-reduced-motion: reduce) { .public-receipt__credential-tools button:active { transform: none; } }

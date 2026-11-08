@@ -35,7 +35,6 @@ export const submitResponseSchema = z.object({
   delegates: z
     .array(
       z.object({
-        existingProfileId: z.string().uuid().optional().nullable(),
         fullName: z.string().min(2, "Nama delegasi minimal 2 karakter"),
         email: z.string().trim().email("Format email delegasi tidak valid"),
         phone: z.string().min(8, "Nomor telepon minimal 8 digit").optional().nullable(),

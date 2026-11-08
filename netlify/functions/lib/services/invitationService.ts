@@ -271,11 +271,13 @@ export async function getPublicInstitutionInvitationService(rawToken: string, re
     },
     event: {
       name: event.name,
+      slug: event.slug,
       subtitle: event.subtitle,
       startDate: event.startDate,
       endDate: event.endDate,
       venueName: event.venueName,
       venueAddress: event.venueAddress,
+      publicContactWhatsapp: event.publicContactWhatsapp,
       posterUrl: event.posterUrl,
       posterAlt: event.posterAlt,
       posterFocalPoint: event.posterFocalPoint,
@@ -438,11 +440,18 @@ export async function submitInstitutionResponseService(
     whatsapp: payload.delegates[index].whatsapp || payload.delegates[index].phone || null,
     participantCode: person.participantCode, qrToken: signCardForParticipant(person),
   }));
-  const portalAccounts = cards.map((person) => ({ participantId: person.participantId, participantName: person.ustadzName,
-    email: person.email, temporaryPassword: null, loginUrl: "/login/ustadz", action: "SETUP_REQUIRED", shownOnce: false }));
+  const portalAccounts = cards.map((person) => {
+    const credential = saved.portalCredentials.find((item) => item.participantId === person.participantId);
+    return { participantId: person.participantId, participantName: person.ustadzName,
+      email: person.email, temporaryPassword: credential?.temporaryPassword || null,
+      temporaryPasswordIssued: Boolean(credential?.temporaryPassword),
+      passwordSetupRequired: credential?.passwordSetupRequired ?? true,
+      loginUrl: "/login/ustadz", action: credential?.passwordSetupRequired ? "SETUP_REQUIRED" : "LOGIN_READY",
+      shownOnce: Boolean(credential?.temporaryPassword) };
+  });
 
   const [emailResult, auditResult] = await Promise.allSettled([
-    queueParticipantCardEmails({ id: event.id, name: event.name }, cards),
+    queueParticipantCardEmails({ id: event.id, name: event.name, slug: event.slug }, cards),
     payload.isFinal ? createAuditLog({
       actorUserId: null,
       action: "INVITATION_FINAL_RESPONSE_SUBMITTED",
@@ -500,11 +509,13 @@ export async function getPublicIndividualInvitationService(rawToken: string, req
     },
     event: {
       name: event.name,
+      slug: event.slug,
       subtitle: event.subtitle,
       startDate: event.startDate,
       endDate: event.endDate,
       venueName: event.venueName,
       venueAddress: event.venueAddress,
+      publicContactWhatsapp: event.publicContactWhatsapp,
       posterUrl: event.posterUrl,
       posterAlt: event.posterAlt,
       posterFocalPoint: event.posterFocalPoint,
@@ -541,10 +552,17 @@ export async function submitIndividualResponseService(rawToken: string, payload:
     whatsapp: payload.delegates?.[index]?.whatsapp || payload.delegates?.[index]?.phone || null,
     participantCode: person.participantCode, qrToken: signCardForParticipant(person),
   }));
-  const portalAccounts = cards.map((person) => ({ participantId: person.participantId, participantName: person.ustadzName,
-    email: person.email, temporaryPassword: null, loginUrl: "/login/ustadz", action: "SETUP_REQUIRED", shownOnce: false }));
+  const portalAccounts = cards.map((person) => {
+    const credential = saved.portalCredentials.find((item) => item.participantId === person.participantId);
+    return { participantId: person.participantId, participantName: person.ustadzName,
+      email: person.email, temporaryPassword: credential?.temporaryPassword || null,
+      temporaryPasswordIssued: Boolean(credential?.temporaryPassword),
+      passwordSetupRequired: credential?.passwordSetupRequired ?? true,
+      loginUrl: "/login/ustadz", action: credential?.passwordSetupRequired ? "SETUP_REQUIRED" : "LOGIN_READY",
+      shownOnce: Boolean(credential?.temporaryPassword) };
+  });
 
-  const [emailResult, auditResult] = await Promise.allSettled([queueParticipantCardEmails({ id: event.id, name: event.name }, cards), createAuditLog({
+  const [emailResult, auditResult] = await Promise.allSettled([queueParticipantCardEmails({ id: event.id, name: event.name, slug: event.slug }, cards), createAuditLog({
     actorUserId: null,
     action: "INDIVIDUAL_INVITATION_RSVP_SUBMITTED",
     resourceType: "INVITATION_RESPONSE",

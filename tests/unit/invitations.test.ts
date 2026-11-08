@@ -103,6 +103,14 @@ describe("Undangan Lembaga, Token Security & Delegation Form Unit Tests", () => 
     expect(parsed.success).toBe(true);
   });
 
+  it("mengabaikan ID profil yang disisipkan pada formulir undangan publik", () => {
+    const parsed = submitResponseSchema.parse({ responseStatus: "ACCEPTED", isFinal: true,
+      delegates: [{ existingProfileId: "00000000-0000-0000-0000-000000000001",
+        fullName: "Ustadz Abdullah", email: "abdullah@lembaga.or.id", whatsapp: "081299990000",
+        city: "BANDUNG", province: "JAWA BARAT", isLead: true }] });
+    expect(parsed.delegates?.[0]).not.toHaveProperty("existingProfileId");
+  });
+
   it("should create invitation-bound OTP and a short-lived verification proof", () => {
     const invitationId = "00000000-0000-0000-0000-000000000001";
     const email = "Perwakilan@Lembaga.or.id";

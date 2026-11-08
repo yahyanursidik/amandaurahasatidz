@@ -98,21 +98,29 @@ export const LoginPage: React.FC = () => {
 
   useEffect(() => {
     window.scrollTo(0, 0);
-    setEmail("");
+    const fromReceipt = portal === "ustadz" && typeof location.state?.prefillEmail === "string"
+      ? location.state.prefillEmail.trim().toLowerCase() : "";
+    setEmail(fromReceipt);
     setPassword("");
     setShowPassword(false);
     setCapsLockOn(false);
     setError("");
-    setActivationOpen(false);
+    setActivationOpen(Boolean(fromReceipt && location.state?.openActivation));
     setActivationStep("request");
     setActivationError("");
-    setActivationEmail("");
+    setActivationEmail(fromReceipt);
     setRequestedEmail("");
     setChallengeToken("");
     setActivationCode("");
     setNewPassword("");
     setConfirmPassword("");
-  }, [portal]);
+  }, [portal, location.key]);
+
+  useEffect(() => {
+    if (portal !== "ustadz" || !activationOpen || location.hash !== "#ustadz-activation-panel") return;
+    const frame = window.requestAnimationFrame(() => document.getElementById("ustadz-activation-panel")?.scrollIntoView({ block: "start" }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [activationOpen, portal, location.hash]);
 
   const readApiError = async (response: Response) => {
     const payload = await response.json().catch(() => ({}));
@@ -466,7 +474,7 @@ export const LoginPage: React.FC = () => {
                           disabled={activationPending}
                         />
                       </label>
-                      <p className="login-activation__password-rule">Minimal 10 karakter, huruf besar, huruf kecil, dan angka.</p>
+                      <p className="login-activation__password-rule">Pilih dua kata yang mudah diingat dan angka. Minimal 10 karakter, huruf besar dan kecil.</p>
                       <button type="submit" disabled={activationPending} className="login-activation__action">
                         {activationPending ? <Loader2 className="login-spinner" aria-hidden="true" /> : <KeyRound aria-hidden="true" />}
                         {activationPending ? "Menyimpan…" : "Simpan dan masuk"}

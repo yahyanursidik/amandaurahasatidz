@@ -13,10 +13,13 @@ import {
   userRoleAssignments,
   users,
 } from "../db/schema";
-import { eq, and, desc, sql, or, isNull, ne } from "drizzle-orm";
+import { eq, and, desc, sql, isNull, ne } from "drizzle-orm";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { withTransaction } from "../db/transaction";
 import { resolveRegistrationInstitution } from "../services/registrationInstitutionService";
+import { hashPassword } from "../utils/password";
+import { canIssueImmediatePassword, generateMemorableTemporaryPassword } from "../utils/memorablePassword";
+import { ConflictError } from "../utils/errors";
 
 export async function findInvitationsRepository(eventId?: string) {
   const db = getDbClient();
@@ -65,7 +68,6 @@ export async function saveInstitutionDelegationRepository(
     institutionName?: string | null;
     isFinal: boolean;
     delegates?: Array<{
-      existingProfileId?: string | null;
       fullName: string;
       email?: string | null;
       phone?: string | null;
@@ -103,25 +105,27 @@ export async function saveInstitutionDelegationRepository(
       .returning();
 
     const participantRows: Array<typeof eventParticipants.$inferSelect> = [];
+    const portalCredentials: Array<{ participantId: string; temporaryPassword: string | null; passwordSetupRequired: boolean }> = [];
     if (payload.isFinal && payload.responseStatus === "ACCEPTED") {
       for (const delegate of payload.delegates || []) {
         const normalizedName = normalizeName(delegate.fullName);
         const normalizedEmail = normalizeEmail(delegate.email);
         const normalizedPhone = normalizePhone(delegate.phone);
         const normalizedWhatsapp = normalizePhone(delegate.whatsapp || delegate.phone);
-        let ustadzId = delegate.existingProfileId || (invitation.invitationType === "INDIVIDUAL" ? invitation.ustadzId : null);
+        // Only an individual invitation targets a known profile. A public delegate
+        // cannot choose another profile by sending a UUID or by sharing a name.
+        let ustadzId = invitation.invitationType === "INDIVIDUAL" ? invitation.ustadzId : null;
+        let createdNewProfile = false;
         if (!ustadzId) {
-          const matches = await tx
-            .select({ id: ustadzProfiles.id })
+          const matches = normalizedEmail ? await tx
+            .select({ id: ustadzProfiles.id, normalizedName: ustadzProfiles.normalizedName })
             .from(ustadzProfiles)
-            .where(
-              or(
-                eq(ustadzProfiles.normalizedName, normalizedName),
-                ...(normalizedEmail ? [eq(ustadzProfiles.email, normalizedEmail)] : []),
-                ...(normalizedPhone ? [eq(ustadzProfiles.phone, normalizedPhone)] : [])
-              )
-            )
-            .limit(1);
+            .where(eq(ustadzProfiles.email, normalizedEmail))
+            .limit(2) : [];
+          if (matches.length > 1) throw new ConflictError(`Email ${normalizedEmail} terhubung ke beberapa profil. Hubungi panitia.`);
+          if (matches[0] && matches[0].normalizedName !== normalizedName) {
+            throw new ConflictError(`Nama untuk ${normalizedEmail} tidak cocok dengan profil yang sudah ada. Hubungi panitia.`);
+          }
           ustadzId = matches[0]?.id || null;
           if (!ustadzId) {
             const created = await tx
@@ -139,23 +143,23 @@ export async function saveInstitutionDelegationRepository(
               })
               .returning({ id: ustadzProfiles.id });
             ustadzId = created[0].id;
+            createdNewProfile = true;
           }
         }
 
-        const submittedContactData: Partial<typeof ustadzProfiles.$inferInsert> = {
-          updatedAt: new Date(),
-        };
-        if (normalizedEmail) submittedContactData.email = normalizedEmail;
-        if (normalizedPhone) submittedContactData.phone = normalizedPhone;
-        if (normalizedWhatsapp) submittedContactData.whatsapp = normalizedWhatsapp;
-        if (delegate.address?.trim()) submittedContactData.address = delegate.address.trim();
-        if (delegate.cityCode || delegate.city?.trim()) submittedContactData.cityCode = delegate.cityCode || delegate.city?.trim();
-        if (delegate.provinceCode || delegate.province?.trim()) submittedContactData.provinceCode = delegate.provinceCode || delegate.province?.trim();
-        await tx
-          .update(ustadzProfiles)
-          .set(submittedContactData)
-          .where(eq(ustadzProfiles.id, ustadzId));
+        const existingProfile = (await tx.select().from(ustadzProfiles).where(eq(ustadzProfiles.id, ustadzId)).limit(1))[0];
+        if (!existingProfile || normalizeName(existingProfile.fullName) !== normalizedName ||
+          existingProfile.email && normalizeEmail(existingProfile.email) !== normalizedEmail) {
+          throw new ConflictError(`Identitas ${delegate.fullName} tidak cocok dengan profil asatidz. Hubungi panitia.`);
+        }
+        // Existing contact details are owned by the profile holder, not by a public invitation form.
+        if (!existingProfile.email && normalizedEmail) {
+          await tx.update(ustadzProfiles).set({ email: normalizedEmail, updatedAt: new Date() })
+            .where(eq(ustadzProfiles.id, ustadzId));
+        }
 
+        let issuedPassword: string | null = null;
+        let passwordSetupRequired = true;
         if (normalizedEmail) {
           const currentProfile = (
             await tx.select().from(ustadzProfiles).where(eq(ustadzProfiles.id, ustadzId)).limit(1)
@@ -163,14 +167,29 @@ export async function saveInstitutionDelegationRepository(
           let portalUser = currentProfile?.userId
             ? (await tx.select().from(users).where(eq(users.id, currentProfile.userId)).limit(1))[0]
             : (await tx.select().from(users).where(eq(users.email, normalizedEmail)).limit(1))[0];
+          if (portalUser && normalizeEmail(portalUser.email) !== normalizedEmail) {
+            throw new ConflictError(`Email akun ${delegate.fullName} berbeda dengan data undangan. Hubungi panitia.`);
+          }
+          if (portalUser && !currentProfile?.userId) {
+            const linked = (await tx.select({ id: ustadzProfiles.id }).from(ustadzProfiles)
+              .where(eq(ustadzProfiles.userId, portalUser.id)).limit(1))[0];
+            if (linked && linked.id !== ustadzId) {
+              throw new ConflictError(`Email ${normalizedEmail} sudah digunakan profil asatidz lain. Hubungi panitia.`);
+            }
+          }
           if (!portalUser) {
+            // The invitation bearer can receive a password only for an entirely new identity.
+            issuedPassword = canIssueImmediatePassword(false, !createdNewProfile)
+              ? generateMemorableTemporaryPassword() : null;
             portalUser = (
               await tx
                 .insert(users)
-                .values({ email: normalizedEmail, name: delegate.fullName.trim(), status: "ACTIVE" })
+                .values({ email: normalizedEmail, name: delegate.fullName.trim(),
+                  ...(issuedPassword ? { passwordHash: hashPassword(issuedPassword) } : {}), status: "ACTIVE" })
                 .returning()
             )[0];
           }
+          passwordSetupRequired = !portalUser.passwordHash;
           if (!currentProfile?.userId) {
             await tx
               .update(ustadzProfiles)
@@ -254,6 +273,7 @@ export async function saveInstitutionDelegationRepository(
           })
           .returning();
         participantRows.push(createdParticipant[0]);
+        portalCredentials.push({ participantId: createdParticipant[0].id, temporaryPassword: issuedPassword, passwordSetupRequired });
       }
     }
 
@@ -270,7 +290,7 @@ export async function saveInstitutionDelegationRepository(
       })
       .where(eq(invitations.id, invitationId));
 
-    return { response: responseRows[0], participants: participantRows };
+    return { response: responseRows[0], participants: participantRows, portalCredentials };
   });
 }
 

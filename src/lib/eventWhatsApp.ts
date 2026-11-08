@@ -45,3 +45,8 @@ export function buildEventWhatsAppUrl(message: string, phone?: string | null): s
   if (raw && !recipient) return null;
   return `https://wa.me/${recipient || ""}?text=${encodeURIComponent(message)}`;
 }
+
+export function isPublicPanitiaWhatsAppNumber(value: string): boolean {
+  const raw = value.trim();
+  return !raw || /^[+\d\s().-]+$/.test(raw) && /^628\d{8,12}$/.test(normalizeWhatsAppNumber(raw) || "");
+}

@@ -1,6 +1,14 @@
 [
   {
     "date": "2026-11-08",
+    "scope": "app/public registration receipt",
+    "macrostructure": "Index-First",
+    "theme": "existing emerald-slate",
+    "enrichment": "none",
+    "brief": "Senior-friendly registration receipt with one individual QR at a time and clear next actions for groups"
+  },
+  {
+    "date": "2026-11-08",
     "scope": "app/admin/ustadz navigation",
     "macrostructure": "Workbench",
     "theme": "existing emerald-slate",

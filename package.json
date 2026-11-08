@@ -26,6 +26,7 @@
     "db:migrate:event-communications": "node scripts/apply-event-communications-migration.mjs",
     "db:migrate:ukhuwah": "node scripts/apply-ukhuwah-migration.mjs",
     "db:migrate:ustadz-notes": "node scripts/apply-ustadz-notes-migration.mjs",
+    "db:migrate:public-contact": "node scripts/apply-public-contact-migration.mjs",
     "db:seed": "node scripts/run-seed.mjs"
   },
   "dependencies": {

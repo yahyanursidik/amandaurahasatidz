@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { sendEmailViaMailketing } from "../../netlify/functions/lib/services/mailketingTransport";
 import { normalizePublicRegistrationGroup } from "../../netlify/functions/lib/services/publicRegistrationService";
-import { renderHtmlEmailTemplate } from "../../netlify/functions/lib/services/emailTemplateEngine";
+import { renderEmailTemplate, renderHtmlEmailTemplate } from "../../netlify/functions/lib/services/emailTemplateEngine";
 import { submitPublicRegistrationSchema } from "../../netlify/functions/lib/validations/publicRegistrationValidation";
 
 const originalToken = process.env.MAILKETING_API_TOKEN;
@@ -32,6 +32,17 @@ describe("pendaftaran rombongan reguler", () => {
 });
 
 describe("Mailketing transactional", () => {
+  it("email kartu menyertakan QR, rundown, dan portal tanpa sandi pribadi", () => {
+    const message = renderEmailTemplate("REGISTRATION_AUTO_APPROVED", {
+      ustadzName: "Ustadz Ahmad", eventName: "Daurah", participantCode: "P-123",
+      cardLink: "https://contoh.id/card", rundownLink: "https://contoh.id/events/daurah#jadwal-kegiatan",
+      email: "ahmad@example.id", portalLink: "https://contoh.id/login/ustadz",
+    });
+    expect(message.body).toContain("https://contoh.id/events/daurah#jadwal-kegiatan");
+    expect(message.body).toContain("https://contoh.id/card");
+    expect(message.body).toContain("ahmad@example.id");
+    expect(message.body).not.toContain("BukuTamanPagiSabar123456");
+  });
   const message = { to: "ustadz@example.id", subject: "Pengingat", htmlBody: "<p>Assalamu'alaikum</p>" };
   it("memakai Bearer token dan JSON tanpa mengirim saat token kosong", async () => {
     delete process.env.MAILKETING_API_TOKEN;

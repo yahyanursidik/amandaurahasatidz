@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildEventWhatsAppMessage, buildEventWhatsAppUrl } from "../../src/lib/eventWhatsApp";
+import { buildEventWhatsAppMessage, buildEventWhatsAppUrl, isPublicPanitiaWhatsAppNumber } from "../../src/lib/eventWhatsApp";
 import { eventCatalogQuerySchema } from "../../netlify/functions/lib/validations/eventValidation";
 
 const event = { name: "Daurah Fikih", slug: "daurah-fikih", startDate: "2026-11-12", endDate: "2026-11-13", venueName: "Masjid Kota", status: "REGISTRATION_OPEN", audienceMode: "MIXED" };
@@ -24,6 +24,8 @@ describe("berbagi event WhatsApp", () => {
       .toBe("https://wa.me/6281234567890?text=Assalamu'alaikum");
     expect(buildEventWhatsAppUrl("Pesan", "invalid")).toBeNull();
     expect(buildEventWhatsAppUrl("Pesan")).toBe("https://wa.me/?text=Pesan");
+    expect(isPublicPanitiaWhatsAppNumber("081234567890")).toBe(true);
+    expect(isPublicPanitiaWhatsAppNumber("abc081234567890")).toBe(false);
   });
 
   it("membatasi ukuran halaman katalog yang diminta klien", () => {

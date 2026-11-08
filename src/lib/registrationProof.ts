@@ -15,6 +15,7 @@ export function readRegistrationProof<TEvent, TResult extends { participants?: A
 }
 
 export function saveRegistrationProof<TEvent, TResult>(key: string, proof: Proof<TEvent, TResult>): void {
-  try { window.sessionStorage.setItem(key, JSON.stringify(proof)); }
+  // A one-time credential may appear in the immediate API response, but never in browser storage.
+  try { window.sessionStorage.setItem(key, JSON.stringify(proof, (field, value) => field === "temporaryPassword" ? undefined : value)); }
   catch { /* The on-screen receipt and email link remain available if storage is disabled. */ }
 }

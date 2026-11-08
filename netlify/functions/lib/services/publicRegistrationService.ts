@@ -11,6 +11,8 @@ import { resolveRegistrationInstitution } from "./registrationInstitutionService
 import { signCardForParticipant, cardPath } from "./participantCardService";
 import { queueParticipantCardEmails } from "./participantCardEmailService";
 import { logError } from "../utils/logger";
+import { hashPassword } from "../utils/password";
+import { canIssueImmediatePassword, generateMemorableTemporaryPassword } from "../utils/memorablePassword";
 
 type PublicRegistrationInput = {
   fullName: string;
@@ -63,6 +65,10 @@ export function assertPublicRegistrationOpen(event: {
   if (event.regularQuota === 0) throw new ForbiddenError("Kuota reguler untuk program ini ditutup.");
 }
 
+export function publicGroupLimit(event: { regularQuota?: number | null; capacity?: number | null }) {
+  return Math.min(20, event.regularQuota ?? 20, event.capacity ?? 20);
+}
+
 async function getOpenEvent(slug: string) {
   const event = await findEventBySlugRepository(slug);
   if (!event) throw new NotFoundError("Program daurah tidak ditemukan.");
@@ -73,7 +79,7 @@ async function getOpenEvent(slug: string) {
 export async function submitPublicRegistrationService(slug: string, input: PublicRegistrationInput, requestId: string) {
   const event = await getOpenEvent(slug);
   const people = normalizePublicRegistrationGroup(input);
-  const maxGroupSize = Math.min(20, event.defaultInstitutionQuota || 20, event.regularQuota || 20);
+  const maxGroupSize = publicGroupLimit(event);
   if (people.length > maxGroupSize) throw new ValidationError(`Maksimal ${maxGroupSize} peserta termasuk kepala rombongan untuk satu pendaftaran.`);
   const [regularApproved, totalApproved] = await Promise.all([
     countApprovedParticipantsBySourceRepository(event.id, true), countApprovedParticipantsForEventRepository(event.id),
@@ -125,7 +131,11 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
     const registered = [];
     for (const [index, entry] of existing.entries()) {
       const { person } = entry;
-      const user = entry.user || (await tx.insert(users).values({ email: person.email, name: person.fullName, status: "ACTIVE" }).returning())[0];
+      // Never issue or reset a password for an identity that existed before this public submission.
+      const temporaryPassword = canIssueImmediatePassword(Boolean(entry.user), Boolean(entry.profile))
+        ? generateMemorableTemporaryPassword() : null;
+      const user = entry.user || (await tx.insert(users).values({ email: person.email, name: person.fullName,
+        ...(temporaryPassword ? { passwordHash: hashPassword(temporaryPassword) } : {}), status: "ACTIVE" }).returning())[0];
       let profile = entry.profile;
       if (!profile) {
         profile = (await tx.insert(ustadzProfiles).values({
@@ -160,7 +170,8 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
       }).returning())[0];
       const qrToken = signCardForParticipant(participant);
       registered.push({ participantId: participant.id, fullName: person.fullName, email: person.email, whatsapp: person.whatsapp,
-        participantCode, qrToken, cardUrl: cardPath(qrToken), passwordSetupRequired: !user.passwordHash });
+        participantCode, qrToken, cardUrl: cardPath(qrToken), passwordSetupRequired: !user.passwordHash,
+        temporaryPassword, temporaryPasswordIssued: Boolean(temporaryPassword) });
     }
     return {
       participantCode: registered[0].participantCode,
@@ -179,7 +190,7 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
     eventId: event.id,
     afterData: { participantCode: result.participantCode, approvalStatus: result.approvalStatus, publicGroupId: result.publicGroupId, participantCount: result.participants.length, consentConfirmed: input.consentConfirmed },
     requestId,
-  }), queueParticipantCardEmails({ id: event.id, name: event.name }, result.participants.map((person) => ({
+  }), queueParticipantCardEmails({ id: event.id, name: event.name, slug: event.slug }, result.participants.map((person) => ({
     participantId: person.participantId, ustadzName: person.fullName, email: person.email,
     participantCode: person.participantCode, qrToken: person.qrToken,
   })))]);
@@ -192,7 +203,7 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
     portalLoginUrl: result.portalLoginUrl,
     passwordSetupRequired: result.passwordSetupRequired,
     publicGroupId: result.publicGroupId,
-    participants: result.participants.map(({ fullName, email, whatsapp, participantCode, qrToken, cardUrl, passwordSetupRequired }) => ({ fullName, email, whatsapp, participantCode, qrToken, cardUrl, passwordSetupRequired })),
+    participants: result.participants.map(({ fullName, email, whatsapp, participantCode, qrToken, cardUrl, passwordSetupRequired, temporaryPassword, temporaryPasswordIssued }) => ({ fullName, email, whatsapp, participantCode, qrToken, cardUrl, passwordSetupRequired, temporaryPassword, temporaryPasswordIssued })),
     emailQueued,
   };
 }
