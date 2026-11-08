@@ -26,6 +26,7 @@ const fixture = {
         import {createRoot} from 'react-dom/client';
         import {MemoryRouter, Routes, Route} from 'react-router-dom';
         import {EventPublicPage} from '/src/pages/public/EventPublicPage.tsx';
+        import {ParticipantCardPage} from '/src/pages/public/ParticipantCardPage.tsx';
         import '/src/index.css';
         const event = {
           id:'00000000-0000-0000-0000-000000000001',code:'DC-27',slug:'daurah-coba',name:'Daurah Coba Asatidz',
@@ -40,6 +41,8 @@ const fixture = {
         };
         window.__posts = [];
         window.fetch = async (url, options = {}) => {
+          if (String(url).includes('/cards/public')) return {ok:true,json:async()=>({data:{ustadzName:'Ustadz Ahmad',eventName:event.name,
+            eventSlug:event.slug,participantCode:'P-A1',opaqueQrToken:'pqr_one.signature'}})};
           if (options.method === 'POST') {
             window.__posts.push(JSON.parse(options.body));
             return {ok:true,json:async()=>({data:{participantCode:'P-A1',approvalStatus:'APPROVED',portalLoginUrl:'/login/ustadz',
@@ -52,8 +55,11 @@ const fixture = {
           return {ok:true,json:async()=>({data:sparse ? {...event,description:null,venueName:null,venueAddress:null,
             publicContactWhatsapp:null,mapsUrl:null,timezone:'Asia/Jakarta',days:[],sessions:[]} : event})};
         };
-        createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:['/events/daurah-coba']},
-          React.createElement(Routes,null,React.createElement(Route,{path:'/events/:slug',element:React.createElement(EventPublicPage)}))));
+        const initialEntry = new URLSearchParams(location.search).has('card') ? '/card?token=pqr_one.signature' : '/events/daurah-coba';
+        createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:[initialEntry]},
+          React.createElement(Routes,null,
+            React.createElement(Route,{path:'/events/:slug',element:React.createElement(EventPublicPage)}),
+            React.createElement(Route,{path:'/card',element:React.createElement(ParticipantCardPage)}))));
       </script></body></html>`));
     });
   },
@@ -178,7 +184,17 @@ try {
   assert.equal(await evaluate(`window.__posts[0].consentConfirmed`), true);
   assert.equal(await evaluate(`window.__posts[0].delegates[0].city`), 'KOTA BANDUNG');
   assert.equal(await evaluate(`document.querySelectorAll('.public-receipt__select option').length`), 2);
-  assert.equal(await evaluate(`document.querySelector('.public-receipt__actions a').getAttribute('href')`), '/events/daurah-coba#jadwal-kegiatan');
+  assert.equal(await evaluate(`document.querySelector('.public-receipt__shortcuts a').getAttribute('href')`), '/events/daurah-coba#jadwal-kegiatan');
+  assert.equal(await evaluate(`document.querySelector('.public-receipt__access').compareDocumentPosition(document.querySelector('.participant-qr-card')) & Node.DOCUMENT_POSITION_FOLLOWING`), 4, 'portal access precedes QR in reading order');
+  for (const width of [320, 375, 414, 768]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 850, deviceScaleFactor: 1, mobile: width < 768 });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`), true, `receipt has no horizontal overflow at ${width}px`);
+    assert.equal(await evaluate(`Array.from(document.querySelectorAll('.public-receipt__shortcuts a')).every(el => el.getBoundingClientRect().height <= 56)`), true, `receipt shortcuts stay one line at ${width}px`);
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 850, deviceScaleFactor: 1, mobile: true });
+  await evaluate(`document.querySelector('.public-receipt').scrollIntoView({block:'start'})`);
+  assert.equal(await evaluate(`document.querySelector('.public-receipt__access').getBoundingClientRect().top < window.innerHeight`), true, 'portal access is discoverable in the first receipt viewport');
   assert.equal(await evaluate(`sessionStorage.getItem('registration:regular:daurah-coba').includes('BukuTaman1234')`), false, 'one-time password is not stored in session');
   await evaluate(`(() => { window.__downloads = []; HTMLAnchorElement.prototype.click = function () { if (this.download) window.__downloads.push({ name: this.download, href: this.href }); }; document.querySelector('.participant-qr-card button').click(); })()`);
   for (let i = 0; i < 50 && !(await evaluate(`window.__downloads.length`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
@@ -193,6 +209,21 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 100));
   screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   target = path.join(os.tmpdir(), 'daurah-registration-receipt-375.png');
+  await writeFile(target, Buffer.from(screenshot.data, 'base64')); screenshots.push(target);
+  await send('Page.navigate', { url: `http://127.0.0.1:${port}/public-event-registration-preview?card=1` });
+  for (let i = 0; i < 100 && !(await evaluate(`!!document.querySelector('.participant-card-page__links')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await evaluate(`document.querySelector('.participant-card-page__links a').getAttribute('href')`), '/events/daurah-coba#jadwal-kegiatan');
+  assert.equal(await evaluate(`document.querySelector('.participant-card-page__links a:last-child').getAttribute('href')`), '/login/ustadz');
+  assert.equal(await evaluate(`document.querySelector('.participant-card-page').textContent.includes('BukuTaman1234')`), false, 'shareable QR card never reveals password');
+  assert.equal(await evaluate(`!!document.querySelector('.participant-card-page .participant-qr-card')`), true, 'shareable card still renders the QR');
+  for (const width of [320, 375, 414, 768]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 850, deviceScaleFactor: 1, mobile: width < 768 });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`), true, `card page has no horizontal overflow at ${width}px`);
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 850, deviceScaleFactor: 1, mobile: true });
+  screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  target = path.join(os.tmpdir(), 'daurah-participant-card-375.png');
   await writeFile(target, Buffer.from(screenshot.data, 'base64')); screenshots.push(target);
   await evaluate(`sessionStorage.removeItem('registration:regular:daurah-coba')`);
   await send('Page.navigate', { url: `http://127.0.0.1:${port}/public-event-registration-preview?sparse=1` });

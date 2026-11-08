@@ -7595,3 +7595,36 @@
 @media (max-width: 51.999rem) { .kiosk-page__scanner-input button { width: 100%; } }
 @media (hover: hover) and (pointer: fine) { .kiosk-page__primary:hover:not(:disabled), .kiosk-page__scanner-input button:hover:not(:disabled) { background: var(--color-public-focus); } .kiosk-page__refresh:hover { background: var(--color-public-paper); } }
 @media (prefers-reduced-motion: reduce) { .kiosk-page button:active { transform: none; } }
+
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4
+ * genre: modern-minimal · macrostructure: Narrative Workflow · design-system: design.md
+ * Receipt wayfinding: access and rundown precede the tall QR on phones.
+ */
+.public-receipt__select { max-width: 34rem; margin-block: var(--space-public-md) 0; }
+.public-receipt__shortcuts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--space-public-xs); margin-top: var(--space-public-md); }
+.public-receipt__shortcuts a { display: inline-flex; min-width: 0; min-height: 3rem; align-items: center; justify-content: center; gap: var(--space-public-xs); border: 1px solid var(--color-public-rule); border-radius: var(--radius-public-control); background: var(--color-public-surface); color: var(--color-public-accent); padding-inline: var(--space-public-xs); font-size: var(--text-public-small); font-weight: 800; text-decoration: none; white-space: nowrap; }
+.public-receipt__shortcuts svg { width: 1rem; height: 1rem; flex: none; }
+.public-receipt__shortcuts a:focus-visible { outline: 3px solid var(--color-public-focus); outline-offset: 2px; }
+.public-receipt__shortcuts a:active { transform: translateY(1px); }
+.public-receipt__layout { grid-template-areas: "next" "card"; grid-template-columns: minmax(0, 1fr); margin-top: var(--space-public-md); }
+.public-receipt__next { grid-area: next; }
+.public-receipt__card-column { grid-area: card; scroll-margin-top: calc(var(--space-public-2xl) * 2); }
+.public-receipt__card-column > h3 { font-size: 1.25rem; }
+.public-receipt__card-intro { margin: var(--space-public-xs) 0 var(--space-public-md); color: var(--color-public-muted); font-size: var(--text-public-small); line-height: 1.5; }
+.public-receipt__access { scroll-margin-top: calc(var(--space-public-2xl) * 2); border: 1px solid var(--color-public-rule); background: var(--color-public-surface); }
+.public-receipt__actions { border-top: 1px solid var(--color-public-rule); padding-top: var(--space-public-sm); }
+.public-receipt__actions a { width: fit-content; }
+.public-receipt__actions p { margin-top: 0; }
+.participant-card-page { width: min(100% - 2rem, 38rem); margin-inline: auto; padding-block: var(--space-public-xl); color: var(--color-public-ink); font-family: var(--font-public-body); }
+.participant-card-page h1 { margin: 0 0 var(--space-public-md); font-family: var(--font-public-display); font-size: var(--text-public-title); line-height: 1.2; }
+.participant-card-page__links { display: grid; gap: var(--space-public-xs); margin-bottom: var(--space-public-sm); }
+.participant-card-page__links a { display: inline-flex; min-height: 3rem; align-items: center; justify-content: center; border: 1px solid var(--color-public-accent); border-radius: var(--radius-public-control); background: var(--color-public-surface); color: var(--color-public-accent); padding-inline: var(--space-public-sm); font-weight: 800; text-decoration: none; white-space: nowrap; }
+.participant-card-page__links a:last-child { background: var(--color-public-accent); color: var(--color-public-accent-ink); }
+.participant-card-page__links a:focus-visible { outline: 3px solid var(--color-public-focus); outline-offset: 2px; }
+.participant-card-page__links a:active { transform: translateY(1px); }
+.participant-card-page__note { margin: 0 0 var(--space-public-md); color: var(--color-public-muted); font-size: var(--text-public-small); line-height: 1.5; }
+@media (min-width: 40rem) { .participant-card-page__links { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 52rem) { .public-receipt__layout { grid-template-areas: "card next"; grid-template-columns: minmax(0, 1fr) minmax(0, 0.82fr); } .public-receipt__shortcuts { max-width: 38rem; } }
+@media (max-width: 39.999rem) { .public-receipt__shortcuts svg { display: none; } .public-receipt__actions a { width: 100%; } }
+@media (hover: hover) and (pointer: fine) { .public-receipt__shortcuts a:hover, .participant-card-page__links a:first-child:hover { background: var(--color-public-success-paper); } .participant-card-page__links a:last-child:hover { background: var(--color-public-focus); } }
+@media (prefers-reduced-motion: reduce) { .public-receipt__shortcuts a:active, .participant-card-page__links a:active { transform: none; } }

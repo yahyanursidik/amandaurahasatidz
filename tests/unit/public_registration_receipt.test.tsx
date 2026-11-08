@@ -29,12 +29,15 @@ describe("bukti pendaftaran publik", () => {
   it("menampilkan satu QR rombongan, pemilih peserta, dan akses aktivasi email pribadi", () => {
     vi.stubGlobal("window", { location: { origin: "https://contoh.test" } });
     const html = renderToStaticMarkup(<MemoryRouter><PublicRegistrationReceipt event={{ name: "Daurah Asatidz", slug: "daurah-asatidz" }} participants={participants} emailQueued={2} /></MemoryRouter>);
-    expect(html).toContain("Pilih kartu peserta");
+    expect(html).toContain("Pilih peserta");
     expect(html).toContain("Ustadz Hasan · PAR-002");
     expect(html.match(/aria-label="QR peserta/g)).toHaveLength(1);
     expect(html).toContain("ahmad@example.test");
     expect(html).toContain("/login/ustadz#ustadz-activation-panel");
-    expect(html).toContain("Lihat rundown");
+    expect(html).toContain("Rundown");
+    expect(html).toContain('href="/events/daurah-asatidz#jadwal-kegiatan"');
+    expect(html.indexOf('aria-label="Tautan bukti pendaftaran"')).toBeLessThan(html.indexOf('aria-label="QR peserta'));
+    expect(html.indexOf('id="akses-portal"')).toBeLessThan(html.indexOf('id="kartu-qr"'));
     expect(html).toContain("Buka draf WhatsApp");
     expect(html).toContain("Nomor panitia belum tersedia");
     expect(html).not.toContain("pqr_second.secret");

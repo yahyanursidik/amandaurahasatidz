@@ -1,6 +1,14 @@
 [
   {
     "date": "2026-11-08",
+    "scope": "app/public registration receipt and participant card",
+    "macrostructure": "Narrative Workflow",
+    "theme": "existing emerald-slate",
+    "enrichment": "none",
+    "brief": "Place rundown and personal portal access before the tall QR on phones, while keeping shareable card credentials private"
+  },
+  {
+    "date": "2026-11-08",
     "scope": "app/admin/panduan",
     "macrostructure": "Map / Diagram",
     "theme": "existing emerald-slate",
@@ -148,12 +156,5 @@
     "theme": "existing emerald-slate system",
     "enrichment": "none",
     "brief": "Admin operational dashboard with contextual submenus, active-event shortcuts, command search, priorities, and responsive navigation"
-  },
-  {
-    "date": "2026-08-01",
-    "macrostructure": "Workbench",
-    "theme": "existing emerald-slate system",
-    "enrichment": "none",
-    "brief": "Production login recovery and delegation replacement workbench for institution group leaders"
   }
 ]
