@@ -64,7 +64,7 @@ afterEach(() => {
 
 describe("lazy route loading", () => {
   it("keeps all page modules and the check-in layout behind literal lazy imports", () => {
-    expect(loaders).toHaveLength(45);
+    expect(loaders).toHaveLength(46);
     expect(appSource).not.toMatch(/import\s+.*from\s+["']\.\/pages\//);
     expect(loaders.map(([, name]) => name)).toContain("CommitteeLayout");
   });
@@ -80,6 +80,7 @@ describe("lazy route loading", () => {
     ["/invitation/institution/slug/token", "InvitationRegistrationPage", "SUPER_ADMIN"],
     ["/admin/events/event-a/reports", "EventOperationsPage", "SUPER_ADMIN"],
     ["/admin/events/event-a/kiosk", "EventKioskPage", "SUPER_ADMIN"],
+    ["/admin/panduan", "AdminGuidePage", "SUPER_ADMIN"],
     ["/admin/broadcast", "AdminEmailJobsPage", "SUPER_ADMIN"],
     ["/committee/check-in", "OnSiteCheckinPage", "CHECKIN_OFFICER"],
     ["/committee/announcements", "CommitteeOperationsPage", "CHECKIN_OFFICER"],
@@ -142,6 +143,20 @@ describe("lazy route loading", () => {
     expect(loaded).not.toHaveBeenCalled();
     expect(html).not.toContain("Admin content");
     expect(html).toContain(`data-redirect="${authenticated ? "/portal" : "/login/admin"}"`);
+  });
+
+  it("does not import the admin guide for a participant account", async () => {
+    session.path = "/admin/panduan";
+    session.role = "USTADZ";
+    const loaded = vi.fn();
+    vi.doMock("../../src/pages/admin/AdminGuidePage", () => {
+      loaded();
+      return { AdminGuidePage: () => <div>Private guide</div> };
+    });
+    const { App } = await import("../../src/App");
+    const html = await stream(<App />).done;
+    expect(loaded).not.toHaveBeenCalled();
+    expect(html).toContain('data-redirect="/portal"');
   });
 
   it("announces a pending chunk and renders the page when it resolves", async () => {

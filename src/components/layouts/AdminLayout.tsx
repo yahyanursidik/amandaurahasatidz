@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import {
   Activity,
   BarChart3,
+  BookOpenCheck,
   Building2,
   Calendar,
   CalendarClock,
@@ -52,6 +53,15 @@ export const getAdminNavItems = (pathname: string, canManageUstadz = true, canMe
       mobilePrimary: true,
       description: "Ringkasan operasional dan pekerjaan prioritas.",
       keywords: ["beranda", "ringkasan", "prioritas"],
+    },
+    {
+      label: "Panduan Kerja",
+      shortLabel: "Panduan",
+      href: eventId ? `/admin/panduan?eventId=${eventId}` : "/admin/panduan",
+      icon: <BookOpenCheck />,
+      exact: true,
+      description: "Langkah kerja dari membuat event sampai laporan kehadiran.",
+      keywords: ["tutorial", "bantuan", "alur", "workflow", "scan", "absensi"],
     },
     {
       label: "Event & Daurah",
