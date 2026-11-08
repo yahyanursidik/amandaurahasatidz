@@ -1,6 +1,14 @@
 [
   {
     "date": "2026-11-08",
+    "scope": "app/public event detail and regular registration",
+    "macrostructure": "Narrative Workflow",
+    "theme": "existing emerald-slate",
+    "enrichment": "event poster",
+    "brief": "Context-first daurah detail, timezone-correct rundown, senior-friendly individual and group form, and connected QR receipt"
+  },
+  {
+    "date": "2026-11-08",
     "scope": "app/public daurah history",
     "macrostructure": "Index-First",
     "theme": "existing emerald-slate",
@@ -144,12 +152,5 @@
     "theme": "existing emerald-slate system",
     "enrichment": "generated faceless library interior",
     "brief": "Event cover upload, poster-led admin and public identity, institution invitation context, and progressive form navigation"
-  },
-  {
-    "date": "2026-07-31",
-    "macrostructure": "Triage Board",
-    "theme": "existing emerald-slate system",
-    "enrichment": "none",
-    "brief": "Comprehensive committee accounts, event-scoped assignments, access matrix, deadline controls, and cross-module attendance impact"
   }
 ]

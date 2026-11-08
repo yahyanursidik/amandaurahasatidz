@@ -35,7 +35,8 @@ describe("bukti pendaftaran publik", () => {
     expect(html).toContain("ahmad@example.test");
     expect(html).toContain("/login/ustadz#ustadz-activation-panel");
     expect(html).toContain("Lihat rundown");
-    expect(html).toContain("Kabari panitia");
+    expect(html).toContain("Buka draf WhatsApp");
+    expect(html).toContain("Nomor panitia belum tersedia");
     expect(html).not.toContain("pqr_second.secret");
   });
 
@@ -58,6 +59,7 @@ describe("bukti pendaftaran publik", () => {
     vi.stubGlobal("window", { location: { origin: "https://contoh.test" } });
     const html = renderToStaticMarkup(<MemoryRouter><PublicRegistrationReceipt event={{ name: "Daurah Asatidz", slug: "daurah-asatidz", publicContactWhatsapp: "6281234567890" }} participants={[participants[0]]} emailQueued={1} /></MemoryRouter>);
     expect(html).toContain("https://wa.me/6281234567890?text=");
+    expect(html).toContain("Kabari panitia");
     expect(html).toContain("kontak panitia event");
   });
 });

@@ -59,7 +59,7 @@ export function PublicRegistrationReceipt({ event, participants, emailQueued }: 
         <h3>Langkah berikutnya</h3>
         <div className="public-receipt__actions">
           <div><Link to={event.slug ? publicRundownPath(event.slug) : "/programs"}><CalendarDays aria-hidden="true" /><strong>{event.slug ? "Lihat rundown" : "Lihat program"}</strong><ArrowRight aria-hidden="true" /></Link><p>Jadwal terbaru di halaman program.</p></div>
-          <div><a href={registrationAttendanceWhatsAppUrl(event.name, participants, event.publicContactWhatsapp)} target="_blank" rel="noopener noreferrer"><MessageCircle aria-hidden="true" /><strong>Kabari panitia</strong><ArrowRight aria-hidden="true" /></a><p>{event.publicContactWhatsapp ? "Draf WhatsApp ke kontak panitia event." : "WhatsApp membuka draf; pilih kontak panitia."}</p></div>
+          <div><a href={registrationAttendanceWhatsAppUrl(event.name, participants, event.publicContactWhatsapp)} target="_blank" rel="noopener noreferrer"><MessageCircle aria-hidden="true" /><strong>{event.publicContactWhatsapp ? "Kabari panitia" : "Buka draf WhatsApp"}</strong><ArrowRight aria-hidden="true" /></a><p>{event.publicContactWhatsapp ? "Draf WhatsApp ke kontak panitia event." : "Nomor panitia belum tersedia; pilih kontak tujuan sendiri."}</p></div>
         </div>
         <p className="public-receipt__wa-note">Pesan WhatsApp tidak mencatat presensi. Saat acara, tunjukkan QR masing-masing kepada panitia.</p>
 

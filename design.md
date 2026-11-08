@@ -9,6 +9,7 @@ Modern-minimal, tenang, jelas, dan hormat. Kalimat operasional yang langsung men
 ## Keluarga struktur
 
 - Halaman daurah publik: Index-First — riwayat kegiatan yang telah selesai menjadi fokus, sedangkan agenda aktif dan jalur pendaftaran tampil terpisah. Pengunjung tidak diminta membandingkan atau memilih daurah sebagai katalog produk.
+- Halaman satu daurah dan formulir reguler: Narrative Workflow — ringkasan tanggal/tempat dan status, rundown sesuai zona waktu event, baru data peserta pertama dan anggota rombongan bila ada. Setelah berhasil, bukti QR dan akses portal menjadi fokus.
 - Halaman masuk: pintu masuk ringkas per peran, formulir menjadi titik fokus; gambar interior perpustakaan hanya pendamping.
 - Portal peserta: Workbench — kartu program, status, jadwal, dan QR sebagai alat kerja, tanpa ilustrasi dekoratif.
 - Admin Event: Workbench — daftar ringkas, konteks satu event, lalu jalur kerja ke jadwal, undangan, peserta, panitia, kehadiran, komunikasi, dan laporan.
