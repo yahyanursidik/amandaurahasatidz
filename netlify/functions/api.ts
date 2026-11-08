@@ -208,7 +208,13 @@ import {
 } from "./lib/services/portalService";
 import { updatePortalProfileService } from "./lib/services/portalProfileService";
 
-import { processCheckinSchema, queryCheckinLogsSchema, searchCheckinParticipantSchema } from "./lib/validations/attendanceValidation";
+import { processCheckinSchema, publicKioskCheckinSchema, queryCheckinLogsSchema, searchCheckinParticipantSchema } from "./lib/validations/attendanceValidation";
+import {
+  kioskCookieName, assertKioskWriteOrigin, createKioskPairingService, isKioskCookieShape,
+  isKioskPairingToken,
+  listEventKiosksService, pairKioskDeviceService, requireKioskDeviceService,
+  revokeKioskDeviceService,
+} from "./lib/services/kioskService";
 import {
   getActiveSessionService,
   getAttendanceCheckinUnitsService,
@@ -693,6 +699,27 @@ export const handler: Handler = async (event, _context) => {
         await updateEventService(eventId, validated, session.userId, requestId),
         requestId
       );
+    }
+
+    const eventKioskMatch = path.match(/^\/events\/([a-f0-9-]+)\/kiosk$/i);
+    if (eventKioskMatch && method === "GET") {
+      requirePermission(userSession, "events.update", eventKioskMatch[1]);
+      return buildSuccessResponse(await listEventKiosksService(eventKioskMatch[1]), requestId);
+    }
+    const eventKioskPairingMatch = path.match(/^\/events\/([a-f0-9-]+)\/kiosk\/pairings$/i);
+    if (eventKioskPairingMatch && method === "POST") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "events.update", eventKioskPairingMatch[1]);
+      const body = event.body ? JSON.parse(event.body) : {};
+      const label = typeof body.label === "string" ? body.label.trim() : "";
+      if (label.length < 2 || label.length > 60) throw new ValidationError("Nama perangkat harus 2–60 karakter.");
+      return buildSuccessResponse(await createKioskPairingService(eventKioskPairingMatch[1], label, session.userId, requestId), requestId, null, 201);
+    }
+    const eventKioskRevokeMatch = path.match(/^\/events\/([a-f0-9-]+)\/kiosk\/([a-f0-9-]+)\/revoke$/i);
+    if (eventKioskRevokeMatch && method === "POST") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "events.update", eventKioskRevokeMatch[1]);
+      return buildSuccessResponse(await revokeKioskDeviceService(eventKioskRevokeMatch[1], eventKioskRevokeMatch[2], session.userId, requestId), requestId);
     }
 
     const eventTransitionMatch = path.match(/^\/events\/([a-f0-9-]+)\/transition$/i);
@@ -1521,43 +1548,58 @@ export const handler: Handler = async (event, _context) => {
       return buildSuccessResponse(result, requestId);
     }
 
-    // Public gate: no account session required. Event scope, open window, approval,
-    // unique attendance and per-device rate limits remain enforced on the server.
-    if (path === "/gate/events" && method === "GET") {
-      const list = await getPublicEventsService();
-      return buildSuccessResponse(list.map((item) => ({ slug: item.slug, code: item.code, name: item.name, status: item.status }))
-        .sort((a, b) => Number(b.status === "ONGOING") - Number(a.status === "ONGOING") ||
-          Number(b.status === "REGISTRATION_OPEN") - Number(a.status === "REGISTRATION_OPEN")), requestId);
-    }
-    const publicGateMatch = path.match(/^\/gate\/events\/([a-z0-9-]+)\/(units|search|checkin|summary)$/i);
+    // A kiosk requires a short-lived, single-use admin pairing. The resulting
+    // device credential is HttpOnly and revocable; only signed participant QR is accepted.
+    const publicGateMatch = path.match(/^\/gate\/events\/([a-z0-9-]+)\/(pair|session|units|checkin|summary)$/i);
     if (publicGateMatch) {
-      const gateEvent = await getPublicGateEventService(publicGateMatch[1]);
+      const gateSlug = publicGateMatch[1];
       const gateAction = publicGateMatch[2];
+      const noStore = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
+      const clientIp = event.headers["client-ip"] || event.headers["x-nf-client-connection-ip"] || "unknown";
+      const cookies = parseCookies(event.headers.cookie || event.headers.Cookie);
+      const cookieName = kioskCookieName(gateSlug);
+      if (gateAction === "pair" && method === "POST") {
+        assertKioskWriteOrigin(event.headers);
+        const limit = checkRateLimit(`kiosk_pair_${clientIp}`, 5, 60_000);
+        if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak percobaan aktivasi. Coba lagi sebentar.", requestId, 429);
+        const token = (event.body ? JSON.parse(event.body) : {}).pairingToken;
+        if (!isKioskPairingToken(token)) throw new UnauthorizedError("Tautan aktivasi kiosk tidak valid.");
+        const gateEvent = await getPublicGateEventService(gateSlug);
+        const paired = await pairKioskDeviceService(gateEvent.id, token, requestId);
+        const response = buildSuccessResponse({ device: paired.device }, requestId);
+        return { ...response, headers: { ...response.headers, ...noStore,
+          "Set-Cookie": serializeCookie(cookieName, paired.cookieValue, { maxAge: 7 * 86_400, sameSite: "Strict", path: "/" }) } };
+      }
+      if (!isKioskCookieShape(cookies[cookieName])) throw new UnauthorizedError("Perangkat kiosk belum diaktifkan. Minta tautan dari admin event.");
+      const trafficLimit = checkRateLimit(`kiosk_request_${clientIp}`, 300, 60_000);
+      if (!trafficLimit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak permintaan kiosk. Coba lagi sebentar.", requestId, 429);
+      const gateEvent = await getPublicGateEventService(gateSlug);
+      const kiosk = await requireKioskDeviceService(gateEvent.id, cookies[cookieName]);
+      if (gateAction === "session" && method === "GET") {
+        const response = buildSuccessResponse({ device: kiosk, event: { slug: gateEvent.slug, code: gateEvent.code, name: gateEvent.name } }, requestId);
+        return { ...response, headers: { ...response.headers, ...noStore } };
+      }
       if (gateAction === "units" && method === "GET") {
-        return buildSuccessResponse(await getAttendanceCheckinUnitsService(gateEvent.id), requestId);
+        const response = buildSuccessResponse(await getAttendanceCheckinUnitsService(gateEvent.id), requestId);
+        return { ...response, headers: { ...response.headers, ...noStore } };
       }
       if (gateAction === "summary" && method === "GET") {
         const unitId = event.queryStringParameters?.unitId || "";
         if (!/^(DAY|SESSION):[0-9a-f-]{36}$/i.test(unitId)) throw new ValidationError("Unit kehadiran tidak valid.");
-        const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
-        const limit = checkRateLimit(`public_gate_summary_${gateEvent.id}_${clientIp}`, 120, 60_000);
+        const limit = checkRateLimit(`kiosk_summary_${kiosk.id}`, 120, 60_000);
         if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak permintaan ringkasan gate.", requestId, 429);
-        return buildSuccessResponse(await getGateAttendanceSummaryService(gateEvent.id, unitId), requestId);
-      }
-      if (gateAction === "search" && method === "GET") {
-        const input = validateRequestData(searchCheckinParticipantSchema, event.queryStringParameters || {});
-        const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
-        const limit = checkRateLimit(`public_gate_search_${gateEvent.id}_${clientIp}`, 120, 60_000);
-        if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak pencarian gate. Coba lagi sebentar.", requestId, 429);
-        return buildSuccessResponse(await searchEventCheckinParticipantsService(gateEvent.id, input.q), requestId);
+        const response = buildSuccessResponse(await getGateAttendanceSummaryService(gateEvent.id, unitId), requestId);
+        return { ...response, headers: { ...response.headers, ...noStore } };
       }
       if (gateAction === "checkin" && method === "POST") {
-        const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
-        const limit = checkRateLimit(`public_gate_checkin_${gateEvent.id}_${clientIp}`, 60, 60_000);
+        assertKioskWriteOrigin(event.headers);
+        const limit = checkRateLimit(`kiosk_checkin_${kiosk.id}`, 60, 60_000);
         if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak check-in dari perangkat ini. Coba lagi sebentar.", requestId, 429);
-        const input = validateRequestData(processCheckinSchema, event.body ? JSON.parse(event.body) : {});
-        return buildSuccessResponse(await processOnSiteCheckinService(gateEvent.id, input.qrTokenOrCode,
-          input.method || "MANUAL_CODE", undefined, requestId, { sessionId: input.sessionId, dayId: input.dayId }), requestId);
+        const input = validateRequestData(publicKioskCheckinSchema, event.body ? JSON.parse(event.body) : {});
+        const result = await processOnSiteCheckinService(gateEvent.id, input.qrToken,
+          "QR_SCAN", undefined, requestId, { sessionId: input.sessionId, dayId: input.dayId }, kiosk.id);
+        const response = buildSuccessResponse(result, requestId);
+        return { ...response, headers: { ...response.headers, ...noStore } };
       }
     }
 

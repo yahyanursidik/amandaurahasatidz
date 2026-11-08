@@ -15,8 +15,10 @@
     "test:profile:browser": "node scripts/check-profile-browser.mjs",
     "test:ukhuwah:browser": "node scripts/check-ukhuwah-browser.mjs",
     "test:ustadz-notes:browser": "node scripts/check-ustadz-notes-browser.mjs",
+    "test:ustadz-whatsapp:browser": "node scripts/check-ustadz-whatsapp-browser.mjs",
     "test:communications:browser": "node scripts/check-event-communications-browser.mjs",
     "test:event-registration:browser": "node scripts/check-public-event-registration-browser.mjs",
+    "test:kiosk:browser": "node scripts/check-kiosk-browser.mjs",
     "preview": "vite preview",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
@@ -28,6 +30,7 @@
     "db:migrate:ukhuwah": "node scripts/apply-ukhuwah-migration.mjs",
     "db:migrate:ustadz-notes": "node scripts/apply-ustadz-notes-migration.mjs",
     "db:migrate:public-contact": "node scripts/apply-public-contact-migration.mjs",
+    "db:migrate:event-kiosk": "node scripts/apply-event-kiosk-migration.mjs",
     "db:seed": "node scripts/run-seed.mjs"
   },
   "dependencies": {

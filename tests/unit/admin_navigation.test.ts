@@ -43,6 +43,7 @@ describe("admin navigation information architecture", () => {
     expect(active.map((item) => item.label)).toEqual(["Pernah hadir"]);
     expect(children.some((item) => item.href === "/admin/ustadz/create")).toBe(false);
     expect(children.some((item) => item.href === "/admin/ustadz/merge")).toBe(false);
+    expect(children.some((item) => item.href === "/admin/ustadz/whatsapp")).toBe(false);
     expect(children.some((item) => item.href === "/admin/ustadz?profileStatus=ARCHIVED")).toBe(true);
   });
 
@@ -50,6 +51,7 @@ describe("admin navigation information architecture", () => {
     const children = getAdminNavItems("/admin/ustadz", true, false)
       .find((item) => item.href === "/admin/ustadz")?.children || [];
     expect(children.some((item) => item.href === "/admin/ustadz/create")).toBe(true);
+    expect(children.some((item) => item.href === "/admin/ustadz/whatsapp")).toBe(true);
     expect(children.some((item) => item.href === "/admin/ustadz/merge")).toBe(false);
   });
 

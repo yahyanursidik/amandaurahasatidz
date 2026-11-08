@@ -95,11 +95,13 @@ export async function getEventBySlugPublicService(slug: string) {
 
 /** Gate requests only need the event ID; avoid recalculating registration quotas on every scan. */
 export async function getPublicGateEventService(slug: string) {
-  const event = await findEventBySlugRepository(slug);
-  if (!event || event.archivedAt || !["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING", "COMPLETED"].includes(event.status)) {
+  const [event] = await getDbClient().select({ id: events.id, slug: events.slug, code: events.code,
+    name: events.name, status: events.status })
+    .from(events).where(and(eq(events.slug, slug), isNull(events.archivedAt))).limit(1);
+  if (!event || !["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING"].includes(event.status)) {
     throw new NotFoundError("Program gate tidak tersedia.");
   }
-  return { id: event.id };
+  return { id: event.id, slug: event.slug, code: event.code, name: event.name };
 }
 
 export async function getPublicEventsService() {

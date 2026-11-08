@@ -4,6 +4,7 @@ export * from "./events";
 export * from "./invitations";
 export * from "./participants";
 export * from "./attendance";
+export * from "./kiosk";
 export * from "./communications";
 export * from "./ruangAsatidz";
 export * from "./ukhuwah";

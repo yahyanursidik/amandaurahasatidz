@@ -1,4 +1,5 @@
 import React from "react";
+import { useGetIdentity } from "@refinedev/core";
 import { Link, useLocation } from "react-router-dom";
 import {
   Archive,
@@ -6,7 +7,10 @@ import {
   ClipboardCheck,
   UserCheck,
   UsersRound,
+  MessageCircle,
 } from "lucide-react";
+import type { AuthIdentity } from "@/lib/refine/authProvider";
+import { canManageUstadz } from "@/lib/ustadzPermissions";
 
 const items = [
   { label: "Direktori", href: "/admin/ustadz", icon: UsersRound, exact: true },
@@ -19,12 +23,16 @@ const items = [
 
 export const UstadzWorkspaceNav: React.FC = () => {
   const location = useLocation();
+  const { data: identity } = useGetIdentity<AuthIdentity>();
   const query = new URLSearchParams(location.search);
+  const visibleItems = canManageUstadz(identity?.assignments)
+    ? [...items, { label: "WhatsApp bertahap", href: "/admin/ustadz/whatsapp", icon: MessageCircle }]
+    : items;
 
   return (
     <nav className="ustadz-workspace-nav" aria-label="Navigasi pengelolaan asatidz">
       <div className="ustadz-workspace-nav__scroll">
-        {items.map((item) => {
+        {visibleItems.map((item) => {
           const Icon = item.icon;
           const itemQuery = item.href.includes("?") ? new URLSearchParams(item.href.split("?")[1]) : null;
           const active = item.exact
