@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { StaticRouter } from "react-router-dom/server";
 import { describe, expect, it } from "vitest";
 import { PublicLayout } from "../../src/components/layouts/PublicLayout";
-import { getPublicProgramAction, getPublicProgramStatus, PublicProgramsPage, sortPublicPrograms, type Program } from "../../src/pages/public/PublicProgramsPage";
+import { getPublicProgramAction, getPublicProgramStatus, groupPublicPrograms, PublicProgramsPage, sortPublicPrograms, type Program } from "../../src/pages/public/PublicProgramsPage";
 
 const sample: Program = {
   slug: "daurah-ilmu",
@@ -33,17 +33,20 @@ describe("public homepage", () => {
     expect(html).toContain('href="#konten-utama"');
   });
 
-  it("keeps the Program navigation highlighted through event and invitation pages", () => {
+  it("keeps the Daurah navigation highlighted through event and invitation pages", () => {
     for (const path of ["/events/daurah-ilmu", "/events/daurah-ilmu/register", "/invitation/institution/token"]) {
       const html = renderToStaticMarkup(<StaticRouter location={path}><PublicLayout><p>Detail</p></PublicLayout></StaticRouter>);
       expect(html).toMatch(/class="public-site__nav-link public-site__nav-link--active" href="\/programs"/);
     }
   });
 
-  it("gives /programs a dedicated catalog header instead of repeating the foundation homepage", () => {
+  it("presents /programs as a daurah history, not a selection catalog", () => {
     const html = renderToStaticMarkup(<StaticRouter location="/programs"><PublicProgramsPage /></StaticRouter>);
     expect(html).toContain('id="catalog-title"');
-    expect(html).toContain("Temukan daurah yang sesuai");
+    expect(html).toContain("Riwayat Daurah Asatidz");
+    expect(html).toContain("Telah dilaksanakan");
+    expect(html).not.toContain("Temukan daurah yang sesuai");
+    expect(html).not.toContain("Pilih program");
     expect(html).toContain('href="/login/ustadz"');
     expect(html).not.toContain('id="tentang-yts"');
     expect(html).not.toContain('id="public-home-title"');
@@ -90,5 +93,17 @@ describe("public homepage", () => {
       { ...sample, slug: "open", status: "REGISTRATION_OPEN" },
     ], now);
     expect(ordered.map((program) => program.slug)).toEqual(["open", "upcoming", "completed-new", "completed-old"]);
+  });
+
+  it("groups completed daurah history separately from the active agenda", () => {
+    const grouped = groupPublicPrograms([
+      { ...sample, slug: "agenda", status: "REGISTRATION_OPEN" },
+      { ...sample, slug: "older", status: "COMPLETED", startDate: "2025-01-01", endDate: "2025-01-02" },
+      { ...sample, slug: "newer", status: "COMPLETED", startDate: "2026-01-01", endDate: "2026-01-02" },
+    ]);
+    expect(grouped.history.map((program) => program.slug)).toEqual(["newer", "older"]);
+    expect(grouped.agenda.map((program) => program.slug)).toEqual(["agenda"]);
+    expect(getPublicProgramStatus(grouped.history[0])).toBe("Telah dilaksanakan");
+    expect(groupPublicPrograms([...grouped.history, ...grouped.agenda], "2025").history.map((program) => program.slug)).toEqual(["older"]);
   });
 });

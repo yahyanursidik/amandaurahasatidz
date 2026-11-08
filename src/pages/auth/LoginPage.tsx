@@ -516,7 +516,7 @@ export const LoginPage: React.FC = () => {
                 className="login-back"
               >
                 <ArrowLeft aria-hidden="true" />
-                {portal === "ustadz" ? "Cari program daurah" : "Lihat program daurah"}
+                Kembali ke beranda
               </Link>
             </div>
           </div>

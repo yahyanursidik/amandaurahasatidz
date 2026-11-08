@@ -1,6 +1,14 @@
 [
   {
     "date": "2026-11-08",
+    "scope": "app/public daurah history",
+    "macrostructure": "Index-First",
+    "theme": "existing emerald-slate",
+    "enrichment": "existing faceless library interior",
+    "brief": "Reframe programs as completed daurah history first, with a separate active agenda and no choice-catalog language"
+  },
+  {
+    "date": "2026-11-08",
     "scope": "app/public programs catalog and Ruang Asatidz",
     "macrostructure": "Narrative Workflow + Index-First",
     "theme": "existing emerald-slate",
@@ -143,12 +151,5 @@
     "theme": "existing emerald-slate system",
     "enrichment": "none",
     "brief": "Comprehensive committee accounts, event-scoped assignments, access matrix, deadline controls, and cross-module attendance impact"
-  },
-  {
-    "date": "2026-07-31",
-    "macrostructure": "Stat-Led Registry",
-    "theme": "existing emerald-slate system",
-    "enrichment": "none",
-    "brief": "Comprehensive admin asatidz registry, data quality, affiliations, event history, and safe profile merge"
   }
 ]
