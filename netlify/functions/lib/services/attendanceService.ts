@@ -175,6 +175,7 @@ export async function processOnSiteCheckinService(
   actorUserId?: string,
   requestId = "req-checkin",
   selection?: { sessionId?: string | null; dayId?: string | null },
+  sourceDevice?: string,
 ) {
   const schedule = await getAttendanceCheckinUnitsService(eventId);
   const requestedUnit = selection?.sessionId
@@ -233,6 +234,7 @@ export async function processOnSiteCheckinService(
       method: actualMethod,
       actorUserId,
       requestId,
+      sourceDevice,
     });
     return {
       status: "SUCCESS",

@@ -107,6 +107,7 @@ export const getAdminNavItems = (pathname: string, canManageUstadz = true, canMe
         { label: "Nonaktif", href: "/admin/ustadz?profileStatus=INACTIVE", icon: <Archive />, exact: true, inactiveWhenQueryHas: ["quality", "duplicate", "participation"], keywords: ["status"] },
         { label: "Arsip profil", href: "/admin/ustadz?profileStatus=ARCHIVED", icon: <Archive />, exact: true, inactiveWhenQueryHas: ["quality", "duplicate", "participation"], keywords: ["pulihkan"] },
         ...(canManageUstadz ? [{ label: "Tambah asatidz", href: "/admin/ustadz/create", icon: <Plus />, exact: true, keywords: ["baru"] }] satisfies SidebarNavItem[] : []),
+        ...(canManageUstadz ? [{ label: "WhatsApp bertahap", href: "/admin/ustadz/whatsapp", icon: <MessageCircle />, exact: true, keywords: ["wa", "pesan", "masal", "kontak"] }] satisfies SidebarNavItem[] : []),
         ...(canMergeUstadz ? [{ label: "Gabungkan duplikat", href: "/admin/ustadz/merge", icon: <Combine />, exact: true, keywords: ["merge", "kualitas data"] }] satisfies SidebarNavItem[] : []),
       ],
     },

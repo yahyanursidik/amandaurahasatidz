@@ -18,6 +18,7 @@ import {
   CalendarCheck2,
   UserCheck,
   UsersRound,
+  MessageCircle,
 } from "lucide-react";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -237,6 +238,10 @@ export const UstadzListPage: React.FC = () => {
                 <Download aria-hidden="true" />
                 <span>Ekspor halaman ini</span>
               </button>
+              {canManage && <Link to="/admin/ustadz/whatsapp" className="ustadz-button ustadz-button--secondary">
+                <MessageCircle aria-hidden="true" />
+                <span>Hubungi bertahap</span>
+              </Link>}
                 {canManage && <Link to="/admin/ustadz/create" className="ustadz-button ustadz-button--primary">
                   <Plus aria-hidden="true" />
                   <span>Tambah profil</span>

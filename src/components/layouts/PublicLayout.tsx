@@ -6,9 +6,10 @@ import { AppFooter } from "@/components/common/AppFooter";
 interface PublicLayoutProps {
   children: React.ReactNode;
   wide?: boolean;
+  kiosk?: boolean;
 }
 
-export const PublicLayout: React.FC<PublicLayoutProps> = ({ children, wide = false }) => {
+export const PublicLayout: React.FC<PublicLayoutProps> = ({ children, wide = false, kiosk = false }) => {
   const location = useLocation();
   const mobileMenu = useRef<HTMLDetailsElement>(null);
   useEffect(() => { if (mobileMenu.current) mobileMenu.current.open = false; }, [location.pathname]);
@@ -26,13 +27,13 @@ export const PublicLayout: React.FC<PublicLayoutProps> = ({ children, wide = fal
             <img src="/images/tarbiyah-sunnah-logo.svg" alt="" width="148" height="42" />
             <span>Aman Daurah<br />Asatidz</span>
           </Link>
-          <nav aria-label="Navigasi publik" className="public-site__nav">
+          {!kiosk && <nav aria-label="Navigasi publik" className="public-site__nav">
             <NavLink end to="/" className={navClass}>Yayasan</NavLink>
             <NavLink to="/programs" className={programNavClass}>Daurah</NavLink>
             <NavLink to="/ruang-asatidz" className={navClass}>Ruang Asatidz</NavLink>
-          </nav>
-          <Link to="/login/ustadz" className="public-site__portal" aria-label="Masuk ke Portal Asatidz">Masuk portal</Link>
-          <details ref={mobileMenu} className="public-site__mobile">
+          </nav>}
+          {!kiosk && <Link to="/login/ustadz" className="public-site__portal" aria-label="Masuk ke Portal Asatidz">Masuk portal</Link>}
+          {!kiosk && <details ref={mobileMenu} className="public-site__mobile">
             <summary><Menu aria-hidden="true" /> Menu</summary>
             <nav aria-label="Navigasi publik seluler">
               <NavLink end to="/" className={navClass} onClick={closeMenu}>Yayasan</NavLink>
@@ -40,7 +41,7 @@ export const PublicLayout: React.FC<PublicLayoutProps> = ({ children, wide = fal
               <NavLink to="/ruang-asatidz" className={navClass} onClick={closeMenu}>Ruang Asatidz</NavLink>
               <Link to="/login/ustadz" className="public-site__portal" onClick={closeMenu}>Masuk portal</Link>
             </nav>
-          </details>
+          </details>}
         </div>
       </header>
 
@@ -48,13 +49,13 @@ export const PublicLayout: React.FC<PublicLayoutProps> = ({ children, wide = fal
         {children}
       </main>
 
-      <div className="public-site__footer">
+      {!kiosk && <div className="public-site__footer">
         <div className="public-site__footer-inner">
           <div><strong>Aman Daurah Asatidz</strong><p>Layanan program daurah Yayasan Tarbiyah Sunnah.</p></div>
           <nav aria-label="Tautan penutup"><Link to="/">Yayasan</Link><Link to="/programs">Riwayat Daurah</Link><Link to="/ruang-asatidz">Ruang Asatidz</Link><a href="https://tarbiyahsunnah.com/tentang-kami/" target="_blank" rel="noopener noreferrer">Profil resmi YTS</a></nav>
         </div>
         <AppFooter className="public-site__credits" />
-      </div>
+      </div>}
     </div>
   );
 };

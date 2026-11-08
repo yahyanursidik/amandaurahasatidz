@@ -3,7 +3,7 @@ import { searchCheckinParticipantSchema, processCheckinSchema } from "../../netl
 import { signParticipantQrToken, verifyParticipantQrToken } from "../../netlify/functions/lib/utils/token";
 
 describe("gate panitia dan identitas peserta", () => {
-  it("membatasi panjang pencarian di gate publik", () => {
+  it("membatasi panjang pencarian di gate panitia terlindung", () => {
     expect(searchCheckinParticipantSchema.safeParse({ q: "a" }).success).toBe(false);
     expect(searchCheckinParticipantSchema.parse({ q: "Ahmad" }).q).toBe("Ahmad");
   });

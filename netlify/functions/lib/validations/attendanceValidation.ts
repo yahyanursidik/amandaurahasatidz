@@ -15,6 +15,14 @@ export const processCheckinSchema = z.object({
   message: "Pilih salah satu unit kehadiran: harian atau sesi.",
 });
 
+export const publicKioskCheckinSchema = z.object({
+  qrToken: z.string().trim().regex(/^pqr_[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}$/, "Pindai QR peserta yang sah."),
+  sessionId: z.string().uuid().optional().nullable(),
+  dayId: z.string().uuid().optional().nullable(),
+}).strict().refine((data) => Boolean(data.sessionId) !== Boolean(data.dayId), {
+  message: "Pilih tepat satu hari atau sesi kehadiran.",
+});
+
 export const queryCheckinLogsSchema = z.object({
   limit: z.coerce.number().optional().default(20),
 });

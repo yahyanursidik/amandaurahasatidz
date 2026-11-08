@@ -26,6 +26,7 @@ const UstadzCreatePage = lazy(() => import("./pages/admin/ustadz/UstadzCreatePag
 const UstadzEditPage = lazy(() => import("./pages/admin/ustadz/UstadzEditPage").then((module) => ({ default: module.UstadzEditPage })));
 const UstadzShowPage = lazy(() => import("./pages/admin/ustadz/UstadzShowPage").then((module) => ({ default: module.UstadzShowPage })));
 const UstadzMergePage = lazy(() => import("./pages/admin/ustadz/UstadzMergePage").then((module) => ({ default: module.UstadzMergePage })));
+const UstadzWhatsAppWizardPage = lazy(() => import("./pages/admin/ustadz/UstadzWhatsAppWizardPage").then((module) => ({ default: module.UstadzWhatsAppWizardPage })));
 const UstadzManageGuard = lazy(() => import("./components/admin/ustadz/UstadzManageGuard").then((module) => ({ default: module.UstadzManageGuard })));
 
 const EventListPage = lazy(() => import("./pages/admin/events/EventListPage").then((module) => ({ default: module.EventListPage })));
@@ -34,6 +35,7 @@ const EventEditPage = lazy(() => import("./pages/admin/events/EventEditPage").th
 const EventShowPage = lazy(() => import("./pages/admin/events/EventShowPage").then((module) => ({ default: module.EventShowPage })));
 const EventRegistrationsPage = lazy(() => import("./pages/admin/events/EventRegistrationsPage").then((module) => ({ default: module.EventRegistrationsPage })));
 const EventOperationsPage = lazy(() => import("./pages/admin/events/EventOperationsPage").then((module) => ({ default: module.EventOperationsPage })));
+const EventKioskPage = lazy(() => import("./pages/admin/events/EventKioskPage").then((module) => ({ default: module.EventKioskPage })));
 const AttendanceReportPage = lazy(() => import("./pages/admin/events/AttendanceReportPage").then((module) => ({ default: module.AttendanceReportPage })));
 const CommitteeDirectoryPage = lazy(() => import("./pages/admin/committee/CommitteeDirectoryPage").then((module) => ({ default: module.CommitteeDirectoryPage })));
 const CommitteeCreatePage = lazy(() => import("./pages/admin/committee/CommitteeCreatePage").then((module) => ({ default: module.CommitteeCreatePage })));
@@ -177,6 +179,10 @@ export const App: React.FC = () => {
             }
           />
           <Route
+            path="/admin/events/:id/kiosk"
+            element={<ProtectedRoute><EventKioskPage /></ProtectedRoute>}
+          />
+          <Route
             path="/admin/events/:id/attendance/:participantId/report"
             element={
               <ProtectedRoute>
@@ -273,6 +279,14 @@ export const App: React.FC = () => {
             element={
               <ProtectedRoute>
                   <UstadzManageGuard action="merge"><UstadzMergePage /></UstadzManageGuard>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/admin/ustadz/whatsapp"
+            element={
+              <ProtectedRoute>
+                <UstadzManageGuard><UstadzWhatsAppWizardPage /></UstadzManageGuard>
               </ProtectedRoute>
             }
           />

@@ -112,6 +112,7 @@ export async function recordAttendanceTransactionRepository(data: {
   notes?: string | null;
   actorUserId?: string;
   requestId?: string;
+  sourceDevice?: string;
 }) {
   return await withTransaction(async (tx) => {
     const unitCondition = data.sessionId
@@ -148,6 +149,7 @@ export async function recordAttendanceTransactionRepository(data: {
           attendanceStatus: data.attendanceStatus || "PRESENT",
           checkinAt: new Date(),
           checkinMethod: data.method,
+          sourceDevice: data.sourceDevice || null,
           notes: data.notes || null,
           recordedBy: data.actorUserId || null,
         })
@@ -168,6 +170,7 @@ export async function recordAttendanceTransactionRepository(data: {
       result: "SUCCESS",
       scannedBy: data.actorUserId || null,
       requestId: data.requestId || null,
+      metadata: data.sourceDevice ? { kioskDeviceId: data.sourceDevice } : null,
     });
 
     return inserted[0];
@@ -182,6 +185,7 @@ export async function recordCheckinTransactionRepository(data: {
   method: string;
   actorUserId?: string;
   requestId?: string;
+  sourceDevice?: string;
 }) {
   return recordAttendanceTransactionRepository(data);
 }

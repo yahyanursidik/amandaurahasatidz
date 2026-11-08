@@ -13,6 +13,7 @@ import {
   MapPin,
   Plus,
   RefreshCw,
+  ScanLine,
   ShieldCheck,
   Users,
   XCircle,
@@ -364,11 +365,11 @@ export const EventShowPage: React.FC = () => {
         title={data.name}
         description={`${data.code} · ${formatDate(data.startDate)}–${formatDate(data.endDate)} · ${eventTimezoneLabel(data.timezone)}`}
         breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Event", href: "/admin/events" }, { label: data.code }]}
-        actions={
+        actions={<div className="flex flex-wrap gap-2">
+          <Link to={`/admin/events/${id}/kiosk`} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-800 px-4 text-xs font-bold text-white hover:bg-emerald-900"><ScanLine className="h-4 w-4" /> Kiosk QR</Link>
           <Link to={`/events/${data.slug}`} target="_blank" className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50">
             Halaman publik <ExternalLink className="h-3.5 w-3.5" />
-          </Link>
-        }
+          </Link></div>}
       />
 
       <EventWorkspaceNav eventId={id} />
