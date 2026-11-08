@@ -71,4 +71,14 @@ describe("admin navigation information architecture", () => {
     expect(broadcast?.children?.some((item) => item.href === "/admin/email-jobs")).toBe(true);
     expect(isNavigationItemActive("/admin/broadcast", broadcast!)).toBe(true);
   });
+
+  it("offers the guide from admin navigation and keeps event context when available", () => {
+    const general = getAdminNavItems("/admin").find((item) => item.label === "Panduan Kerja");
+    expect(general?.href).toBe("/admin/panduan");
+
+    const scoped = getAdminNavItems("/admin/events/7b62644d-91ee-43cf-b7c3-0514657fc01c/attendance")
+      .find((item) => item.label === "Panduan Kerja");
+    expect(scoped?.href).toBe("/admin/panduan?eventId=7b62644d-91ee-43cf-b7c3-0514657fc01c");
+    expect(isNavigationItemActive("/admin/panduan", general!)).toBe(true);
+  });
 });

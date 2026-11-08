@@ -13,6 +13,7 @@ import { RouteLoadingBoundary } from "./components/common/RouteLoadingBoundary";
 const LoginPage = lazy(() => import("./pages/auth/LoginPage").then((module) => ({ default: module.LoginPage })));
 const UkhuwahPage = lazy(() => import("./pages/shared/UkhuwahPage").then((module) => ({ default: module.UkhuwahPage })));
 const AdminDashboardPage = lazy(() => import("./pages/admin/AdminDashboardPage").then((module) => ({ default: module.AdminDashboardPage })));
+const AdminGuidePage = lazy(() => import("./pages/admin/AdminGuidePage").then((module) => ({ default: module.AdminGuidePage })));
 const AdminAuditPage = lazy(() => import("./pages/admin/AdminAuditPage").then((module) => ({ default: module.AdminAuditPage })));
 const AdminEmailJobsPage = lazy(() => import("./pages/admin/AdminEmailJobsPage").then((module) => ({ default: module.AdminEmailJobsPage })));
 
@@ -128,6 +129,7 @@ export const App: React.FC = () => {
               </ProtectedRoute>
             }
           />
+          <Route path="/admin/panduan" element={<ProtectedRoute><AdminGuidePage /></ProtectedRoute>} />
 
           {/* Events Management */}
           <Route
