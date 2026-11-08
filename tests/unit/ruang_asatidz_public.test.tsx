@@ -40,6 +40,9 @@ describe("public Ruang Asatidz", () => {
     expect(html).toContain("Jika belum masuk");
     expect(html).toContain("aktivasi akun");
     expect(html).toContain("Tidak ditampilkan di halaman publik ini");
+    expect(html).toContain('href="/programs"');
+    expect(html).toContain('href="/login/ustadz"');
+    expect(html).toContain('id="pilihan-ruang"');
   });
 
   it("exposes the public page in navigation and marks the current section", () => {

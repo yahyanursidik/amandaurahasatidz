@@ -15,8 +15,8 @@ import { getNextEventStatus, TransitionAction, EventStatus } from "./eventStateS
 import { NotFoundError, ValidationError, ConflictError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
 import { validateEventDeadlines } from "./deadlineService";
-import { assertValidQuotaAllocation } from "./eventQuota";
-import { countApprovedParticipantsBySourceRepository } from "../repositories/participantRepository";
+import { assertQuotaCoversApproved, assertValidQuotaAllocation } from "./eventQuota";
+import { countApprovedParticipantsBySourceRepository, countApprovedParticipantsForEventRepository } from "../repositories/participantRepository";
 import { getDbClient } from "../db/client";
 import { eventDays, eventSessions, events } from "../db/schema";
 import { and, eq, isNull } from "drizzle-orm";
@@ -145,13 +145,28 @@ export async function updateEventService(id: string, data: any, actorUserId: str
     );
   }
 
-  if (data.startDate && data.endDate) {
-    if (new Date(data.startDate) > new Date(data.endDate)) {
-      throw new ValidationError("Tanggal mulai tidak boleh lebih lambat dari tanggal selesai.");
-    }
+  const nextStartDate = data.startDate ?? existing.startDate;
+  const nextEndDate = data.endDate ?? existing.endDate;
+  if (nextStartDate > nextEndDate) {
+    throw new ValidationError("Tanggal mulai tidak boleh lebih lambat dari tanggal selesai.");
+  }
+  if ((nextStartDate !== existing.startDate || nextEndDate !== existing.endDate) &&
+    existing.days.some((day) => day.date < nextStartDate || day.date > nextEndDate)) {
+    throw new ValidationError("Rentang tanggal baru tidak mencakup semua hari kegiatan. Sesuaikan jadwal hari terlebih dahulu.");
+  }
+  if (data.timezone && data.timezone !== existing.timezone && existing.sessions.length > 0) {
+    throw new ValidationError("Zona waktu tidak dapat diubah setelah sesi dibuat. Sesuaikan jadwal sesi terlebih dahulu.");
   }
   validateEventDeadlines({ ...existing, ...data });
   assertValidQuotaAllocation({ ...existing, ...data });
+  if ((["capacity", "regularQuota", "invitationQuota"] as const).some((key) => data[key] !== undefined && data[key] !== existing[key])) {
+    const [regular, invitation, total] = await Promise.all([
+      countApprovedParticipantsBySourceRepository(id, true),
+      countApprovedParticipantsBySourceRepository(id, false),
+      countApprovedParticipantsForEventRepository(id),
+    ]);
+    assertQuotaCoversApproved({ ...existing, ...data }, { regular, invitation, total });
+  }
 
   const updated = await updateEventRepository(id, {
     ...data,

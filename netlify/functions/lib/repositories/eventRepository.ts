@@ -74,9 +74,12 @@ export async function findPublicEventsRepository() {
     venueName: events.venueName,
     audienceMode: events.audienceMode,
     status: events.status,
+    regularQuota: events.regularQuota,
+    registrationOpenAt: events.registrationOpenAt,
+    registrationCloseAt: events.registrationCloseAt,
   }).from(events).where(and(
     isNull(events.archivedAt),
-    inArray(events.status, ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING"]),
+    inArray(events.status, ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING", "COMPLETED"]),
   )).orderBy(asc(events.startDate));
 }
 

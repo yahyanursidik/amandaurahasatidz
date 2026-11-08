@@ -20,6 +20,12 @@ const posterSourceSchema = z
     "Sumber poster harus berupa unggahan gambar, URL HTTPS, atau aset gambar aplikasi"
   );
 
+const eventDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Tanggal harus berformat YYYY-MM-DD")
+  .refine((value) => {
+    const parsed = new Date(`${value}T00:00:00Z`);
+    return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+  }, "Tanggal event tidak valid");
+
 export const createEventSchema = z.object({
   code: z.string().min(2, "Kode event minimal 2 karakter"),
   slug: z.string().min(2, "Slug event minimal 2 karakter"),
@@ -31,9 +37,9 @@ export const createEventSchema = z.object({
   posterFocalPoint: z.enum(["CENTER", "TOP", "BOTTOM"]).default("CENTER"),
   audienceMode: z.enum(["INSTITUTION_INVITATION", "PUBLIC_OPEN", "INDIVIDUAL_INVITATION", "MIXED"]).default("INSTITUTION_INVITATION"),
   attendanceMode: z.enum(["DAILY_AND_SESSION", "DAILY_ONLY", "SESSION_ONLY"]).default("DAILY_AND_SESSION"),
-  timezone: z.string().default("Asia/Jakarta"),
-  startDate: z.string({ required_error: "Tanggal mulai wajib diisi" }),
-  endDate: z.string({ required_error: "Tanggal selesai wajib diisi" }),
+  timezone: z.enum(["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"]).default("Asia/Jakarta"),
+  startDate: eventDateSchema,
+  endDate: eventDateSchema,
   venueName: z.string().optional().nullable(),
   venueAddress: z.string().optional().nullable(),
   publicContactWhatsapp: z.string().trim().max(24).refine((value) => !value || /^[+\d\s().-]+$/.test(value) && /^628\d{8,12}$/.test(normalizePhone(value) || ""),
@@ -45,11 +51,17 @@ export const createEventSchema = z.object({
   attendanceConfirmationDeadline: z.string().optional().nullable(),
   attendanceConfirmationRequired: z.boolean().default(true),
   lateConfirmationPolicy: z.enum(["BLOCK", "REVIEW", "ALLOW"]).default("BLOCK"),
-  defaultInstitutionQuota: z.coerce.number().min(1).optional().nullable(),
-  capacity: z.coerce.number().min(1).optional().nullable(),
+  defaultInstitutionQuota: z.coerce.number().int().min(1).optional().nullable(),
+  capacity: z.coerce.number().int().min(1).optional().nullable(),
   regularQuota: z.coerce.number().int().min(0).optional().nullable(),
   invitationQuota: z.coerce.number().int().min(0).optional().nullable(),
 }).superRefine((value, context) => {
+  if (value.capacity != null && value.regularQuota != null && value.regularQuota > value.capacity) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["regularQuota"], message: "Kuota reguler tidak boleh melebihi kapasitas total." });
+  }
+  if (value.capacity != null && value.invitationQuota != null && value.invitationQuota > value.capacity) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["invitationQuota"], message: "Kuota undangan tidak boleh melebihi kapasitas total." });
+  }
   if (value.capacity != null && value.regularQuota != null && value.invitationQuota != null && value.regularQuota + value.invitationQuota > value.capacity) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["capacity"], message: "Jumlah kuota reguler dan undangan tidak boleh melebihi kapasitas total." });
   }

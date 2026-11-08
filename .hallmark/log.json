@@ -1,6 +1,30 @@
 [
   {
     "date": "2026-11-08",
+    "scope": "app/public programs catalog and Ruang Asatidz",
+    "macrostructure": "Narrative Workflow + Index-First",
+    "theme": "existing emerald-slate",
+    "enrichment": "existing faceless library interior",
+    "brief": "Dedicated mobile-friendly daurah catalog, truthful registration paths, and concise private Ruang Asatidz wayfinding"
+  },
+  {
+    "date": "2026-11-08",
+    "scope": "app/admin/events/create#configuration and event edit",
+    "macrostructure": "Workbench",
+    "theme": "existing emerald-slate",
+    "enrichment": "none",
+    "brief": "Operational event setup with connected audience routes, quotas, timezone-aware deadlines, schedule integrity, and senior-friendly controls"
+  },
+  {
+    "date": "2026-11-08",
+    "scope": "app/public homepage and public navigation",
+    "macrostructure": "Narrative Workflow",
+    "theme": "existing emerald-slate",
+    "enrichment": "existing faceless library interior",
+    "brief": "Foundation-first homepage with linked daurah discovery, distinct regular and invitation paths, and senior-friendly mobile navigation"
+  },
+  {
+    "date": "2026-11-08",
     "scope": "app/public registration receipt",
     "macrostructure": "Index-First",
     "theme": "existing emerald-slate",
@@ -126,40 +150,5 @@
     "theme": "existing emerald-slate system",
     "enrichment": "none",
     "brief": "Comprehensive admin asatidz registry, data quality, affiliations, event history, and safe profile merge"
-  },
-  {
-    "date": "2026-07-31",
-    "macrostructure": "Catalogue",
-    "theme": "existing emerald-slate system",
-    "enrichment": "none",
-    "brief": "Comprehensive institution directory, profile, contacts, affiliations, invitations, and delegation management"
-  },
-  {
-    "date": "2026-07-31",
-    "macrostructure": "Photographic",
-    "theme": "existing emerald-slate system",
-    "enrichment": "existing faceless library interior",
-    "brief": "Role-specific portal login with API-first authentication and development-account assistance"
-  },
-  {
-    "date": "2026-07-31",
-    "macrostructure": "Narrative Workflow",
-    "theme": "existing emerald-slate system",
-    "enrichment": "none",
-    "brief": "UUID-backed admin event workflow, institution invitation links, and readable typography"
-  },
-  {
-    "date": "2026-07-31",
-    "macrostructure": "Index-First",
-    "theme": "existing emerald-slate system",
-    "enrichment": "none",
-    "brief": "Comprehensive admin event workspace and fixed side navigation"
-  },
-  {
-    "date": "2026-07-31",
-    "macrostructure": "Workbench",
-    "theme": "existing emerald-slate system",
-    "enrichment": "none",
-    "brief": "Admin operations dashboard and reliable local login"
   }
 ]

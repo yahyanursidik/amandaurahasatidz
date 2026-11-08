@@ -16,6 +16,10 @@ export const EventEditPage: React.FC = () => {
   const [error, setError] = useState("");
 
   useEffect(() => {
+    if (error) document.getElementById("event-submit-error")?.focus();
+  }, [error]);
+
+  useEffect(() => {
     const load = async () => {
       if (previewMode) {
         setValues({
@@ -126,7 +130,7 @@ export const EventEditPage: React.FC = () => {
       <PageHeader title="Pengaturan Event" description="Perbarui rincian event. Status hanya berubah melalui perintah pada halaman ringkasan." breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Event", href: "/admin/events" }, { label: "Pengaturan" }]} />
       <EventWorkspaceNav eventId={id} />
       {previewMode && <div role="status" className="mb-5 border-t-2 border-amber-500 bg-amber-50 p-3 text-xs text-amber-950">Mode pratinjau: formulir dapat dicoba, tetapi perubahan tidak disimpan.</div>}
-      {error && <div role="alert" className="mb-5 border-t-2 border-rose-500 bg-rose-50 p-3 text-xs text-rose-900">{error}</div>}
+      {error && <div id="event-submit-error" tabIndex={-1} role="alert" className="mb-5 border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-700">{error}</div>}
       {values ? <EventForm key={id} initialValues={values} lockIdentity submitLabel="Simpan perubahan" submitting={submitting} onCancel={() => navigate(`/admin/events/${id}`)} onSubmit={submit} /> : !error && <div className="h-96 animate-pulse bg-slate-100" />}
     </AdminLayout>
   );
