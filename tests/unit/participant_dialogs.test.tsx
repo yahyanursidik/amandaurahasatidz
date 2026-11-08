@@ -39,7 +39,7 @@ describe("dialog aksi tab peserta", () => {
     try {
       Object.defineProperty(globalThis, "window", { configurable: true, value: { location: { origin: "https://contoh.id" } } });
       const html = renderToStaticMarkup(<ParticipantQrCard showShareActions={false} eventName="Liqaa" person={{ fullName: "Ahmad", participantCode: "P-123", qrToken: "pqr_abc.def", cardUrl: "/card?token=pqr_abc.def" }} />);
-      expect(html).toContain("Unduh kartu PNG");
+      expect(html).toContain("Simpan kartu QR");
       expect(html).toContain("Buka kartu QR");
       expect(html).not.toContain("wa.me");
       expect(html).not.toContain("t.me");

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertPublicRegistrationOpen } from "../../netlify/functions/lib/services/publicRegistrationService";
+import { assertPublicRegistrationOpen, publicGroupLimit } from "../../netlify/functions/lib/services/publicRegistrationService";
 import { assertValidQuotaAllocation, isRegularRegistrationSource, quotaForSource } from "../../netlify/functions/lib/services/eventQuota";
 import { createEventSchema } from "../../netlify/functions/lib/validations/eventValidation";
 
@@ -37,5 +37,11 @@ describe("jalur dan kuota program", () => {
     const base = { code: "ADA-27", slug: "ada-27", name: "Daurah 27", startDate: "2027-01-01", endDate: "2027-01-02", audienceMode: "MIXED", capacity: 20, regularQuota: 8, invitationQuota: 12 };
     expect(createEventSchema.safeParse(base).success).toBe(true);
     expect(createEventSchema.safeParse({ ...base, invitationQuota: 13 }).success).toBe(false);
+  });
+
+  it("batas rombongan reguler tidak dibatasi kuota default undangan lembaga", () => {
+    const event = { defaultInstitutionQuota: 2, regularQuota: 12, capacity: 30 };
+    expect(publicGroupLimit(event)).toBe(12);
+    expect(publicGroupLimit({ regularQuota: null, capacity: null })).toBe(20);
   });
 });

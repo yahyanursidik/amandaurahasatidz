@@ -20,6 +20,7 @@ import { countApprovedParticipantsBySourceRepository } from "../repositories/par
 import { getDbClient } from "../db/client";
 import { eventDays, eventSessions, events } from "../db/schema";
 import { and, eq, isNull } from "drizzle-orm";
+import { normalizePhone } from "../utils/normalization";
 
 export async function getEventsService(search?: string, status?: string) {
   return await findEventsRepository(search, status);
@@ -76,6 +77,7 @@ export async function getEventBySlugPublicService(slug: string) {
     endDate: event.endDate,
     venueName: event.venueName,
     venueAddress: event.venueAddress,
+    publicContactWhatsapp: event.publicContactWhatsapp,
     mapsUrl: event.mapsUrl,
     registrationOpenAt: event.registrationOpenAt,
     registrationCloseAt: event.registrationCloseAt,
@@ -113,6 +115,7 @@ export async function createEventService(data: any, actorUserId: string, request
 
   const created = await createEventRepository({
     ...data,
+    publicContactWhatsapp: normalizePhone(data.publicContactWhatsapp),
     registrationOpenAt: data.registrationOpenAt ? new Date(data.registrationOpenAt) : null,
     registrationCloseAt: data.registrationCloseAt ? new Date(data.registrationCloseAt) : null,
     invitationResponseDeadline: data.invitationResponseDeadline ? new Date(data.invitationResponseDeadline) : null,
@@ -152,6 +155,7 @@ export async function updateEventService(id: string, data: any, actorUserId: str
 
   const updated = await updateEventRepository(id, {
     ...data,
+    ...(data.publicContactWhatsapp !== undefined && { publicContactWhatsapp: normalizePhone(data.publicContactWhatsapp) }),
     ...(data.registrationOpenAt !== undefined && { registrationOpenAt: data.registrationOpenAt ? new Date(data.registrationOpenAt) : null }),
     ...(data.registrationCloseAt !== undefined && { registrationCloseAt: data.registrationCloseAt ? new Date(data.registrationCloseAt) : null }),
     ...(data.invitationResponseDeadline !== undefined && { invitationResponseDeadline: data.invitationResponseDeadline ? new Date(data.invitationResponseDeadline) : null }),

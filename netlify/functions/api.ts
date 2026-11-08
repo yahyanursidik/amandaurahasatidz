@@ -306,7 +306,8 @@ export const handler: Handler = async (event, _context) => {
       if (!rateLimit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak percobaan pengiriman undangan.", requestId, 429);
       const input = validateRequestData(submitIndividualInvitationSchema, event.body ? JSON.parse(event.body) : {});
       const result = await submitIndividualResponseService(rawToken, input, requestId);
-      return buildSuccessResponse(result, requestId);
+      const response = buildSuccessResponse(result, requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
     }
 
     const pubInvMatch = path.match(/^\/invitations\/public\/institution\/([a-z0-9_]+)$/i);
@@ -402,7 +403,8 @@ export const handler: Handler = async (event, _context) => {
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(submitResponseSchema, body);
       const result = await submitInstitutionResponseService(rawToken, validated, requestId);
-      return buildSuccessResponse(result, requestId);
+      const response = buildSuccessResponse(result, requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
     }
 
     // 5. Auth Endpoints
@@ -451,6 +453,13 @@ export const handler: Handler = async (event, _context) => {
       const portal = String(body.portal || "admin") as "admin" | "committee" | "ustadz";
       if (!["admin", "committee", "ustadz"].includes(portal)) {
         throw new ValidationError("Portal login tidak valid.");
+      }
+
+      const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+      const ipLimit = checkRateLimit(`password_login_ip_${clientIp}`, 30, 600000);
+      const accountLimit = checkRateLimit(`password_login_account_${portal}_${email}_${clientIp}`, 8, 600000);
+      if (!ipLimit.allowed || !accountLimit.allowed) {
+        return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak percobaan masuk. Coba kembali beberapa menit lagi.", requestId, 429);
       }
 
       const authenticatedUser = await authenticatePasswordService(email, password, portal);
@@ -830,7 +839,8 @@ export const handler: Handler = async (event, _context) => {
       const rateLimit = checkRateLimit(`public_registration_submit_${publicRegistrationMatch[1]}_${clientIp}`, 6, 600000);
       if (!rateLimit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak percobaan pendaftaran. Coba lagi beberapa menit lagi.", requestId, 429);
       const input = validateRequestData(submitPublicRegistrationSchema, event.body ? JSON.parse(event.body) : {});
-      return buildSuccessResponse(await submitPublicRegistrationService(publicRegistrationMatch[1], input, requestId), requestId);
+      const response = buildSuccessResponse(await submitPublicRegistrationService(publicRegistrationMatch[1], input, requestId), requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
     }
 
     if (path === "/cards/public" && method === "GET") {

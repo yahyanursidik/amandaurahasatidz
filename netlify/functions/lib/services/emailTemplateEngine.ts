@@ -12,8 +12,8 @@ export const TEMPLATE_WHITELISTS: Record<string, TemplateDefinition> = {
   REGISTRATION_AUTO_APPROVED: {
     code: "REGISTRATION_AUTO_APPROVED",
     subjectTemplate: "Kartu peserta dan QR — {{eventName}}",
-    bodyTemplate: "Assalamu'alaikum {{ustadzName}},\n\nPendaftaran Anda untuk {{eventName}} telah tercatat. Kode pribadi: {{participantCode}}.\nBuka dan simpan kartu QR pribadi Anda: {{cardLink}}\n\nUsername Portal Asatidz: {{email}}\nMasuk atau aktivasi password di {{portalLink}}. Jangan membagikan kartu QR kepada pihak lain.\n\nPanitia Daurah Asatidz",
-    allowedVariables: ["ustadzName", "eventName", "participantCode", "cardLink", "email", "portalLink"],
+    bodyTemplate: "Assalamu'alaikum {{ustadzName}},\n\nPendaftaran Anda untuk {{eventName}} telah tercatat. Kode pribadi: {{participantCode}}.\nSimpan kartu QR pribadi: {{cardLink}}\nLihat rundown terbaru: {{rundownLink}}\n\nUsername Portal Asatidz: {{email}}\nMasuk dengan sandi yang sudah dimiliki atau buat sandi pribadi melalui aktivasi email: {{portalLink}}. Jangan membagikan QR atau sandi kepada pihak lain.\n\nPanitia Aman Daurah Asatidz",
+    allowedVariables: ["ustadzName", "eventName", "participantCode", "cardLink", "email", "portalLink", "rundownLink"],
   },
   REGISTRATION_RECEIVED: {
     code: "REGISTRATION_RECEIVED",

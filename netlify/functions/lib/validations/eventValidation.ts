@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { normalizePhone } from "../utils/normalization";
 
 export const eventCatalogQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(100000).default(1),
@@ -35,6 +36,8 @@ export const createEventSchema = z.object({
   endDate: z.string({ required_error: "Tanggal selesai wajib diisi" }),
   venueName: z.string().optional().nullable(),
   venueAddress: z.string().optional().nullable(),
+  publicContactWhatsapp: z.string().trim().max(24).refine((value) => !value || /^[+\d\s().-]+$/.test(value) && /^628\d{8,12}$/.test(normalizePhone(value) || ""),
+    "Nomor WhatsApp panitia harus nomor seluler Indonesia yang valid").optional().nullable(),
   mapsUrl: z.string().url("Format URL Google Maps tidak valid").optional().or(z.literal("")).nullable(),
   registrationOpenAt: z.string().optional().nullable(),
   registrationCloseAt: z.string().optional().nullable(),

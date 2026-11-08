@@ -5,6 +5,7 @@ import React, { useState } from "react";
 import { CalendarClock, CalendarDays, Image, MapPin, Save, Settings2 } from "lucide-react";
 import { EventPosterField } from "./EventPosterField";
 import { DEFAULT_EVENT_POSTER } from "@/lib/eventPoster";
+import { isPublicPanitiaWhatsAppNumber } from "@/lib/eventWhatsApp";
 
 export type EventFormValues = {
   code: string;
@@ -28,6 +29,7 @@ export type EventFormValues = {
   lateConfirmationPolicy: string;
   venueName: string;
   venueAddress: string;
+  publicContactWhatsapp: string;
   mapsUrl: string;
   defaultInstitutionQuota: string;
   capacity: string;
@@ -57,6 +59,7 @@ const emptyValues: EventFormValues = {
   lateConfirmationPolicy: "BLOCK",
   venueName: "",
   venueAddress: "",
+  publicContactWhatsapp: "",
   mapsUrl: "",
   defaultInstitutionQuota: "2",
   capacity: "",
@@ -78,9 +81,11 @@ const fieldClass = "min-h-[48px] w-full rounded-lg border border-slate-300 bg-wh
 export const EventForm: React.FC<Props> = ({ initialValues, submitting, submitLabel, onCancel, onSubmit, lockIdentity }) => {
   const [values, setValues] = useState<EventFormValues>({ ...emptyValues, ...initialValues });
   const [quotaError, setQuotaError] = useState("");
+  const [contactError, setContactError] = useState("");
 
   const update = <K extends keyof EventFormValues>(key: K, value: EventFormValues[K]) => {
     if (["capacity", "regularQuota", "invitationQuota"].includes(key)) setQuotaError("");
+    if (key === "publicContactWhatsapp") setContactError("");
     setValues((current) => {
       const next = { ...current, [key]: value };
       if (key === "name" && typeof value === "string" && !lockIdentity && (!current.slug || current.slug === current.name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, ""))) {
@@ -98,6 +103,11 @@ export const EventForm: React.FC<Props> = ({ initialValues, submitting, submitLa
       document.getElementById("event-capacity")?.focus();
       return;
     }
+    if (!isPublicPanitiaWhatsAppNumber(values.publicContactWhatsapp)) {
+      setContactError("Nomor WhatsApp panitia belum valid. Gunakan nomor seluler Indonesia, misalnya 081234567890.");
+      document.getElementById("event-public-contact")?.focus();
+      return;
+    }
     await onSubmit(values);
   };
 
@@ -109,7 +119,7 @@ export const EventForm: React.FC<Props> = ({ initialValues, submitting, submitLa
           ["poster", "Poster", Image],
           ["deadlines", "Konfirmasi", CalendarClock],
           ["configuration", "Jadwal & jalur", Settings2],
-          ["location", "Lokasi", MapPin],
+          ["location", "Lokasi & kontak", MapPin],
         ].map(([target, label, Icon]) => {
           const SectionIcon = Icon as React.ComponentType<{ className?: string }>;
           return (
@@ -185,11 +195,12 @@ export const EventForm: React.FC<Props> = ({ initialValues, submitting, submitLa
       <section id="location" className="scroll-mt-28 border border-slate-200 bg-white">
         <header className="flex items-center gap-3 border-b border-slate-200 bg-slate-50 p-4">
           <MapPin className="h-4 w-4 text-emerald-700" />
-          <div><h2 className="text-base font-black text-slate-900">Lokasi kegiatan</h2><p className="mt-1 text-sm text-slate-600">Informasi yang akan dilihat peserta dan lembaga.</p></div>
+          <div><h2 className="text-base font-black text-slate-900">Lokasi dan kontak</h2><p className="mt-1 text-sm text-slate-600">Informasi yang akan dilihat peserta dan lembaga.</p></div>
         </header>
         <div className="grid gap-4 p-4 sm:grid-cols-2">
           <label><span className="mb-1.5 block text-xs font-bold text-slate-700">Nama tempat</span><input value={values.venueName} onChange={(event) => update("venueName", event.target.value)} className={fieldClass} /></label>
           <label><span className="mb-1.5 block text-xs font-bold text-slate-700">Google Maps URL</span><input type="url" value={values.mapsUrl} onChange={(event) => update("mapsUrl", event.target.value)} className={fieldClass} /></label>
+          <label className="sm:col-span-2"><span className="mb-1.5 block text-sm font-bold text-slate-700">WhatsApp panitia untuk peserta</span><input id="event-public-contact" type="tel" inputMode="tel" maxLength={24} value={values.publicContactWhatsapp} onChange={(event) => update("publicContactWhatsapp", event.target.value)} placeholder="081234567890" aria-invalid={Boolean(contactError) || undefined} aria-describedby="event-public-contact-hint" className={fieldClass} /><span id="event-public-contact-hint" role={contactError ? "alert" : undefined} className={`mt-1 block min-h-5 text-sm ${contactError ? "text-rose-700" : "text-slate-600"}`}>{contactError || "Opsional. Nomor ini menjadi tujuan WhatsApp pada halaman bukti pendaftaran publik."}</span></label>
           <label className="sm:col-span-2"><span className="mb-1.5 block text-xs font-bold text-slate-700">Alamat lengkap</span><textarea value={values.venueAddress} onChange={(event) => update("venueAddress", event.target.value)} rows={3} className={`${fieldClass} min-h-24 py-3`} /></label>
         </div>
       </section>

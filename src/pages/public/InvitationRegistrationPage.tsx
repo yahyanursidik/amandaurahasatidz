@@ -4,20 +4,21 @@ import { ArrowLeft, CheckCircle2, Plus, Trash2 } from "lucide-react";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { RegionFields, type RegionValue } from "@/components/public/RegionFields";
 import { ENV } from "@/config/env";
-import { ParticipantQrCard } from "@/components/public/ParticipantQrCard";
+import { PublicRegistrationReceipt } from "@/components/public/PublicRegistrationReceipt";
 import { readRegistrationProof, saveRegistrationProof } from "@/lib/registrationProof";
+import type { ReceiptParticipant } from "@/lib/publicRegistrationReceipt";
 
 type Delegate = { fullName: string; email: string; whatsapp: string; phone: string; address: string; region: RegionValue; isLead: boolean };
 type InvitationData = {
   invitation: { invitationNumber: string; quota?: number | null; responseDeadline?: string | null; status: string };
-  event: { name: string; startDate: string; endDate: string; venueName?: string | null };
+  event: { name: string; slug?: string; startDate: string; endDate: string; venueName?: string | null; publicContactWhatsapp?: string | null };
   institution?: { name: string; code: string } | null;
 };
 type Submission = {
   message: string;
   participants?: Array<{ id: string; participantCode: string; qrToken: string; cardUrl: string; whatsapp?: string | null }>;
   emailQueued?: number;
-  portalAccounts?: Array<{ participantId: string; participantName: string; email: string; temporaryPassword?: string | null; loginUrl: string; setupError?: string }>;
+  portalAccounts?: Array<{ participantId: string; participantName: string; email: string; temporaryPassword?: string | null; temporaryPasswordIssued?: boolean; passwordSetupRequired?: boolean; loginUrl: string; setupError?: string }>;
 };
 const emptyRegion = (): RegionValue => ({ city: "", province: "", cityCode: "", provinceCode: "" });
 const newDelegate = (): Delegate => ({ fullName: "", email: "", whatsapp: "", phone: "", address: "", region: emptyRegion(), isLead: true });
@@ -37,6 +38,20 @@ export const InvitationRegistrationPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const quota = invitationType === "individual" ? 1 : Math.max(1, data?.invitation.quota || 1);
   const expired = Boolean(data?.invitation.responseDeadline && new Date(data.invitation.responseDeadline) < new Date());
+  const receiptParticipants: ReceiptParticipant[] = submission?.participants?.map((person, index) => {
+    const account = submission.portalAccounts?.find((item) => item.participantId === person.id);
+    return {
+      fullName: account?.participantName || delegates[index]?.fullName || "Peserta",
+      email: account?.email || delegates[index]?.email || "",
+      whatsapp: person.whatsapp,
+      participantCode: person.participantCode,
+      qrToken: person.qrToken,
+      cardUrl: person.cardUrl,
+      passwordSetupRequired: account?.passwordSetupRequired ?? !account?.temporaryPassword,
+      temporaryPassword: account?.temporaryPassword,
+      temporaryPasswordIssued: account?.temporaryPasswordIssued,
+    };
+  }) || [];
 
   useEffect(() => {
     const proof = readRegistrationProof<InvitationData, Submission>(proofKey);
@@ -84,23 +99,17 @@ export const InvitationRegistrationPage: React.FC = () => {
   };
 
   return <PublicLayout>
-    <div className="mx-auto max-w-3xl space-y-5 py-4 text-slate-900">
+    <div className={`mx-auto space-y-5 py-4 text-slate-900 ${submission ? "max-w-4xl" : "max-w-3xl"}`}>
       <Link to="/programs" className="inline-flex min-h-11 items-center gap-2 text-sm font-bold text-emerald-800"><ArrowLeft className="h-4 w-4" /> Daftar program</Link>
       {loading ? <p role="status" className="rounded-xl bg-white p-8 text-sm">Memuat formulir undangan…</p> : !data ?
         <section role="alert" className="rounded-xl border border-rose-200 bg-white p-6"><h1 className="text-xl font-black">Undangan tidak tersedia</h1><p className="mt-2 text-sm">{error}</p></section> : <>
           <header className="rounded-2xl bg-emerald-950 p-6 text-white sm:p-8">
-            <p className="text-xs font-black uppercase tracking-widest text-emerald-300">Formulir undangan pribadi · {data.invitation.invitationNumber}</p>
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-300">{data.institution ? `Ahlan ${data.institution.name}` : "Undangan pribadi"} · {data.invitation.invitationNumber}</p>
             <h1 className="mt-3 text-2xl font-black">{data.event.name}</h1>
             <p className="mt-3 text-sm text-emerald-100">{data.event.venueName || "Lokasi menyusul"} · {data.event.startDate === data.event.endDate ? data.event.startDate : `${data.event.startDate} – ${data.event.endDate}`}</p>
             {data.institution && <p className="mt-2 text-sm text-emerald-100">Diperuntukkan bagi {data.institution.name}</p>}
           </header>
-           {submission ? <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-6" aria-live="polite"><CheckCircle2 className="h-8 w-8 text-emerald-700" /><h2 className="mt-3 text-xl font-black">Jawaban undangan tersimpan</h2><p className="mt-2 text-sm">{submission.message}</p>
-             {!!submission.participants?.length && <><p className="mt-2 text-sm">Semua peserta langsung disetujui dan mendapat QR pribadi. Simpan atau kirim kartu masing-masing hanya kepada peserta yang bersangkutan.</p>{(submission.emailQueued || 0) < submission.participants.length && <p role="status" className="mt-2 text-sm">Sebagian email belum masuk antrean. Simpan kartu berikut dan hubungi panitia bila memerlukan bantuan.</p>}<div className="mt-4 grid gap-4 sm:grid-cols-2">{submission.participants.map((item, index) => <ParticipantQrCard key={item.id} eventName={data.event.name} person={{ fullName: submission.portalAccounts?.[index]?.participantName || delegates[index]?.fullName || "Peserta", email: submission.portalAccounts?.[index]?.email || delegates[index]?.email, whatsapp: item.whatsapp, participantCode: item.participantCode, qrToken: item.qrToken, cardUrl: item.cardUrl }} />)}</div></>}
-            {!!submission.portalAccounts?.length && <h3 className="mt-5 font-bold">Akses Portal Asatidz masing-masing peserta</h3>}
-            {submission.portalAccounts?.map((account) => <div key={account.participantId} className="mt-2 rounded-lg bg-white p-3 text-sm"><strong>{account.participantName}</strong><p className="mt-1 break-all">Username portal: <strong>{account.email || "hubungi panitia untuk melengkapi email"}</strong></p><p>Password: {account.setupError ? `${account.setupError} Gunakan aktivasi akun atau hubungi panitia.` : account.temporaryPassword ? <><strong className="font-mono">{account.temporaryPassword}</strong> (password sementara, simpan secara pribadi dan segera ganti setelah masuk)</> : "gunakan password akun yang sudah ada; bila belum punya, aktivasi melalui kode yang dikirim ke email pribadi"}</p></div>)}
-            {responseStatus === "DECLINED" && <p className="mt-3 text-sm">Karena memilih berhalangan hadir, halaman ini tidak membuat akses portal baru.</p>}
-            <Link to="/login/ustadz" className="mt-4 inline-flex min-h-11 items-center font-bold text-emerald-800 underline">Buka Portal Asatidz</Link>
-          </section> : <form onSubmit={(event) => void submit(event)} className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 sm:p-7">
+           {submission ? receiptParticipants.length > 0 ? <PublicRegistrationReceipt event={data.event} participants={receiptParticipants} emailQueued={submission.emailQueued || 0} /> : <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-6" aria-live="polite"><CheckCircle2 className="h-8 w-8 text-emerald-700" /><h2 className="mt-3 text-xl font-black">Jawaban undangan tersimpan</h2><p className="mt-2 text-sm">{submission.message}</p><p className="mt-3 text-sm">Karena berhalangan hadir, tidak ada QR atau akses portal baru.</p></section> : <form onSubmit={(event) => void submit(event)} className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 sm:p-7">
             <div><h2 className="text-xl font-black">Konfirmasi undangan</h2><p className="mt-1 text-sm text-slate-600">Isi data diri atau rombongan sekali saja. Tautan undangan ini sudah menjadi akses formulir; tidak diperlukan kode verifikasi tambahan.</p></div>
             {expired && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Batas respons undangan telah berakhir. Hubungi panitia.</p>}
             <fieldset className="flex flex-wrap gap-4"><legend className="mb-2 text-sm font-bold">Status undangan</legend><label className="flex items-center gap-2 text-sm"><input type="radio" checked={responseStatus === "ACCEPTED"} onChange={() => setResponseStatus("ACCEPTED")} /> Saya akan hadir</label><label className="flex items-center gap-2 text-sm"><input type="radio" checked={responseStatus === "DECLINED"} onChange={() => setResponseStatus("DECLINED")} /> Berhalangan hadir</label></fieldset>
@@ -115,6 +124,7 @@ export const InvitationRegistrationPage: React.FC = () => {
               </fieldset>)}
             </>}
             <label className="block text-sm font-bold">Catatan kepada panitia <span className="font-normal">(opsional)</span><textarea value={notes} onChange={(change) => setNotes(change.target.value)} maxLength={1000} rows={2} className="mt-1 w-full rounded-lg border border-slate-300 p-3" /></label>
+            {responseStatus === "ACCEPTED" && <label className="flex items-start gap-3 rounded-lg bg-emerald-50 p-3 text-sm text-slate-700"><input type="checkbox" required className="mt-1 h-4 w-4 accent-emerald-700" /><span>Saya sudah mendapat izin dari peserta yang didaftarkan. QR dan sandi awal masing-masing akan saya berikan secara pribadi.</span></label>}
             {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-900">{error}</p>}
             <button type="submit" disabled={saving || expired} className="min-h-12 rounded-lg bg-emerald-700 px-6 font-black text-white disabled:opacity-50">{saving ? "Menyimpan…" : "Kirim konfirmasi undangan"}</button>
           </form>}
