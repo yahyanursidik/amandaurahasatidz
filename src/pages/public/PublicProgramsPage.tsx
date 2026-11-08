@@ -31,10 +31,8 @@ const formatDate = (value: string) => {
 
 const statusText: Record<string, string> = {
   REGISTRATION_OPEN: "Pendaftaran dibuka", PUBLISHED: "Informasi tersedia",
-  REGISTRATION_CLOSED: "Pendaftaran ditutup", ONGOING: "Sedang berlangsung", COMPLETED: "Selesai",
+  REGISTRATION_CLOSED: "Pendaftaran ditutup", ONGOING: "Sedang berlangsung", COMPLETED: "Telah dilaksanakan",
 };
-
-type ProgramFilter = "ALL" | "REGULAR" | "INVITATION";
 
 const hasRegularPath = (program: Program) => ["PUBLIC_OPEN", "MIXED"].includes(program.audienceMode);
 const hasInvitationPath = (program: Program) => ["INSTITUTION_INVITATION", "INDIVIDUAL_INVITATION", "MIXED"].includes(program.audienceMode);
@@ -84,6 +82,17 @@ export const sortPublicPrograms = (programs: Program[], now = new Date()) => [..
     ? b.startDate.localeCompare(a.startDate) : a.startDate.localeCompare(b.startDate);
 });
 
+export const groupPublicPrograms = (programs: Program[], query = "") => {
+  const term = query.trim().toLocaleLowerCase("id-ID");
+  const matching = programs.filter((program) => `${program.name} ${program.code} ${program.venueName || ""} ${program.startDate.slice(0, 4)}`
+    .toLocaleLowerCase("id-ID").includes(term));
+  return {
+    history: matching.filter((program) => program.status === "COMPLETED")
+      .sort((a, b) => b.endDate.localeCompare(a.endDate) || b.startDate.localeCompare(a.startDate)),
+    agenda: sortPublicPrograms(matching.filter((program) => program.status !== "COMPLETED")),
+  };
+};
+
 export const PublicProgramsPage: React.FC = () => {
   const location = useLocation();
   const isCatalog = location.pathname === "/programs";
@@ -92,7 +101,6 @@ export const PublicProgramsPage: React.FC = () => {
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [query, setQuery] = useState("");
-  const [filter, setFilter] = useState<ProgramFilter>("ALL");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -130,28 +138,46 @@ export const PublicProgramsPage: React.FC = () => {
   }, [location.pathname, location.hash]);
 
   const ordered = useMemo(() => sortPublicPrograms(programs), [programs]);
-  const visible = useMemo(() => (isCatalog ? ordered : ordered.slice(0, 3)).filter((program) => {
-    if (!isCatalog) return true;
-    if (filter === "REGULAR" && !hasRegularPath(program)) return false;
-    if (filter === "INVITATION" && !hasInvitationPath(program)) return false;
-    return `${program.name} ${program.code} ${program.venueName || ""}`.toLocaleLowerCase("id-ID")
-      .includes(query.trim().toLocaleLowerCase("id-ID"));
-  }), [ordered, isCatalog, query, filter]);
+  const featured = useMemo(() => ordered.slice(0, 3), [ordered]);
+  const grouped = useMemo(() => groupPublicPrograms(programs, query), [programs, query]);
+
+  const renderCards = (items: Program[]) => <div className="public-home__program-grid">{items.map((program) => {
+    const action = getPublicProgramAction(program);
+    const detailPath = `/events/${program.slug}`;
+    const invitationOnly = program.status !== "COMPLETED" && hasInvitationPath(program) && (!hasRegularPath(program) || program.regularQuota === 0);
+    return <article key={program.slug} className="public-home__program-card">
+      <div className="public-home__program-poster"><img src={program.posterUrl || DEFAULT_EVENT_POSTER} alt={program.posterAlt || `Poster ${program.name}`} width="640" height="360" loading="lazy" decoding="async" onError={(event) => { if (!event.currentTarget.src.endsWith(DEFAULT_EVENT_POSTER)) event.currentTarget.src = DEFAULT_EVENT_POSTER; }} /><span>{getPublicProgramStatus(program)}</span></div>
+      <div className="public-home__program-body">
+        <p className="public-home__program-kind">{program.status === "COMPLETED" ? "Daurah Asatidz" : audienceText[program.audienceMode] || "Program daurah"}</p>
+        <h3>{program.name}</h3>
+        {program.subtitle && <p className="public-home__program-subtitle">{program.subtitle}</p>}
+        <div className="public-home__program-facts"><p><CalendarDays aria-hidden="true" /><span>{formatDate(program.startDate)}{program.endDate !== program.startDate ? ` – ${formatDate(program.endDate)}` : ""}</span></p><p><MapPin aria-hidden="true" /><span>{program.venueName || "Lokasi menyusul"}</span></p></div>
+        <div className="public-home__program-actions"><Link to={action.to} className="public-home__program-action">{action.label} <ArrowRight aria-hidden="true" /></Link>{action.to !== detailPath && <Link to={detailPath} className="public-home__program-detail">Rincian kegiatan</Link>}</div>
+        {invitationOnly && <p className="public-home__invitation-note">Tautan pendaftaran khusus dikirim panitia kepada penerima undangan.</p>}
+      </div>
+    </article>;
+  })}</div>;
+
+  const renderHistory = (items: Program[]) => <div className="public-home__history-list">{items.map((program) => <article key={program.slug} className="public-home__history-row">
+    <div className="public-home__history-poster"><img src={program.posterUrl || DEFAULT_EVENT_POSTER} alt={program.posterAlt || `Poster ${program.name}`} width="320" height="320" loading="lazy" decoding="async" onError={(event) => { if (!event.currentTarget.src.endsWith(DEFAULT_EVENT_POSTER)) event.currentTarget.src = DEFAULT_EVENT_POSTER; }} /></div>
+    <div className="public-home__history-body"><p className="public-home__program-kind">Telah dilaksanakan</p><h3>{program.name}</h3><p>{formatDate(program.startDate)}{program.endDate !== program.startDate ? ` – ${formatDate(program.endDate)}` : ""} · {program.venueName || "Lokasi tidak dicantumkan"}</p></div>
+    <Link to={`/events/${program.slug}`} className="public-home__history-link">Lihat rincian <ArrowRight aria-hidden="true" /></Link>
+  </article>)}</div>;
 
   return <PublicLayout wide>
     <div className={`public-home ${isCatalog ? "public-home--catalog" : ""}`}>
       {isCatalog ? <header className="public-home__catalog-intro" aria-labelledby="catalog-title">
-        <div><p className="public-home__identity">Program · Aman Daurah Asatidz</p><h1 id="catalog-title">Temukan daurah yang sesuai</h1><p>Periksa jadwal dan jalur pendaftaran. Pendaftaran reguler tersedia melalui formulir; undangan memakai tautan khusus dari panitia.</p></div>
+        <div><p className="public-home__identity">Yayasan Tarbiyah Sunnah · Aman Daurah Asatidz</p><h1 id="catalog-title">Riwayat Daurah Asatidz</h1><p>Catatan daurah yang telah diselenggarakan YTS. Jika ada kegiatan yang masih berjalan atau akan datang, informasinya tampil terpisah di bawah.</p></div>
         <Link to="/login/ustadz" className="public-home__catalog-portal">Sudah mendaftar? Lihat status &amp; QR <ArrowRight aria-hidden="true" /></Link>
       </header> : <>
       <header className="public-home__hero" aria-labelledby="public-home-title">
         <div className="public-home__hero-copy">
           <p className="public-home__identity">Aman Daurah Asatidz · Yayasan Tarbiyah Sunnah</p>
           <h1 id="public-home-title">Yayasan Tarbiyah Sunnah</h1>
-          <p className="public-home__lead">Pendidikan, dakwah, dan kepedulian sosial. Melalui Aman Daurah Asatidz, kami membantu para asatidz menemukan program, mendaftar, dan mengikuti kegiatan dengan jelas.</p>
+          <p className="public-home__lead">Pendidikan, dakwah, dan kepedulian sosial. Melalui Aman Daurah Asatidz, kami menyajikan informasi kegiatan, pendaftaran, dan kehadiran para asatidz dengan jelas.</p>
           <div className="public-home__hero-actions">
             <a href="#tentang-yts" className="public-home__button public-home__button--primary">Kenali yayasan <ArrowRight aria-hidden="true" /></a>
-            <Link to="/programs" className="public-home__button public-home__button--quiet">Lihat program daurah</Link>
+            <Link to="/programs" className="public-home__button public-home__button--quiet">Lihat riwayat daurah</Link>
           </div>
           <Link to="/login/ustadz" className="public-home__hero-login">Sudah punya akun? Masuk portal</Link>
         </div>
@@ -176,45 +202,33 @@ export const PublicProgramsPage: React.FC = () => {
 
       <section id="program-terbaru" aria-labelledby="program-list-title" className="public-home__programs">
         <div className="public-home__section-head">
-          <div><h2 id="program-list-title">{isCatalog ? "Daftar program" : "Program terkini"}</h2><p>{isCatalog ? "Program yang diterbitkan panitia, termasuk kegiatan yang sudah selesai." : "Pilihan daurah terbaru dari yayasan."}</p></div>
-          {isCatalog ? !loading && !error && <span className="public-home__result-count" aria-live="polite">{visible.length} program</span> : <Link to="/programs" className="public-home__text-link">Semua program <ArrowRight aria-hidden="true" /></Link>}
+          <div><h2 id="program-list-title">{isCatalog ? "Telah dilaksanakan" : "Kegiatan daurah"}</h2><p>{isCatalog ? "Riwayat kegiatan yang telah ditandai selesai oleh panitia, terbaru lebih dahulu." : "Informasi daurah terbaru dari yayasan."}</p></div>
+          {isCatalog ? !loading && !error && <span className="public-home__result-count" aria-live="polite">{grouped.history.length} kegiatan selesai</span> : <Link to="/programs" className="public-home__text-link">Lihat riwayat <ArrowRight aria-hidden="true" /></Link>}
         </div>
         {isCatalog && !loading && !error && programs.length > 0 && <div className="public-home__tools">
-          <div className="public-home__filters" role="group" aria-label="Saring jalur program">
-            {([ ["ALL", "Semua"], ["REGULAR", "Reguler"], ["INVITATION", "Undangan"] ] as const).map(([value, label]) =>
-              <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}
-          </div>
-          <label className="public-home__search" htmlFor="program-search"><span>Cari program</span><span className="public-home__search-field"><Search aria-hidden="true" /><input id="program-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nama atau lokasi" /></span></label>
+          <label className="public-home__search" htmlFor="program-search"><span>Cari kegiatan</span><span className="public-home__search-field"><Search aria-hidden="true" /><input id="program-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nama, lokasi, atau tahun" /></span></label>
         </div>}
         {loading ? <div role="status" className="public-home__loading"><span className="sr-only">Memuat daftar program…</span><div /><div /></div>
-          : error ? <div role="alert" className="public-home__empty"><strong>Program belum dapat dimuat.</strong><p>{error}</p><button type="button" onClick={() => setRefresh((value) => value + 1)}><RefreshCw aria-hidden="true" /> Muat ulang</button></div>
-            : visible.length === 0 ? <div className="public-home__empty"><CalendarDays aria-hidden="true" /><strong>{isCatalog && (query || filter !== "ALL") ? "Program tidak ditemukan." : "Belum ada program yang diterbitkan."}</strong><p>{isCatalog && (query || filter !== "ALL") ? "Coba kata kunci atau jalur lain." : "Agenda baru akan tampil di sini setelah diterbitkan panitia."}</p>{isCatalog && (query || filter !== "ALL") && <button type="button" onClick={() => { setQuery(""); setFilter("ALL"); }}>Tampilkan semua program</button>}</div>
-              : <div className="public-home__program-grid">{visible.map((program) => {
-                const action = getPublicProgramAction(program);
-                const detailPath = `/events/${program.slug}`;
-                const invitationOnly = hasInvitationPath(program) && (!hasRegularPath(program) || program.regularQuota === 0);
-                return <article key={program.slug} className="public-home__program-card">
-                  <div className="public-home__program-poster"><img src={program.posterUrl || DEFAULT_EVENT_POSTER} alt={program.posterAlt || `Poster ${program.name}`} width="640" height="360" loading="lazy" decoding="async" onError={(event) => { if (!event.currentTarget.src.endsWith(DEFAULT_EVENT_POSTER)) event.currentTarget.src = DEFAULT_EVENT_POSTER; }} /><span>{getPublicProgramStatus(program)}</span></div>
-                  <div className="public-home__program-body">
-                    <p className="public-home__program-kind">{audienceText[program.audienceMode] || "Program daurah"}</p>
-                    <h3>{program.name}</h3>
-                    {program.subtitle && <p className="public-home__program-subtitle">{program.subtitle}</p>}
-                    <div className="public-home__program-facts"><p><CalendarDays aria-hidden="true" /><span>{formatDate(program.startDate)}{program.endDate !== program.startDate ? ` – ${formatDate(program.endDate)}` : ""}</span></p><p><MapPin aria-hidden="true" /><span>{program.venueName || "Lokasi menyusul"}</span></p></div>
-                    <div className="public-home__program-actions"><Link to={action.to} className="public-home__program-action">{action.label} <ArrowRight aria-hidden="true" /></Link>{action.to !== detailPath && <Link to={detailPath} className="public-home__program-detail">Rincian program</Link>}</div>
-                    {invitationOnly && <p className="public-home__invitation-note">Tautan pendaftaran khusus dikirim panitia kepada penerima undangan.</p>}
-                  </div>
-                </article>;
-              })}</div>}
+          : error ? <div role="alert" className="public-home__empty"><strong>Informasi daurah belum dapat dimuat.</strong><p>{error}</p><button type="button" onClick={() => setRefresh((value) => value + 1)}><RefreshCw aria-hidden="true" /> Muat ulang</button></div>
+            : isCatalog ? grouped.history.length > 0 ? renderHistory(grouped.history)
+              : <div className="public-home__empty"><CalendarDays aria-hidden="true" /><strong>{query ? "Riwayat tidak ditemukan." : "Belum ada riwayat yang diterbitkan."}</strong><p>{query ? "Coba nama kegiatan, lokasi, atau tahun lain." : "Riwayat akan tampil setelah panitia menandai kegiatan selesai."}</p>{query && <button type="button" onClick={() => setQuery("")}>Tampilkan semua kegiatan</button>}</div>
+              : featured.length > 0 ? renderCards(featured)
+                : <div className="public-home__empty"><CalendarDays aria-hidden="true" /><strong>Belum ada kegiatan yang diterbitkan.</strong><p>Informasi daurah akan tampil di sini setelah diterbitkan panitia.</p></div>}
       </section>
 
-      <section className="public-home__journey" aria-labelledby="journey-title">
+      {isCatalog && !loading && !error && grouped.agenda.length > 0 && <section id="agenda-daurah" className="public-home__programs public-home__agenda" aria-labelledby="agenda-title">
+        <div className="public-home__section-head"><div><h2 id="agenda-title">Agenda dan pendaftaran</h2><p>Kegiatan lain yang diterbitkan panitia. Formulir hanya tersedia bila pendaftaran dibuka.</p></div><span className="public-home__result-count">{grouped.agenda.length} kegiatan</span></div>
+        {renderCards(grouped.agenda)}
+      </section>}
+
+      {!isCatalog && <section className="public-home__journey" aria-labelledby="journey-title">
         <div><h2 id="journey-title">Dari daftar hingga hadir</h2><p>Satu orang dapat mendaftarkan diri atau rombongan. Setiap asatidz tetap memperoleh QR dan akses portal pribadi.</p></div>
         <ol>
-          <li><span>01</span><CalendarDays aria-hidden="true" /><div><h3>Pilih program</h3><p>Periksa jadwal, lokasi, dan jalurnya.</p></div></li>
+          <li><span>01</span><CalendarDays aria-hidden="true" /><div><h3>Lihat informasi kegiatan</h3><p>Periksa jadwal, lokasi, dan jalur pendaftaran bila tersedia.</p></div></li>
           <li><span>02</span><Users aria-hidden="true" /><div><h3>Isi pendaftaran</h3><p>Form reguler bisa memuat rombongan. Undangan lembaga memakai tautan khusus dari panitia.</p></div></li>
           <li><span>03</span><QrCode aria-hidden="true" /><div><h3>Simpan QR pribadi</h3><p>Simpan bukti tiap peserta untuk kehadiran saat acara.</p></div></li>
         </ol>
-      </section>
+      </section>}
 
       <section className="public-home__next" aria-label="Layanan setelah mendaftar">
         <div><h2>Sudah mendaftar?</h2><p>Masuk untuk melihat status, jadwal, dan QR pribadi.</p><Link to="/login/ustadz" className="public-home__text-link">Masuk Portal Asatidz <ArrowRight aria-hidden="true" /></Link></div>

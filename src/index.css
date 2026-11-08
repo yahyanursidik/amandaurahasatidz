@@ -7304,3 +7304,27 @@
 .public-home__catalog-portal:active { transform: translateY(1px); }
 .public-ruang__path a:active, .public-ruang__connection-links a:active { transform: translateY(1px); }
 @media (prefers-reduced-motion: reduce) { .public-home__catalog-portal:active, .public-ruang__path a:active, .public-ruang__connection-links a:active { transform: none; } }
+
+/* Hallmark · genre: modern-minimal · macrostructure: Index-First · design-system: design.md · designed-as-app
+ * pre-emit critique: P5 H5 E4 S5 R5 V4 · archive first, separate agenda, no product-choice language
+ */
+.public-home--catalog .public-home__tools { display: block; }
+.public-home--catalog .public-home__search { max-width: 26rem; }
+.public-home__history-list { margin-top: var(--space-public-lg); border-top: 1px solid var(--color-public-rule); }
+.public-home__history-row { display: grid; grid-template-columns: 6rem minmax(0, 1fr); gap: var(--space-public-sm) var(--space-public-md); align-items: start; min-width: 0; border-bottom: 1px solid var(--color-public-rule); padding-block: var(--space-public-md); }
+.public-home__history-poster { width: 6rem; aspect-ratio: 1; overflow: hidden; border-radius: var(--radius-public-control); background: var(--color-event-paper-muted); }
+.public-home__history-poster img { width: 100%; height: 100%; object-fit: cover; }
+.public-home__history-body { display: grid; gap: var(--space-public-xs); min-width: 0; }
+.public-home__history-body h3 { font-size: clamp(1.125rem, 2.5vw, 1.5rem); font-weight: 800; line-height: 1.25; }
+.public-home__history-body > p:last-child { color: var(--color-public-muted); font-size: var(--text-public-small); line-height: 1.5; }
+.public-home__history-link { display: inline-flex; grid-column: 2; width: fit-content; min-height: 2.75rem; align-items: center; gap: var(--space-public-xs); color: var(--color-public-accent); font-size: var(--text-public-small); font-weight: 800; text-decoration: underline; text-underline-offset: .2em; white-space: nowrap; }
+.public-home__history-link svg { width: 1rem; height: 1rem; flex: none; }
+.public-home__agenda { border-top: 1px solid var(--color-public-rule); padding-top: var(--space-public-2xl); }
+@media (min-width: 40rem) {
+  .public-home__history-row { grid-template-columns: 10rem minmax(0, 1fr) auto; align-items: center; gap: var(--space-public-lg); }
+  .public-home__history-poster { width: 10rem; }
+  .public-home__history-link { grid-column: auto; }
+}
+@media (hover: hover) and (pointer: fine) { .public-home__history-link:hover { color: var(--color-public-focus); } }
+.public-home__history-link:active { transform: translateY(1px); }
+@media (prefers-reduced-motion: reduce) { .public-home__history-link:active { transform: none; } }

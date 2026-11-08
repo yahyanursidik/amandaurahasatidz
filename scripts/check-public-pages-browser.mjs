@@ -90,11 +90,13 @@ try {
     }
     assert.equal(await evaluate(`!!document.querySelector('main h1')`), true, `${route} rendered`);
     if (route === '/programs') {
-      for (let i = 0; i < 50 && !(await evaluate(`document.querySelectorAll('.public-home__program-card').length === 3`)); i++) {
+      for (let i = 0; i < 50 && !(await evaluate(`document.querySelectorAll('.public-home__history-row').length === 1 && document.querySelectorAll('.public-home__program-card').length === 2`)); i++) {
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      assert.equal(await evaluate(`document.querySelectorAll('.public-home__program-card').length`), 3);
-      assert.equal(await evaluate(`document.querySelector('main h1').textContent`), 'Temukan daurah yang sesuai');
+      assert.equal(await evaluate(`document.querySelectorAll('.public-home__history-row').length`), 1);
+      assert.equal(await evaluate(`document.querySelectorAll('.public-home__program-card').length`), 2);
+      assert.equal(await evaluate(`document.querySelector('main h1').textContent`), 'Riwayat Daurah Asatidz');
+      assert.equal(await evaluate(`document.querySelector('.public-home__history-row').compareDocumentPosition(document.querySelector('#agenda-daurah')) & Node.DOCUMENT_POSITION_FOLLOWING`), 4, 'history precedes agenda');
       assert.equal(await evaluate(`document.querySelector('.public-home__program-card a[href$="/register"]') !== null`), true);
     }
     for (const width of [320, 375, 414, 768, 1280]) {
@@ -111,16 +113,18 @@ try {
     }
     if (route === '/programs') {
       await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 850, deviceScaleFactor: 1, mobile: true });
-      await evaluate(`document.querySelector('.public-home__program-card').scrollIntoView({block:'start'})`);
+      await evaluate(`document.querySelector('.public-home__history-row').scrollIntoView({block:'start'})`);
       await new Promise((resolve) => setTimeout(resolve, 100));
       const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
-      const screenshotPath = path.join(os.tmpdir(), 'public-program-card-375.png');
+      const screenshotPath = path.join(os.tmpdir(), 'public-daurah-history-375.png');
       await writeFile(screenshotPath, Buffer.from(screenshot.data, 'base64'));
       screenshots.push(screenshotPath);
-      await evaluate(`Array.from(document.querySelectorAll('.public-home__filters button')).find(button => button.textContent === 'Reguler').click()`);
-      assert.equal(await evaluate(`document.querySelectorAll('.public-home__program-card').length`), 2, 'regular filter includes mixed and regular programs');
-      await evaluate(`Array.from(document.querySelectorAll('.public-home__filters button')).find(button => button.textContent === 'Undangan').click()`);
-      assert.equal(await evaluate(`document.querySelectorAll('.public-home__program-card').length`), 2, 'invitation filter includes mixed and invitation programs');
+      await evaluate(`document.querySelector('#agenda-daurah .public-home__program-card').scrollIntoView({block:'start'})`);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      const agendaScreenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+      const agendaPath = path.join(os.tmpdir(), 'public-daurah-agenda-375.png');
+      await writeFile(agendaPath, Buffer.from(agendaScreenshot.data, 'base64'));
+      screenshots.push(agendaPath);
     }
   }
   assert.deepEqual(failures, [], 'no browser errors');

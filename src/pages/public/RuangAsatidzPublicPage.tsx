@@ -42,8 +42,8 @@ export function RuangAsatidzPublicPage() {
       </section>
 
       <section aria-labelledby="start-title" className="public-ruang__next">
-        <div><h2 id="start-title">Belum memiliki akun?</h2><p>Lihat program daurah dan jalur pendaftarannya. Sudah terdaftar tetapi belum punya password? Gunakan aktivasi akun di halaman masuk.</p></div>
-        <div><Link to="/programs" className="public-home__button public-home__button--quiet">Lihat program daurah</Link><Link to="/login/ustadz" className="public-home__text-link">Masuk Portal Asatidz <ArrowRight aria-hidden="true" /></Link></div>
+        <div><h2 id="start-title">Belum memiliki akun?</h2><p>Lihat riwayat daurah dan informasi kegiatan yang masih dibuka. Sudah terdaftar tetapi belum punya password? Gunakan aktivasi akun di halaman masuk.</p></div>
+        <div><Link to="/programs" className="public-home__button public-home__button--quiet">Lihat riwayat daurah</Link><Link to="/login/ustadz" className="public-home__text-link">Masuk Portal Asatidz <ArrowRight aria-hidden="true" /></Link></div>
       </section>
     </div>
   </PublicLayout>;
