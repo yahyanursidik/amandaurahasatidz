@@ -16,6 +16,7 @@
     "test:ukhuwah:browser": "node scripts/check-ukhuwah-browser.mjs",
     "test:ustadz-notes:browser": "node scripts/check-ustadz-notes-browser.mjs",
     "test:communications:browser": "node scripts/check-event-communications-browser.mjs",
+    "test:event-registration:browser": "node scripts/check-public-event-registration-browser.mjs",
     "preview": "vite preview",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

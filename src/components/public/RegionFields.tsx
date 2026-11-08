@@ -33,7 +33,7 @@ export const RegionFields: React.FC<{ value: RegionValue; onChange: (next: Regio
         role="combobox" aria-autocomplete="list" aria-expanded={suggestions.length > 0} aria-controls={`${prefix}-suggestions`}
         aria-describedby={`${prefix}-region-help`} aria-invalid={requireSelection && !!value.city && !value.cityCode}
         onKeyDown={(event) => { if (event.key === "Escape") setFocused(false); if (event.key === "ArrowDown" && suggestions.length) { event.preventDefault(); document.getElementById(`${prefix}-option-0`)?.focus(); } }}
-        placeholder="Ketik kota atau kabupaten, mis. bandung barat" className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100" />
+        placeholder="Contoh: Kota Bandung" className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm disabled:bg-slate-100" />
       {suggestions.length > 0 && <ul id={`${prefix}-suggestions`} className="absolute z-10 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-300 bg-white shadow-xl" role="listbox" aria-label="Saran kabupaten atau kota">{suggestions.map((region, index) =>
         <li key={region.id} role="option" aria-selected={false}><button id={`${prefix}-option-${index}`} type="button" onMouseDown={(event) => event.preventDefault()} onFocus={() => setFocused(true)} onBlur={() => window.setTimeout(() => { if (document.activeElement?.id !== `${prefix}-city` && !document.activeElement?.closest(`#${prefix}-suggestions`)) setFocused(false); }, 150)} onClick={() => select(region)}
           onKeyDown={(event) => { if (event.key === "ArrowDown" || event.key === "ArrowUp") { event.preventDefault(); document.getElementById(`${prefix}-option-${(index + (event.key === "ArrowDown" ? 1 : suggestions.length - 1)) % suggestions.length}`)?.focus(); } if (event.key === "Escape") { setFocused(false); document.getElementById(`${prefix}-city`)?.focus(); } }}
@@ -44,7 +44,7 @@ export const RegionFields: React.FC<{ value: RegionValue; onChange: (next: Regio
     </div>
     <div><label htmlFor={`${prefix}-province`} className="mb-1 block text-sm font-bold">Provinsi{required ? " *" : ""}</label>
       <input id={`${prefix}-province`} disabled={disabled} readOnly={readOnlyProvince} value={value.province} onChange={(event) => onChange({ ...value, province: event.target.value, provinceCode: "", cityCode: "" })}
-        autoComplete="address-level1" required={required} placeholder="Terisi setelah pilih kabupaten/kota" className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm read-only:bg-slate-50 disabled:bg-slate-100" />
+        autoComplete="address-level1" required={required} placeholder="Provinsi domisili" className="min-h-11 w-full rounded-lg border border-slate-300 px-3 text-sm read-only:bg-slate-50 disabled:bg-slate-100" />
     </div>
   </div>;
 };

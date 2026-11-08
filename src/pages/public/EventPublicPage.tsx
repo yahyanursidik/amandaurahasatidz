@@ -3,10 +3,12 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { StatusBadge, StatusVariant } from "@/components/common/StatusBadge";
 import { ENV } from "@/config/env";
-import { AlertCircle, Calendar, Clock, ExternalLink, MapPin, RefreshCw } from "lucide-react";
+import { AlertCircle, ArrowRight, CalendarDays, Clock3, ExternalLink, MapPin, MessageCircle, RefreshCw } from "lucide-react";
 import { DEFAULT_EVENT_POSTER, posterObjectPosition } from "@/lib/eventPoster";
 import { PublicEventRegistrationPage } from "./PublicEventRegistrationPage";
 import { getRegularRegistrationState } from "@/lib/regularRegistration";
+import { eventTimezoneLabel, formatEventDate, formatEventDateTime, formatEventTime } from "@/lib/eventDateTime";
+import { buildEventWhatsAppUrl } from "@/lib/eventWhatsApp";
 
 type EventDay = {
   id: string;
@@ -109,20 +111,17 @@ const statusVariant = (status: string): StatusVariant => {
   return "neutral";
 };
 
-const formatDate = (value: string) =>
-  new Intl.DateTimeFormat("id-ID", {
-    day: "numeric",
-    month: "long",
-    year: "numeric",
-    timeZone: "Asia/Jakarta",
-  }).format(new Date(`${value}T00:00:00+07:00`));
+const statusLabel: Record<string, string> = {
+  PUBLISHED: "Informasi tersedia",
+  REGISTRATION_OPEN: "Pendaftaran dibuka",
+  REGISTRATION_CLOSED: "Pendaftaran ditutup",
+  ONGOING: "Sedang berlangsung",
+  COMPLETED: "Telah dilaksanakan",
+  CANCELLED: "Dibatalkan",
+};
 
-const formatTime = (value: string) =>
-  new Intl.DateTimeFormat("id-ID", {
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZone: "Asia/Jakarta",
-  }).format(new Date(value));
+const eventDateRange = (startDate: string, endDate: string) =>
+  startDate === endDate ? formatEventDate(startDate) : `${formatEventDate(startDate)} – ${formatEventDate(endDate)}`;
 
 export const EventPublicPage: React.FC = () => {
   const { slug = "" } = useParams<{ slug: string }>();
@@ -131,219 +130,135 @@ export const EventPublicPage: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [previewMode, setPreviewMode] = useState(false);
+  const [refresh, setRefresh] = useState(0);
 
-  const loadEvent = async () => {
+  useEffect(() => {
+    const controller = new AbortController();
     setLoading(true);
     setError("");
     setPreviewMode(false);
-    try {
-      const response = await fetch(`${ENV.API_BASE_URL}/events/public/${encodeURIComponent(slug)}`);
-      const result = await response.json();
-      if (!response.ok) throw new Error(response.status >= 500 ? "Informasi program sedang tidak tersedia. Coba lagi sebentar atau hubungi panitia." : result.error?.message || "Informasi event tidak dapat dimuat.");
-      setEventData(result.data);
-    } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Informasi event tidak dapat dimuat.");
-      if (import.meta.env.DEV && slug === "contoh-daurah-asatidz") {
-        setEventData(previewEvent);
-        setPreviewMode(true);
-      } else {
-        setEventData(null);
-      }
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void loadEvent();
-  }, [slug]);
+    fetch(`${ENV.API_BASE_URL}/events/public/${encodeURIComponent(slug)}`, { signal: controller.signal })
+      .then(async (response) => {
+        const result = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(response.status >= 500 ? "Informasi daurah sedang tidak tersedia. Coba lagi sebentar atau hubungi panitia." : result.error?.message || "Informasi daurah tidak dapat dimuat.");
+        return result.data as PublicEvent;
+      })
+      .then((data) => { if (!controller.signal.aborted) setEventData(data); })
+      .catch((loadError) => {
+        if (controller.signal.aborted) return;
+        setError(loadError instanceof Error ? loadError.message : "Informasi daurah tidak dapat dimuat.");
+        if (import.meta.env.DEV && slug === "contoh-daurah-asatidz") {
+          setEventData(previewEvent);
+          setPreviewMode(true);
+        } else setEventData(null);
+      })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [slug, refresh]);
 
   const schedule = useMemo(
     () =>
-      (eventData?.days || []).map((day) => ({
+      [...(eventData?.days || [])].sort((a, b) => a.date.localeCompare(b.date) || a.dayNumber - b.dayNumber).map((day) => ({
         ...day,
-        sessions: (eventData?.sessions || []).filter((session) => session.eventDayId === day.id),
+        sessions: (eventData?.sessions || []).filter((session) => session.eventDayId === day.id)
+          .sort((a, b) => a.startAt.localeCompare(b.startAt) || a.sortOrder - b.sortOrder),
       })),
     [eventData]
   );
   const regularEnabled = Boolean(eventData && ["PUBLIC_OPEN", "MIXED"].includes(eventData.audienceMode));
+  const invitationEnabled = Boolean(eventData && ["INSTITUTION_INVITATION", "INDIVIDUAL_INVITATION", "MIXED"].includes(eventData.audienceMode));
+  const registration = eventData ? getRegularRegistrationState(eventData) : null;
+  const hasEventDetails = Boolean(eventData && (eventData.description || eventData.venueName || eventData.venueAddress || eventData.mapsUrl));
+  const localNavSections = 1 + Number(hasEventDetails) + Number(regularEnabled && !previewMode);
+  const timezone = eventData?.timezone || "Asia/Jakarta";
+  const contactUrl = eventData?.publicContactWhatsapp
+    ? buildEventWhatsAppUrl(`Assalamu’alaikum warahmatullahi wabarakatuh. Saya ingin bertanya tentang ${eventData.name}. Jazakumullahu khairan.`, eventData.publicContactWhatsapp)
+    : null;
 
   useEffect(() => {
-    if (loading || !eventData || location.hash !== "#jadwal-kegiatan") return;
-    const frame = window.requestAnimationFrame(() => document.getElementById("jadwal-kegiatan")?.scrollIntoView());
+    if (loading || !eventData || !["#jadwal-kegiatan", "#formulir-reguler", "#informasi-acara"].includes(location.hash)) return;
+    const frame = window.requestAnimationFrame(() => document.getElementById(location.hash.slice(1))?.scrollIntoView());
     return () => window.cancelAnimationFrame(frame);
   }, [loading, eventData, location.hash]);
 
   return (
-    <PublicLayout>
-      <div className="mx-auto max-w-4xl">
+    <PublicLayout wide>
+      <div className="event-public">
         {loading ? (
-          <div className="space-y-4" aria-label="Memuat informasi event">
-            <div className="h-72 animate-pulse rounded-2xl bg-slate-200" />
-            <div className="h-40 animate-pulse rounded-xl bg-slate-100" />
-          </div>
+          <div className="event-public__loading" role="status" aria-label="Memuat informasi daurah"><div /><div /><span className="sr-only">Memuat informasi daurah…</span></div>
         ) : !eventData ? (
-          <div className="flex min-h-[60vh] flex-col items-center justify-center rounded-2xl border border-slate-200 bg-white p-8 text-center shadow-sm">
-            <AlertCircle className="h-10 w-10 text-rose-500" />
-            <h1 className="mt-4 text-xl font-black text-slate-900">Event tidak dapat ditampilkan</h1>
-            <p className="mt-2 max-w-md text-sm leading-6 text-slate-500">
-              Tautan mungkin tidak valid atau layanan sedang tidak tersedia.
-            </p>
-            <button
-              type="button"
-              onClick={() => void loadEvent()}
-              className="mt-5 inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white hover:bg-emerald-800"
-            >
-              <RefreshCw className="h-4 w-4" />
-              Coba lagi
-            </button>
-          </div>
+          <section className="event-public__unavailable" role="alert">
+            <AlertCircle aria-hidden="true" />
+            <h1>Daurah belum dapat ditampilkan</h1>
+            <p>{error || "Tautan mungkin tidak valid atau layanan sedang tidak tersedia."}</p>
+            <button type="button" onClick={() => setRefresh((value) => value + 1)}><RefreshCw aria-hidden="true" /> Muat ulang</button>
+          </section>
         ) : (
-          <div className="space-y-5">
-            {previewMode && (
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-950">
-                <p>API lokal belum tersambung. Halaman menampilkan data contoh untuk pratinjau UI.</p>
-                <StatusBadge label="Bukan data produksi" variant="warning" />
-              </div>
-            )}
+          <div className="event-public__content">
+            {previewMode && <p className="event-public__preview" role="status">Pratinjau lokal — informasi dan formulir ini bukan data produksi.</p>}
 
             <header className="event-public-hero">
               <div className="event-public-hero__poster">
-                <img
-                  src={eventData.posterUrl || DEFAULT_EVENT_POSTER}
-                  alt={eventData.posterAlt || `Poster ${eventData.name}`}
-                  style={{ objectPosition: posterObjectPosition(eventData.posterFocalPoint) }}
-                />
+                <img src={eventData.posterUrl || DEFAULT_EVENT_POSTER} alt={eventData.posterAlt || `Poster ${eventData.name}`}
+                  style={{ objectPosition: posterObjectPosition(eventData.posterFocalPoint) }} width="960" height="640" decoding="async"
+                  onError={(image) => { if (!image.currentTarget.src.endsWith(DEFAULT_EVENT_POSTER)) image.currentTarget.src = DEFAULT_EVENT_POSTER; }} />
               </div>
               <div className="event-public-hero__identity">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="rounded bg-emerald-900 px-2.5 py-1 font-mono text-xs font-black tracking-wide text-emerald-100">
-                    {eventData.code}
-                  </span>
-                  <StatusBadge
-                    label={eventData.status.replaceAll("_", " ")}
-                    variant={statusVariant(eventData.status)}
-                    className="border-white/20"
-                  />
-                </div>
-                <h1 className="mt-5 max-w-3xl text-3xl font-black leading-tight sm:text-4xl">{eventData.name}</h1>
-                {eventData.subtitle && (
-                  <p className="mt-3 max-w-2xl text-sm leading-6 text-emerald-100/80">{eventData.subtitle}</p>
-                )}
-                <dl className="mt-6 grid gap-px border-t border-emerald-800 sm:grid-cols-2">
-                <div className="flex gap-3 py-5 sm:pr-5">
-                  <Calendar className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
-                  <div>
-                    <dt className="text-[10px] font-black uppercase tracking-wider text-emerald-300">Tanggal</dt>
-                    <dd className="mt-1 text-xs leading-5 text-emerald-50">
-                      {formatDate(eventData.startDate)}–{formatDate(eventData.endDate)}
-                    </dd>
-                  </div>
-                </div>
-                <div className="flex gap-3 py-5 sm:border-l sm:border-emerald-800 sm:pl-5">
-                  <MapPin className="mt-0.5 h-4 w-4 shrink-0 text-emerald-300" />
-                  <div>
-                    <dt className="text-[10px] font-black uppercase tracking-wider text-emerald-300">Lokasi</dt>
-                    <dd className="mt-1 text-xs leading-5 text-emerald-50">
-                      {eventData.venueName || "Akan diumumkan"}
-                    </dd>
-                  </div>
-                </div>
+                <div className="event-public-hero__meta"><span>{eventData.code}</span><StatusBadge label={statusLabel[eventData.status] || eventData.status} variant={statusVariant(eventData.status)} /></div>
+                <h1>{eventData.name}</h1>
+                {eventData.subtitle && <p className="event-public-hero__subtitle">{eventData.subtitle}</p>}
+                <dl className="event-public-hero__facts">
+                  <div><CalendarDays aria-hidden="true" /><dt>Tanggal</dt><dd>{eventDateRange(eventData.startDate, eventData.endDate)}</dd></div>
+                  <div><MapPin aria-hidden="true" /><dt>Tempat</dt><dd>{eventData.venueName || "Akan diumumkan"}</dd></div>
                 </dl>
+                <div className="event-public-hero__actions">
+                  {regularEnabled && registration?.open && !previewMode && <a href="#formulir-reguler" className="event-public__primary">Isi pendaftaran <ArrowRight aria-hidden="true" /></a>}
+                  <a href="#jadwal-kegiatan" className="event-public__secondary">Lihat jadwal</a>
+                </div>
+                {regularEnabled && !registration?.open && !previewMode && <p className="event-public-hero__closed">{registration?.reason}</p>}
+                {invitationEnabled && <p className="event-public-hero__closed">Penerima undangan memakai tautan khusus dari panitia.</p>}
               </div>
             </header>
 
-             {regularEnabled && !previewMode && <section id="formulir-reguler" className="scroll-mt-24" aria-label="Pendaftaran reguler untuk program ini"><PublicEventRegistrationPage embeddedEvent={eventData} /></section>}
+            <nav className={`event-public__local-nav ${localNavSections === 1 ? "event-public__local-nav--one" : localNavSections === 2 ? "event-public__local-nav--two" : ""}`} aria-label="Bagian halaman daurah">
+              {hasEventDetails && <a href="#informasi-acara">Informasi</a>}<a href="#jadwal-kegiatan">Rundown</a>
+              {regularEnabled && !previewMode && <a href="#formulir-reguler">Pendaftaran</a>}
+            </nav>
 
-             {regularEnabled && previewMode && <section className="rounded-xl border border-slate-200 bg-white p-5"><h2 className="font-black">Pendaftaran reguler</h2><p className="mt-2 text-sm text-slate-600">Formulir akan tersedia pada program yang terbit dan dibuka panitia.</p></section>}
+            {!eventData.venueName && <p className="event-public__pending" role="status">Tempat acara belum diumumkan panitia.</p>}
 
-
-            {(eventData.description || eventData.venueName || eventData.venueAddress) && (
-              <section className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_18rem]">
-                <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <h2 className="text-sm font-black text-slate-900">Tentang kegiatan</h2>
-                  <p className="mt-3 text-sm leading-7 text-slate-600">
-                    {eventData.description || "Deskripsi kegiatan akan diperbarui oleh penyelenggara."}
-                  </p>
-                </div>
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
-                  <MapPin className="h-5 w-5 text-emerald-700" />
-                  <h2 className="mt-3 text-sm font-black text-slate-900">{eventData.venueName || "Lokasi acara"}</h2>
-                  <p className="mt-2 text-xs leading-5 text-slate-500">
-                    {eventData.venueAddress || "Alamat lengkap akan diumumkan."}
-                  </p>
-                  {eventData.mapsUrl && (
-                    <a
-                      href={eventData.mapsUrl}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-4 inline-flex min-h-[44px] items-center gap-2 text-xs font-black text-emerald-700 hover:text-emerald-900"
-                    >
-                      Buka petunjuk arah
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
-                  )}
-                </div>
-              </section>
-            )}
-
-            <section id="jadwal-kegiatan" className="scroll-mt-24 rounded-xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-              <div className="flex items-center gap-3 border-b border-slate-200 pb-4">
-                <Clock className="h-5 w-5 text-emerald-700" />
-                <div>
-                  <h2 className="text-sm font-black text-slate-900">Jadwal kegiatan</h2>
-                  <p className="mt-0.5 text-[11px] text-slate-500">Waktu ditampilkan dalam WIB.</p>
-                </div>
+            {hasEventDetails && <section id="informasi-acara" className="event-public__information" aria-labelledby="event-information-title">
+              <div><h2 id="event-information-title">Tentang daurah</h2><p>{eventData.description || "Rincian kegiatan akan diperbarui oleh panitia."}</p></div>
+              <div className="event-public__venue"><MapPin aria-hidden="true" /><h3>{eventData.venueName || "Tempat menyusul"}</h3><p>{eventData.venueAddress || "Alamat lengkap akan diumumkan."}</p>
+                {eventData.mapsUrl && <a href={eventData.mapsUrl} target="_blank" rel="noopener noreferrer">Petunjuk arah <ExternalLink aria-hidden="true" /></a>}
               </div>
+            </section>}
 
-              {schedule.length === 0 ? (
-                <p className="py-10 text-center text-xs text-slate-500">Jadwal rinci belum dipublikasikan.</p>
-              ) : (
-                <div className="mt-5 space-y-5">
-                  {schedule.map((day) => (
-                    <article key={day.id}>
-                      <div className="flex flex-wrap items-baseline justify-between gap-2">
-                        <h3 className="text-sm font-black text-slate-900">
-                          Hari {day.dayNumber}
-                          {day.title ? ` · ${day.title}` : ""}
-                        </h3>
-                        <time className="text-[11px] font-bold text-slate-500">{formatDate(day.date)}</time>
-                      </div>
-                      {day.sessions.length === 0 ? (
-                        <p className="mt-3 rounded-lg bg-slate-50 p-4 text-xs text-slate-500">
-                          Sesi untuk hari ini belum tersedia.
-                        </p>
-                      ) : (
-                        <ol className="mt-3 divide-y divide-slate-100 border-l-2 border-emerald-600">
-                          {day.sessions.map((session) => (
-                            <li key={session.id} className="grid gap-2 py-4 pl-4 sm:grid-cols-[7rem_minmax(0,1fr)]">
-                              <time className="font-mono text-xs font-black text-emerald-800">
-                                {formatTime(session.startAt)}–{formatTime(session.endAt)}
-                              </time>
-                              <div>
-                                <h4 className="text-xs font-black text-slate-900">{session.title}</h4>
-                                <p className="mt-1 text-[11px] text-slate-500">
-                                  {[session.room, session.moderatorName && `Moderator: ${session.moderatorName}`]
-                                    .filter(Boolean)
-                                    .join(" · ") || "Detail ruang akan diumumkan"}
-                                </p>
-                              </div>
-                            </li>
-                          ))}
-                        </ol>
-                      )}
-                    </article>
-                  ))}
-                </div>
-              )}
+            <section id="jadwal-kegiatan" className="event-public__schedule" aria-labelledby="event-schedule-title">
+              <div className="event-public__section-head"><div><h2 id="event-schedule-title">Rundown acara</h2><p>Waktu setempat: {eventTimezoneLabel(timezone)}. Tanggal mengikuti hari kegiatan yang ditetapkan panitia.</p></div><Clock3 aria-hidden="true" /></div>
+              {schedule.length === 0 ? <p className="event-public__schedule-empty">Rundown rinci belum dipublikasikan panitia.</p> : <div className="event-public__days">
+                {schedule.map((day) => <article key={day.id} className="event-public__day">
+                  <div className="event-public__day-head"><h3>Hari {day.dayNumber}{day.title ? ` · ${day.title}` : ""}</h3><time dateTime={day.date}>{formatEventDate(day.date)}</time></div>
+                  {day.sessions.length === 0 ? <p className="event-public__schedule-empty">Sesi hari ini belum diumumkan.</p> : <ol className="event-public__sessions">
+                    {day.sessions.map((session) => <li key={session.id}>
+                      <time dateTime={session.startAt}>{formatEventTime(session.startAt, timezone)} – {formatEventTime(session.endAt, timezone)}</time>
+                      <div><h4>{session.title}</h4><p>{[session.room, session.moderatorName && `Moderator: ${session.moderatorName}`].filter(Boolean).join(" · ") || "Ruang menyusul"}</p></div>
+                    </li>)}
+                  </ol>}
+                </article>)}
+              </div>}
             </section>
 
-            <footer className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-sm text-slate-600">Sudah mendaftar? Pantau status, jadwal, dan kartu peserta di portal pribadi.</p>
-              <Link to="/login/ustadz" className="text-xs font-black text-emerald-700 hover:text-emerald-900">
-                Masuk Portal Ustadz
-              </Link>
-            </footer>
+            {invitationEnabled && <section className="event-public__invitation" aria-labelledby="event-invitation-title"><h2 id="event-invitation-title">Jalur undangan</h2><p>Penerima undangan lembaga atau pribadi mendaftar melalui tautan khusus dari panitia, bukan formulir reguler di halaman ini.</p></section>}
+            {regularEnabled && !previewMode && <section id="formulir-reguler" className="event-public__registration" aria-label="Pendaftaran reguler untuk daurah ini">
+              {registration?.open && eventData.registrationCloseAt && <p className="event-public__deadline">Batas pendaftaran: {formatEventDateTime(eventData.registrationCloseAt, timezone)} {eventTimezoneLabel(timezone)}</p>}
+              <PublicEventRegistrationPage embeddedEvent={eventData} />
+            </section>}
+            {regularEnabled && previewMode && <section className="event-public__registration-note"><h2>Pendaftaran reguler</h2><p>Formulir tersedia pada daurah yang sudah diterbitkan dan dibuka panitia.</p></section>}
+            <footer className="event-public__next"><div><h2>Sudah mendaftar?</h2><p>Status, rundown, dan QR pribadi tersedia di Portal Asatidz.</p></div><div>
+              <Link to="/login/ustadz">Masuk portal <ArrowRight aria-hidden="true" /></Link>
+              {contactUrl && <a href={contactUrl} target="_blank" rel="noopener noreferrer"><MessageCircle aria-hidden="true" /> Hubungi panitia</a>}
+            </div></footer>
           </div>
         )}
       </div>
