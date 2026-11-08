@@ -1,5 +1,6 @@
-import React from "react";
-import { Link, NavLink } from "react-router-dom";
+import React, { useEffect, useRef } from "react";
+import { Link, NavLink, useLocation } from "react-router-dom";
+import { Menu } from "lucide-react";
 import { AppFooter } from "@/components/common/AppFooter";
 
 interface PublicLayoutProps {
@@ -8,27 +9,52 @@ interface PublicLayoutProps {
 }
 
 export const PublicLayout: React.FC<PublicLayoutProps> = ({ children, wide = false }) => {
+  const location = useLocation();
+  const mobileMenu = useRef<HTMLDetailsElement>(null);
+  useEffect(() => { if (mobileMenu.current) mobileMenu.current.open = false; }, [location.pathname]);
+  const closeMenu = () => { if (mobileMenu.current) mobileMenu.current.open = false; };
+  const navClass = ({ isActive }: { isActive: boolean }) => isActive ? "public-site__nav-link public-site__nav-link--active" : "public-site__nav-link";
+  const inProgramFlow = /^\/(events|invitation|check-in|card)(\/|$)/.test(location.pathname);
+  const programNavClass = ({ isActive }: { isActive: boolean }) => navClass({ isActive: isActive || inProgramFlow });
+
   return (
-    <div className="min-h-screen bg-slate-100 flex flex-col justify-between">
-      <header className="bg-white border-b border-slate-200 py-4 shadow-sm">
-        <div className={`${wide ? "max-w-6xl" : "max-w-4xl"} mx-auto px-4 flex flex-wrap items-center justify-between gap-3`}>
-          <Link to="/programs" className="flex min-w-0 items-center gap-2 rounded-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600" aria-label="Tarbiyah Sunnah — daftar program Daurah Asatidz">
-            <img src="/images/tarbiyah-sunnah-logo.svg" alt="Tarbiyah Sunnah" width="148" height="42" className="h-10 w-auto max-w-[130px] shrink-0 object-contain sm:max-w-[148px]" />
-            <span className="hidden border-l border-slate-200 pl-2 text-xs font-bold leading-tight text-slate-700 sm:inline">Daurah<br />Asatidz</span>
+    <div className="public-site">
+      <a className="public-site__skip" href="#konten-utama">Lewati ke konten</a>
+      <header className="public-site__header">
+        <div className={`public-site__bar ${wide ? "public-site__bar--wide" : ""}`}>
+          <Link to="/" className="public-site__brand" aria-label="Yayasan Tarbiyah Sunnah — Aman Daurah Asatidz, halaman utama">
+            <img src="/images/tarbiyah-sunnah-logo.svg" alt="" width="148" height="42" />
+            <span>Aman Daurah<br />Asatidz</span>
           </Link>
-          <nav aria-label="Navigasi publik" className="flex w-full flex-wrap items-center justify-between gap-2 sm:w-auto sm:justify-end sm:gap-4">
-            <NavLink to="/programs" className={({ isActive }) => `inline-flex min-h-[44px] items-center rounded px-1 text-sm font-bold hover:text-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600 ${isActive ? "text-emerald-800 underline underline-offset-4" : "text-slate-700"}`}>Program</NavLink>
-            <NavLink to="/ruang-asatidz" className={({ isActive }) => `inline-flex min-h-[44px] items-center rounded px-1 text-sm font-bold hover:text-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-600 ${isActive ? "text-emerald-800 underline underline-offset-4" : "text-slate-700"}`}>Ruang Asatidz</NavLink>
-            <Link to="/login/ustadz" className="inline-flex min-h-[44px] items-center rounded bg-emerald-800 px-3 py-2 text-sm font-bold text-white hover:bg-emerald-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-600" aria-label="Masuk ke Portal Asatidz">Masuk portal</Link>
+          <nav aria-label="Navigasi publik" className="public-site__nav">
+            <NavLink end to="/" className={navClass}>Yayasan</NavLink>
+            <NavLink to="/programs" className={programNavClass}>Program</NavLink>
+            <NavLink to="/ruang-asatidz" className={navClass}>Ruang Asatidz</NavLink>
           </nav>
+          <Link to="/login/ustadz" className="public-site__portal" aria-label="Masuk ke Portal Asatidz">Masuk portal</Link>
+          <details ref={mobileMenu} className="public-site__mobile">
+            <summary><Menu aria-hidden="true" /> Menu</summary>
+            <nav aria-label="Navigasi publik seluler">
+              <NavLink end to="/" className={navClass} onClick={closeMenu}>Yayasan</NavLink>
+              <NavLink to="/programs" className={programNavClass} onClick={closeMenu}>Program</NavLink>
+              <NavLink to="/ruang-asatidz" className={navClass} onClick={closeMenu}>Ruang Asatidz</NavLink>
+              <Link to="/login/ustadz" className="public-site__portal" onClick={closeMenu}>Masuk portal</Link>
+            </nav>
+          </details>
         </div>
       </header>
 
-      <main className={`flex-1 ${wide ? "max-w-6xl" : "max-w-4xl"} w-full mx-auto p-4 sm:p-6 my-auto`}>
+      <main id="konten-utama" className={`public-site__main ${wide ? "public-site__main--wide" : ""}`}>
         {children}
       </main>
 
-      <AppFooter className="flex flex-col items-center justify-center gap-1 border-t border-slate-200 bg-white px-4 py-5 text-center text-xs text-slate-500 sm:flex-row sm:gap-2" />
+      <div className="public-site__footer">
+        <div className="public-site__footer-inner">
+          <div><strong>Aman Daurah Asatidz</strong><p>Layanan program daurah Yayasan Tarbiyah Sunnah.</p></div>
+          <nav aria-label="Tautan penutup"><Link to="/">Yayasan</Link><Link to="/programs">Program</Link><Link to="/ruang-asatidz">Ruang Asatidz</Link><a href="https://tarbiyahsunnah.com/tentang-kami/" target="_blank" rel="noopener noreferrer">Profil resmi YTS</a></nav>
+        </div>
+        <AppFooter className="public-site__credits" />
+      </div>
     </div>
   );
 };

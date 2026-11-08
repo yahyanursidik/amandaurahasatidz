@@ -13,6 +13,17 @@ describe("event confirmation deadlines", () => {
     })).toThrow(/tidak boleh melewati/i);
   });
 
+  it("membandingkan batas undangan dengan tengah malam zona event, bukan zona server", () => {
+    expect(() => validateEventDeadlines({
+      startDate: "2027-02-10", timezone: "Asia/Jakarta",
+      invitationResponseDeadline: "2027-02-09T18:00:00.000Z",
+    })).toThrow(/tidak boleh melewati/i);
+    expect(() => validateEventDeadlines({
+      startDate: "2027-02-10", timezone: "Asia/Makassar",
+      invitationResponseDeadline: "2027-02-09T15:00:00.000Z",
+    })).not.toThrow();
+  });
+
   it("routes late confirmations to review when configured", () => {
     const result = assertAttendanceConfirmationAllowed({
       attendanceConfirmationDeadline: "2026-08-01T00:00:00Z",

@@ -13,7 +13,7 @@ import {
   users,
   ustadzInstitutionAffiliations,
 } from "../db/schema";
-import { eq, and, count, desc, inArray, or, sql } from "drizzle-orm";
+import { eq, and, count, desc, inArray, notInArray, or, sql } from "drizzle-orm";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../utils/errors";
 
@@ -604,7 +604,8 @@ export async function countApprovedParticipantsForEventRepository(eventId: strin
     .where(
       and(
         eq(eventParticipants.eventId, eventId),
-        eq(eventParticipants.approvalStatus, "APPROVED")
+        eq(eventParticipants.approvalStatus, "APPROVED"),
+        notInArray(eventParticipants.confirmationStatus, ["CANCELLED", "REPLACED"]),
       )
     );
 
@@ -613,13 +614,14 @@ export async function countApprovedParticipantsForEventRepository(eventId: strin
 
 export async function countApprovedParticipantsBySourceRepository(eventId: string, regular: boolean): Promise<number> {
   const db = getDbClient();
-  const sources = regular ? ["DIRECT_PUBLIC", "DIRECT_ADMIN_UPLOAD", "ADMIN_ENTRY"] : ["INSTITUTION_DELEGATION", "INDIVIDUAL_INVITATION"];
+  const sources = regular ? ["DIRECT_PUBLIC", "DIRECT_ADMIN_UPLOAD", "ADMIN_ENTRY"] : ["INSTITUTION_DELEGATION", "INSTITUTION_DELEGATION_REPLACEMENT", "INDIVIDUAL_INVITATION"];
   const result = await db
     .select({ total: count() })
     .from(eventParticipants)
     .where(and(
       eq(eventParticipants.eventId, eventId),
       eq(eventParticipants.approvalStatus, "APPROVED"),
+      notInArray(eventParticipants.confirmationStatus, ["CANCELLED", "REPLACED"]),
       inArray(eventParticipants.registrationSource, sources),
     ));
   return result[0]?.total || 0;

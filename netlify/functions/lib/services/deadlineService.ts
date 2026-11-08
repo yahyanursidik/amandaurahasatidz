@@ -2,6 +2,7 @@ import { ValidationError } from "../utils/errors";
 
 type DeadlineEvent = {
   startDate?: string | null;
+  timezone?: string | null;
   registrationOpenAt?: Date | string | null;
   registrationCloseAt?: Date | string | null;
   invitationResponseDeadline?: Date | string | null;
@@ -11,15 +12,25 @@ type DeadlineEvent = {
 };
 
 const asDate = (value?: Date | string | null) => value ? new Date(value) : null;
+const eventOffsets: Record<string, string> = {
+  "Asia/Jakarta": "+07:00",
+  "Asia/Makassar": "+08:00",
+  "Asia/Jayapura": "+09:00",
+};
 
 export function validateEventDeadlines(data: DeadlineEvent) {
   const start = data.startDate
-    ? new Date(data.startDate.includes("T") ? data.startDate : `${data.startDate}T00:00:00`)
+    ? new Date(data.startDate.includes("T") ? data.startDate : `${data.startDate}T00:00:00${eventOffsets[data.timezone || ""] || eventOffsets["Asia/Jakarta"]}`)
     : null;
   const registrationOpen = asDate(data.registrationOpenAt);
   const registrationClose = asDate(data.registrationCloseAt);
   const invitationDeadline = asDate(data.invitationResponseDeadline);
   const attendanceDeadline = asDate(data.attendanceConfirmationDeadline);
+
+  if ([start, registrationOpen, registrationClose, invitationDeadline, attendanceDeadline]
+    .some((value) => value && Number.isNaN(value.getTime()))) {
+    throw new ValidationError("Salah satu tanggal atau jam event tidak valid. Periksa kembali tenggat yang diisi.");
+  }
 
   if (registrationOpen && registrationClose && registrationOpen >= registrationClose) {
     throw new ValidationError("Pembukaan pendaftaran harus lebih awal daripada penutupannya.");
