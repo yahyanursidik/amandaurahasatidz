@@ -34,13 +34,14 @@ describe("bukti konfirmasi undangan", () => {
     const html = renderToStaticMarkup(<MemoryRouter initialEntries={["/invitation/institution/token"]}>
       <Routes><Route path="/invitation/institution/:token" element={<InvitationRegistrationPage />} /></Routes>
     </MemoryRouter>);
-    expect(html).toContain("Pilih kartu peserta");
+    expect(html).toContain("Pilih peserta");
     expect(html.match(/aria-label="QR peserta/g)).toHaveLength(1);
     expect(html).toContain("BukuTamanPagiSabar123456");
     expect(html).toContain("Ustadz Hasan · P-BBB");
     expect(html).toContain("/events/daurah-ilmu#jadwal-kegiatan");
     expect(html).toContain("https://wa.me/6281234567890?text=");
     expect(html).toContain("/login/ustadz");
+    expect(html.indexOf('id="akses-portal"')).toBeLessThan(html.indexOf('id="kartu-qr"'));
     expect(html).not.toContain("pqr_two.signature");
   });
 });

@@ -1,6 +1,6 @@
-/* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4
- * genre: modern-minimal · tone: calm-warm · macrostructure: Index-First
- * audience: asatidz senior dan kepala rombongan · use: simpan QR lalu temukan langkah berikutnya
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4
+ * genre: modern-minimal · tone: calm-warm · macrostructure: Narrative Workflow · design-system: design.md
+ * audience: asatidz senior dan kepala rombongan · use: temukan akses, rundown, lalu simpan QR
  */
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -37,35 +37,30 @@ export function PublicRegistrationReceipt({ event, participants, emailQueued }: 
       <CheckCircle2 aria-hidden="true" />
       <div>
         <h2 id="public-receipt-title">Pendaftaran tersimpan</h2>
-        <p>{isGroup ? `${participants.length} asatidz terdaftar. Setiap orang memiliki QR sendiri.` : "QR pribadi sudah siap disimpan."} Tidak perlu login untuk menyimpan kartu.</p>
+        <p>{isGroup ? `${participants.length} asatidz terdaftar. Pilih nama untuk melihat akses dan QR masing-masing.` : "Akses portal dan QR pribadi sudah siap."}</p>
       </div>
     </header>
 
     {emailQueued < participants.length && <p className="public-receipt__notice" role="status">Email informasi mungkin belum terkirim. Simpan kartu QR sekarang; data pendaftaran tetap tersimpan.</p>}
 
+    {isGroup && <label className="public-receipt__select" htmlFor="receipt-person">
+      <span><UsersRound aria-hidden="true" /> Pilih peserta</span>
+      <select id="receipt-person" value={selected.participantCode} onChange={(event) => { setSelectedCode(event.target.value); setCopyStatus(""); }}>
+        {participants.map((person) => <option key={person.participantCode} value={person.participantCode}>{person.fullName} · {person.participantCode}</option>)}
+      </select>
+    </label>}
+
+    <nav className="public-receipt__shortcuts" aria-label="Tautan bukti pendaftaran">
+      <Link to={event.slug ? publicRundownPath(event.slug) : "/programs"}><CalendarDays aria-hidden="true" /> {event.slug ? "Rundown" : "Program"}</Link>
+      <a href="#akses-portal"><KeyRound aria-hidden="true" /> Akses portal</a>
+      <a href="#kartu-qr"><CheckCircle2 aria-hidden="true" /> Kartu QR</a>
+    </nav>
+
     <div className="public-receipt__layout">
-      <div className="public-receipt__card-column">
-        {isGroup && <label className="public-receipt__select" htmlFor="receipt-person">
-          <span><UsersRound aria-hidden="true" /> Pilih kartu peserta</span>
-          <select id="receipt-person" value={selected.participantCode} onChange={(event) => { setSelectedCode(event.target.value); setCopyStatus(""); }}>
-            {participants.map((person) => <option key={person.participantCode} value={person.participantCode}>{person.fullName} · {person.participantCode}</option>)}
-          </select>
-        </label>}
-        <ParticipantQrCard key={selected.participantCode} eventName={event.name} person={selected} showShareActions={isGroup} />
-        {isGroup && <p className="public-receipt__group-note">Pilih nama berikutnya untuk menyimpan atau membagikan kartu miliknya. Berikan QR hanya kepada peserta yang bersangkutan.</p>}
-      </div>
-
       <div className="public-receipt__next">
-        <h3>Langkah berikutnya</h3>
-        <div className="public-receipt__actions">
-          <div><Link to={event.slug ? publicRundownPath(event.slug) : "/programs"}><CalendarDays aria-hidden="true" /><strong>{event.slug ? "Lihat rundown" : "Lihat program"}</strong><ArrowRight aria-hidden="true" /></Link><p>Jadwal terbaru di halaman program.</p></div>
-          <div><a href={registrationAttendanceWhatsAppUrl(event.name, participants, event.publicContactWhatsapp)} target="_blank" rel="noopener noreferrer"><MessageCircle aria-hidden="true" /><strong>{event.publicContactWhatsapp ? "Kabari panitia" : "Buka draf WhatsApp"}</strong><ArrowRight aria-hidden="true" /></a><p>{event.publicContactWhatsapp ? "Draf WhatsApp ke kontak panitia event." : "Nomor panitia belum tersedia; pilih kontak tujuan sendiri."}</p></div>
-        </div>
-        <p className="public-receipt__wa-note">Pesan WhatsApp tidak mencatat presensi. Saat acara, tunjukkan QR masing-masing kepada panitia.</p>
-
-        <div className="public-receipt__access">
+        <div className="public-receipt__access" id="akses-portal">
           <KeyRound aria-hidden="true" />
-          <h3>Masuk Portal Asatidz</h3>
+          <h3>Akses Portal Asatidz</h3>
           <dl>
             <dt>Username (email) untuk {selected.fullName}</dt><dd>{selected.email}</dd>
             <dt>{selected.temporaryPassword ? "Password awal" : "Password"}</dt>
@@ -85,6 +80,16 @@ export function PublicRegistrationReceipt({ event, participants, emailQueued }: 
           </Link>
           {isGroup && <p>Setiap asatidz memakai akses pribadi. Pilih nama di atas untuk melihat kartu dan petunjuk masing-masing.</p>}
         </div>
+        <div className="public-receipt__actions">
+          <a href={registrationAttendanceWhatsAppUrl(event.name, participants, event.publicContactWhatsapp)} target="_blank" rel="noopener noreferrer"><MessageCircle aria-hidden="true" /><strong>{event.publicContactWhatsapp ? "Kabari panitia" : "Buka draf WhatsApp"}</strong><ArrowRight aria-hidden="true" /></a>
+          <p>{event.publicContactWhatsapp ? "Draf WhatsApp ke kontak panitia event." : "Nomor panitia belum tersedia; pilih kontak tujuan sendiri."} Pesan ini tidak mencatat presensi.</p>
+        </div>
+      </div>
+      <div className="public-receipt__card-column" id="kartu-qr">
+        <h3>Kartu QR {isGroup ? selected.fullName : "pribadi"}</h3>
+        <p className="public-receipt__card-intro">Simpan kartu ini. Tunjukkan QR saat presensi di lokasi acara.</p>
+        <ParticipantQrCard key={selected.participantCode} eventName={event.name} person={selected} showShareActions={isGroup} />
+        {isGroup && <p className="public-receipt__group-note">Pilih nama berikutnya untuk menyimpan atau membagikan kartu miliknya. Berikan QR hanya kepada peserta yang bersangkutan.</p>}
       </div>
     </div>
   </section>;
