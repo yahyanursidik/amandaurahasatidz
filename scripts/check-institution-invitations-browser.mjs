@@ -160,6 +160,40 @@ try {
   await until(`document.querySelectorAll('article').length===2`, 'new invitation');
   assert.equal(requests.filter((item) => item.method === 'POST').length, 1, 'one create request');
   assert.equal(await evaluate(`document.body.textContent.includes('Kode unik lembaga')`), false, 'no unused code verification UI');
+
+  // Reproduce the reported limit explicitly, through the real admin editor and
+  // public page backed by the same invitation (not the event's default quota).
+  await click('Edit undangan');
+  await until(`document.querySelector('form[aria-label="Edit undangan lembaga"]')`, 'edit the existing invitation quota');
+  await evaluate(`document.querySelector('#institution-invitation-editor input[type="checkbox"]').click()`);
+  await fill('#institution-invitation-editor input[type="number"]', '2');
+  await click('Simpan perubahan');
+  await until(`document.querySelector('[role="status"]')?.textContent.includes('berhasil diperbarui')`, 'quota two saved');
+  assert.equal(requests.filter((item) => item.method === 'PATCH').at(-1).body.quota, 2);
+  await navigate('token=managed');
+  await until(`document.querySelector('form[aria-label="Formulir konfirmasi undangan"]')`, 'public quota two form');
+  assert.equal(await evaluate(`document.body.textContent.includes('Maksimal 2 orang termasuk peserta utama')`), true, 'saved invitation quota is shown publicly');
+  assert.equal(await evaluate(`document.querySelectorAll('[data-delegate]').length`), 1, 'unchecked group keeps only the main participant');
+  assert.equal(await evaluate(`[...document.querySelectorAll('button')].some(el=>el.textContent.trim()==='Tambah peserta')`), false, 'unchecked group has no add button');
+  await evaluate(`document.querySelector('input[aria-controls="invitation-delegates"]').click()`);
+  await click('Tambah peserta');
+  assert.equal(await evaluate(`document.querySelectorAll('[data-delegate]').length`), 2, 'quota two includes the main participant');
+  assert.equal(await evaluate(`[...document.querySelectorAll('button')].find(el=>el.textContent.trim()==='Tambah peserta').disabled`), true, 'a third participant is blocked');
+  await fill('input[name="delegate-1-name"]', 'Anggota yang harus dibersihkan');
+  await evaluate(`document.querySelector('input[aria-controls="invitation-delegates"]').click()`);
+  assert.equal(await evaluate(`document.querySelectorAll('[data-delegate]').length`), 1, 'unchecking removes additional forms');
+  assert.equal(await evaluate(`[...document.querySelectorAll('button')].some(el=>el.textContent.trim()==='Tambah peserta')`), false, 'unchecking removes the add button');
+  await evaluate(`document.querySelector('input[aria-controls="invitation-delegates"]').click()`);
+  await click('Tambah peserta');
+  assert.equal(await evaluate(`document.querySelector('input[name="delegate-1-name"]').value`), '', 'removed group data does not reappear');
+
+  await navigate('mode=admin');
+  await until(`document.querySelector('article h2')?.textContent===${JSON.stringify(institution.name)}`, 'return to invitation admin');
+  await click('Edit undangan');
+  await until(`document.querySelector('form[aria-label="Edit undangan lembaga"]')`, 'disable group for the same invitation');
+  await evaluate(`document.querySelector('#institution-invitation-editor input[type="checkbox"]').click()`);
+  await click('Simpan perubahan');
+  await until(`document.querySelector('[role="status"]')?.textContent.includes('berhasil diperbarui')`, 'single participant policy saved');
   await navigate('token=managed');
   await until(`document.querySelector('form[aria-label="Formulir konfirmasi undangan"]')`, 'single-delegate form');
   assert.equal(await evaluate(`document.body.textContent.includes('Saya membawa rombongan')`), false, 'admin group policy reaches public form');
@@ -234,7 +268,7 @@ try {
   await until(`document.querySelector('#command-state')?.textContent==='APPROVED/REPLACED'`, 'replacement saved');
   assert.equal(requests.find((item) => item.method === 'POST' && item.route.endsWith(`/${commandId}/replace`)).body.newUstadzId, replacementId);
   assert.deepEqual(failures, [], 'no browser exceptions or unexpected API requests');
-  console.log(JSON.stringify({ result: 'PASS', widths: [320, 390, 768, 1280], checks: ['master institution picker', 'edit persists group policy', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection'], screenshots }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', widths: [320, 390, 768, 1280], checks: ['master institution picker', 'edit persists group policy', 'quota two from admin to same public invitation', 'unchecked group hides add button and clears members', 'admin disables public group controls', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection'], screenshots }, null, 2));
 } finally {
   socket?.close(); browser?.kill(); await server.close();
   await new Promise((resolve) => setTimeout(resolve, 400));
