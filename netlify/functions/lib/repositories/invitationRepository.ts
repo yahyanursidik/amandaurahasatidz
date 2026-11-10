@@ -21,6 +21,7 @@ import { hashPassword } from "../utils/password";
 import { canIssueImmediatePassword, generateMemorableTemporaryPassword } from "../utils/memorablePassword";
 import { ConflictError, ForbiddenError, NotFoundError } from "../utils/errors";
 import { lockRegistrationEvent, assertRegistrationCapacity } from "../services/registrationCapacity";
+import { initialParticipantReviewState } from "../services/registrationReviewState";
 
 export async function findInvitationsRepository(eventId?: string) {
   const db = getDbClient();
@@ -329,10 +330,7 @@ export async function saveInstitutionDelegationRepository(
             registrationSource: invitation.invitationType === "INDIVIDUAL" ? "INDIVIDUAL_INVITATION" : "INSTITUTION_DELEGATION",
             participantCode: code,
             isDelegationLead: Boolean(delegate.isLead),
-            confirmationStatus: "CONFIRMED",
-            approvalStatus: "APPROVED",
-            confirmedAt: new Date(),
-            approvedAt: new Date(),
+            ...initialParticipantReviewState(),
           })
           .onConflictDoNothing({ target: [eventParticipants.eventId, eventParticipants.ustadzId] })
           .returning();

@@ -3,7 +3,7 @@ import { z } from "zod";
 
 const mocks = vi.hoisted(() => ({
   findParticipant: vi.fn(), findEvent: vi.fn(), countTotal: vi.fn(), countSource: vi.fn(),
-  update: vi.fn(), audit: vi.fn(), db: vi.fn(() => { throw new Error("Unexpected database access"); }),
+  update: vi.fn(), audit: vi.fn(), email: vi.fn(), db: vi.fn(() => { throw new Error("Unexpected database access"); }),
 }));
 vi.mock("../../netlify/functions/lib/db/client", () => ({ getDbClient: mocks.db }));
 vi.mock("../../netlify/functions/lib/repositories/participantRepository", () => ({
@@ -15,6 +15,7 @@ vi.mock("../../netlify/functions/lib/repositories/participantRepository", () => 
 }));
 vi.mock("../../netlify/functions/lib/repositories/eventRepository", () => ({ findEventByIdRepository: mocks.findEvent }));
 vi.mock("../../netlify/functions/lib/services/auditService", () => ({ createAuditLog: mocks.audit }));
+vi.mock("../../netlify/functions/lib/services/participantCardEmailService", () => ({ queueApprovedParticipantCardEmail: mocks.email }));
 
 import { approveParticipantService, bulkApproveParticipantsService } from "../../netlify/functions/lib/services/participantService";
 import { bulkApproveSchema } from "../../netlify/functions/lib/validations/participantValidation";
@@ -45,6 +46,7 @@ beforeEach(() => {
   mocks.countSource.mockResolvedValue(0);
   mocks.update.mockImplementation(async (id) => participant(id, { approvalStatus: "APPROVED" }));
   mocks.audit.mockResolvedValue(undefined);
+  mocks.email.mockResolvedValue(1);
 });
 
 describe("bulk approval schema and direct-service boundaries", () => {
@@ -225,6 +227,7 @@ describe("partial results, quotas, capacity and audit", () => {
     expect(z.string().uuid().safeParse(batchAudit.resourceId).success).toBe(true);
     expect(batchAudit.afterData).toEqual({ participantIds: ids.slice(0, 2), ...result });
     expect(mocks.audit).toHaveBeenCalledTimes(2); // One changed participant, one batch attempt.
+    expect(mocks.email).toHaveBeenCalledTimes(1);
     expect(mocks.db).not.toHaveBeenCalled();
   });
 });

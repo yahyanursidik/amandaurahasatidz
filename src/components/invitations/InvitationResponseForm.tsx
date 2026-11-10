@@ -124,5 +124,6 @@ export const InvitationResponseForm: React.FC<{
     </fieldset>
     {(validationError || error) && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-900">{validationError || error}</p>}
     <button type="submit" disabled={saving || expired || unavailable} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"><CheckCircle2 className="h-5 w-5" />{saving ? "Menyimpan…" : "Kirim konfirmasi"}</button>
+    {responseStatus === "ACCEPTED" && <p className="text-sm text-slate-600">Bukti pendaftaran langsung tersedia. Peserta tetap menunggu persetujuan admin sebelum QR dapat digunakan untuk absensi.</p>}
   </form>;
 };

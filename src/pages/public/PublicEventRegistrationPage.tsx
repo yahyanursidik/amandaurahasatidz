@@ -135,12 +135,12 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
       {!embeddedEvent && <nav aria-label="Navigasi pendaftaran" className="public-register__back"><Link to={`/events/${slug}`}><ArrowLeft aria-hidden="true" /> Informasi daurah</Link></nav>}
       <header ref={receiptHeadingRef} className="public-register__header scroll-mt-24">
         <div><p>{result ? "Bukti pendaftaran" : "Pendaftaran reguler"}</p>
-          {embeddedEvent ? <h2>{result ? "Kartu peserta" : "Daftar sebagai peserta"}</h2> : <h1>{result ? "Bukti pendaftaran" : event?.name || "Pendaftaran daurah"}</h1>}
+          {embeddedEvent ? <h2>{result ? "Bukti pendaftaran" : "Daftar sebagai peserta"}</h2> : <h1>{result ? "Bukti pendaftaran" : event?.name || "Pendaftaran daurah"}</h1>}
           {!result && <span>Isi data Anda. Jika datang bersama asatidz lain, tambahkan anggota rombongan di bawah.</span>}
         </div>
       </header>
       {loading ? <p role="status" className="public-register__notice">Memuat informasi daurah…</p> : !event ? <p role="alert" className="public-register__error">{error || "Daurah tidak tersedia."}</p> : result ? (
-        <PublicRegistrationReceipt event={event} participants={result.participants} emailQueued={result.emailQueued} />
+        <PublicRegistrationReceipt event={event} participants={result.participants} emailQueued={result.emailQueued} approvalStatus={result.approvalStatus} />
       ) : !registration?.open ? <div className="public-register__notice" role="status"><strong>Formulir reguler belum dapat diisi.</strong><p>{registration?.reason}</p></div> : (
         <div className="public-register__layout">
           <section className="public-register__form-panel" aria-labelledby="register-data-title">
@@ -168,7 +168,7 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
               </section>
 
               <label className="public-register__consent"><input type="checkbox" required checked={consent} onChange={(input) => setConsent(input.target.checked)} /><span>{delegates.length ? "Saya telah mendapat izin dari anggota rombongan untuk mengirim data mereka dan akan membagikan QR serta sandi masing-masing secara pribadi." : "Saya setuju data saya digunakan panitia untuk pendaftaran dan informasi daurah ini."}</span></label>
-              <div className="public-register__submit"><button disabled={busy} type="submit" className="public-register__primary">{busy ? "Menyimpan…" : `Daftarkan ${delegates.length + 1} ${delegates.length ? "orang" : "peserta"}`} <ArrowRight aria-hidden="true" /></button><p>Setelah tersimpan, kartu QR langsung muncul di halaman ini.</p></div>
+              <div className="public-register__submit"><button disabled={busy} type="submit" className="public-register__primary">{busy ? "Menyimpan…" : `Daftarkan ${delegates.length + 1} ${delegates.length ? "orang" : "peserta"}`} <ArrowRight aria-hidden="true" /></button><p>Bukti QR langsung muncul. Pendaftaran menunggu persetujuan admin sebelum bisa dipakai absensi.</p></div>
             </form>
           </section>
           <aside className="public-register__aside"><h2>Sebelum mengirim</h2><ul><li>Periksa ejaan nama, email, dan WhatsApp tiap peserta.</li><li>Setiap asatidz menggunakan QR miliknya sendiri saat presensi.</li><li>Yang sudah terdaftar tidak perlu mendaftar ulang.</li></ul><Link to="/login/ustadz">Sudah terdaftar? Masuk portal</Link>{contactUrl && <a href={contactUrl} target="_blank" rel="noopener noreferrer">Butuh bantuan? WhatsApp panitia</a>}</aside>

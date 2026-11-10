@@ -18,18 +18,21 @@ describe("bukti pendaftaran publik", () => {
     expect(message).toContain("Assalamu’alaikum");
     expect(message).toContain("Ustadz Ahmad — PAR-001");
     expect(message).toContain("Ustadz Hasan — PAR-002");
-    expect(message).toContain("kami akan hadir");
+    expect(message).toContain("kami berencana hadir");
+    expect(message).toContain("menunggu persetujuan admin");
     expect(message).not.toContain("pqr_");
     expect(registrationAttendanceWhatsAppUrl("Daurah Asatidz", participants)).toBe(`https://wa.me/?text=${encodeURIComponent(message)}`);
     expect(registrationAttendanceWhatsAppUrl("Daurah Asatidz", participants, "081234567890"))
       .toBe(`https://wa.me/6281234567890?text=${encodeURIComponent(message)}`);
-    expect(buildRegistrationAttendanceMessage("Daurah Asatidz", participants.slice(0, 1))).toContain("saya akan hadir");
+    expect(buildRegistrationAttendanceMessage("Daurah Asatidz", participants.slice(0, 1))).toContain("saya berencana hadir");
   });
 
   it("menampilkan satu QR rombongan, pemilih peserta, dan akses aktivasi email pribadi", () => {
     vi.stubGlobal("window", { location: { origin: "https://contoh.test" } });
     const html = renderToStaticMarkup(<MemoryRouter><PublicRegistrationReceipt event={{ name: "Daurah Asatidz", slug: "daurah-asatidz" }} participants={participants} emailQueued={2} /></MemoryRouter>);
     expect(html).toContain("Pilih peserta");
+    expect(html).toContain("Menunggu persetujuan admin");
+    expect(html).toContain("QR belum dapat dipakai untuk absensi");
     expect(html).toContain("Ustadz Hasan · PAR-002");
     expect(html.match(/aria-label="QR peserta/g)).toHaveLength(1);
     expect(html).toContain("ahmad@example.test");

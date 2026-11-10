@@ -9,6 +9,12 @@ export interface TemplateDefinition {
 }
 
 export const TEMPLATE_WHITELISTS: Record<string, TemplateDefinition> = {
+  REGISTRATION_APPROVED: {
+    code: "REGISTRATION_APPROVED",
+    subjectTemplate: "Pendaftaran disetujui — {{eventName}}",
+    bodyTemplate: "Assalamu'alaikum {{ustadzName}},\n\nAlhamdulillah, pendaftaran Anda untuk {{eventName}} telah disetujui panitia. Kode pribadi: {{participantCode}}.\nSimpan kartu QR pribadi: {{cardLink}}\nLihat rundown terbaru: {{rundownLink}}\n\nUsername Portal Asatidz: {{email}}\nMasuk dengan sandi yang sudah dimiliki atau buat sandi melalui email: {{portalLink}}. Jangan membagikan QR atau sandi kepada pihak lain.\n\nPanitia Aman Daurah Asatidz",
+    allowedVariables: ["ustadzName", "eventName", "participantCode", "cardLink", "email", "portalLink", "rundownLink"],
+  },
   REGISTRATION_AUTO_APPROVED: {
     code: "REGISTRATION_AUTO_APPROVED",
     subjectTemplate: "Kartu peserta dan QR — {{eventName}}",
@@ -18,8 +24,8 @@ export const TEMPLATE_WHITELISTS: Record<string, TemplateDefinition> = {
   REGISTRATION_RECEIVED: {
     code: "REGISTRATION_RECEIVED",
     subjectTemplate: "Pendaftaran diterima untuk ditinjau — {{eventName}}",
-    bodyTemplate: "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nYth. {{ustadzName}},\n\nPendaftaran Anda untuk {{eventName}} telah diterima dan sedang ditinjau panitia. Kode peserta pribadi: {{participantCode}}. Kode ini belum berarti kursi disetujui.\n\nAktivasi atau masuk akun pribadi di {{portalLink}} untuk memantau status. Jangan bagikan kode masuk email atau password kepada orang lain.\n\nJazakumullah khairan,\nPanitia Aman Daurah Asatidz",
-    allowedVariables: ["ustadzName", "eventName", "participantCode", "portalLink"],
+    bodyTemplate: "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nYth. {{ustadzName}},\n\nPendaftaran Anda untuk {{eventName}} telah diterima dan sedang ditinjau panitia. Kode peserta pribadi: {{participantCode}}. Kode dan bukti QR ini belum berarti kursi disetujui dan belum dapat digunakan untuk absensi.\n\nSimpan bukti pendaftaran: {{cardLink}}\nLihat rundown: {{rundownLink}}\nAktivasi atau masuk akun pribadi di {{portalLink}} untuk memantau status. Jangan bagikan QR, kode masuk email, atau password kepada orang lain.\n\nJazakumullah khairan,\nPanitia Aman Daurah Asatidz",
+    allowedVariables: ["ustadzName", "eventName", "participantCode", "cardLink", "rundownLink", "portalLink"],
   },
   ANNOUNCEMENT: {
     code: "ANNOUNCEMENT",
@@ -148,8 +154,9 @@ export function renderHtmlEmailTemplate(
 
   const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] || character);
   const safeVariables = Object.fromEntries(Object.entries(variables).map(([key, value]) => [key, escapeHtml(String(value ?? ""))]));
-  const htmlBody = ["ANNOUNCEMENT", "REGISTRATION_RECEIVED", "EVENT_CONTINUATION_REMINDER", "REGISTRATION_AUTO_APPROVED"].includes(templateCode)
-    ? renderBrandedTextEmailHtml(textBody, "Aman Daurah Asatidz", templateCode === "REGISTRATION_AUTO_APPROVED" ? String(variables.cardLink || "") : undefined)
+  const htmlBody = ["ANNOUNCEMENT", "REGISTRATION_RECEIVED", "EVENT_CONTINUATION_REMINDER", "REGISTRATION_AUTO_APPROVED", "REGISTRATION_APPROVED"].includes(templateCode)
+    ? renderBrandedTextEmailHtml(textBody, "Aman Daurah Asatidz", ["REGISTRATION_RECEIVED", "REGISTRATION_AUTO_APPROVED", "REGISTRATION_APPROVED"].includes(templateCode) ? String(variables.cardLink || "") : undefined,
+      templateCode === "REGISTRATION_RECEIVED" ? "Buka bukti pendaftaran" : "Buka kartu QR pribadi")
     : renderHtmlByTemplateCode(templateCode, safeVariables);
 
   return { subject, htmlBody, textBody };

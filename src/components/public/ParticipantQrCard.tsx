@@ -10,11 +10,14 @@ export type ParticipantCardDetails = {
   whatsapp?: string | null;
 };
 
-export function ParticipantQrCard({ person, eventName, showShareActions = true }: { person: ParticipantCardDetails; eventName: string; showShareActions?: boolean }) {
+export function ParticipantQrCard({ person, eventName, approvalStatus = "APPROVED", showShareActions = true }: { person: ParticipantCardDetails; eventName: string; approvalStatus?: string; showShareActions?: boolean }) {
   const canvasId = useId();
   const [downloadError, setDownloadError] = useState("");
+  const approved = approvalStatus === "APPROVED";
   const url = new URL(person.cardUrl, window.location.origin).toString();
-  const message = `Kartu peserta ${person.fullName} untuk ${eventName} (kode ${person.participantCode}). Tunjukkan QR pribadi saat presensi.`;
+  const message = approved
+    ? `Kartu peserta ${person.fullName} untuk ${eventName} (kode ${person.participantCode}). Tunjukkan QR pribadi saat presensi.`
+    : `Bukti pendaftaran ${person.fullName} untuk ${eventName} (kode ${person.participantCode}). Menunggu persetujuan admin; QR belum berlaku untuk presensi.`;
   const digits = person.whatsapp?.replace(/\D/g, "").replace(/^0/, "62") || "";
 
   const download = async () => {
@@ -44,7 +47,7 @@ export function ParticipantQrCard({ person, eventName, showShareActions = true }
     ctx.fillRect(0, 0, image.width, 130);
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 25px sans-serif";
-    ctx.fillText("KARTU PESERTA DAURAH", 35, 55);
+    ctx.fillText(approved ? "KARTU PESERTA DAURAH" : "BUKTI PENDAFTARAN", 35, 55);
     ctx.font = "18px sans-serif";
     ctx.fillText(eventName.slice(0, 47), 35, 92);
     ctx.fillStyle = "#0f172a";
@@ -56,9 +59,9 @@ export function ParticipantQrCard({ person, eventName, showShareActions = true }
     URL.revokeObjectURL(blobUrl);
     ctx.fillStyle = "#475569";
     ctx.font = "18px sans-serif";
-    ctx.fillText("Tunjukkan QR ini saat presensi", 126, 686);
+    ctx.fillText(approved ? "Tunjukkan QR ini saat presensi" : "Menunggu persetujuan admin", approved ? 126 : 150, 686);
     const link = document.createElement("a");
-    link.download = `kartu-${person.participantCode}.png`;
+    link.download = `${approved ? "kartu" : "bukti-pendaftaran"}-${person.participantCode}.png`;
     try {
       link.href = image.toDataURL("image/png");
       link.click();
@@ -66,7 +69,7 @@ export function ParticipantQrCard({ person, eventName, showShareActions = true }
   };
 
   return <article className="participant-qr-card rounded-2xl border border-emerald-200 bg-white p-5 text-slate-900 shadow-sm">
-    <p className="text-xs font-bold uppercase tracking-wider text-emerald-800">Kartu QR pribadi</p>
+    <p className="text-xs font-bold uppercase tracking-wider text-emerald-800">{approved ? "Kartu QR pribadi" : "Bukti pendaftaran pribadi"}</p>
     <h3 className="mt-2 text-lg font-black">{person.fullName}</h3>
     <p className="mt-1 text-sm">{eventName}</p>
     <p className="mt-3 text-sm font-bold text-slate-600">KODE PENDAFTARAN</p>
@@ -75,11 +78,11 @@ export function ParticipantQrCard({ person, eventName, showShareActions = true }
     <div className="my-5 flex justify-center rounded-xl border-2 border-slate-300 bg-white p-3">
       {person.qrToken?.startsWith("pqr_") ? <QRCodeSVG id={canvasId} value={person.qrToken} size={320} marginSize={4} level="M" style={{ display: "block", width: "min(100%, 320px)", height: "auto", background: "white" }} aria-label={`QR peserta ${person.fullName}`} /> : <p role="alert" className="p-5 text-rose-800">QR belum tersedia. Buka Portal Asatidz atau hubungi panitia.</p>}
     </div>
-    <p className="text-center text-sm text-slate-600">Simpan kartu ini untuk presensi. Bagikan hanya kepada peserta yang bersangkutan.</p>
+    <p className="text-center text-sm text-slate-600">{approved ? "Simpan kartu ini untuk presensi." : "Menunggu persetujuan admin. QR belum berlaku untuk presensi."} Bagikan hanya kepada peserta yang bersangkutan.</p>
     {downloadError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{downloadError}</p>}
     <div className="mt-4 flex flex-wrap gap-2 text-sm font-bold">
-      <button type="button" onClick={() => void download()} disabled={!person.qrToken?.startsWith("pqr_")} className="min-h-11 rounded-lg bg-emerald-800 px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50">Simpan kartu QR</button>
-      <a className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700 px-3 py-2 text-emerald-800" href={url} target="_blank" rel="noopener noreferrer">Buka kartu QR</a>
+      <button type="button" onClick={() => void download()} disabled={!person.qrToken?.startsWith("pqr_")} className="min-h-11 rounded-lg bg-emerald-800 px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50">{approved ? "Simpan kartu QR" : "Simpan bukti QR"}</button>
+      <a className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700 px-3 py-2 text-emerald-800" href={url} target="_blank" rel="noopener noreferrer">{approved ? "Buka kartu QR" : "Buka bukti pendaftaran"}</a>
       {showShareActions && <a className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700 px-3 py-2 text-emerald-800" href={`https://wa.me/${digits}?text=${encodeURIComponent(`${message} ${url}`)}`} target="_blank" rel="noopener noreferrer">Bagikan WhatsApp</a>}
       {showShareActions && <a className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700 px-3 py-2 text-emerald-800" href={`https://t.me/share/url?url=${encodeURIComponent(url)}&text=${encodeURIComponent(message)}`} target="_blank" rel="noopener noreferrer">Bagikan Telegram</a>}
     </div>

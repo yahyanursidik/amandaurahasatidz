@@ -12,14 +12,16 @@ type ReceiptProps = {
   event: { name: string; slug?: string; publicContactWhatsapp?: string | null };
   participants: ReceiptParticipant[];
   emailQueued: number;
+  approvalStatus?: string;
 };
 
-export function PublicRegistrationReceipt({ event, participants, emailQueued }: ReceiptProps) {
+export function PublicRegistrationReceipt({ event, participants, emailQueued, approvalStatus = "PENDING_REVIEW" }: ReceiptProps) {
   const [selectedCode, setSelectedCode] = useState(participants[0]?.participantCode || "");
   const [copyStatus, setCopyStatus] = useState("");
   const selected = participants.find((person) => person.participantCode === selectedCode) || participants[0];
   if (!selected) return null;
   const isGroup = participants.length > 1;
+  const approved = approvalStatus === "APPROVED";
   const needsActivation = selected.passwordSetupRequired || Boolean(selected.temporaryPasswordIssued && !selected.temporaryPassword);
 
   const copyPassword = async () => {
@@ -37,11 +39,12 @@ export function PublicRegistrationReceipt({ event, participants, emailQueued }: 
       <CheckCircle2 aria-hidden="true" />
       <div>
         <h2 id="public-receipt-title">Pendaftaran tersimpan</h2>
-        <p>{isGroup ? `${participants.length} asatidz terdaftar. Pilih nama untuk melihat akses dan QR masing-masing.` : "Akses portal dan QR pribadi sudah siap."}</p>
+        <p>{isGroup ? `${participants.length} asatidz telah didaftarkan. Pilih nama untuk melihat akses dan bukti masing-masing.` : "Data dan bukti pendaftaran pribadi sudah tersimpan."}</p>
       </div>
     </header>
 
-    {emailQueued < participants.length && <p className="public-receipt__notice" role="status">Email informasi mungkin belum terkirim. Simpan kartu QR sekarang; data pendaftaran tetap tersimpan.</p>}
+    {!approved && <p className="public-receipt__notice" role="status"><strong>Menunggu persetujuan admin.</strong> Simpan bukti QR dan kode pendaftaran ini. QR belum dapat dipakai untuk absensi sampai status disetujui. Pantau status di Portal Asatidz.</p>}
+    {emailQueued < participants.length && <p className="public-receipt__notice" role="status">Email informasi mungkin belum terkirim. Simpan bukti pendaftaran sekarang; data tetap tersimpan.</p>}
 
     {isGroup && <label className="public-receipt__select" htmlFor="receipt-person">
       <span><UsersRound aria-hidden="true" /> Pilih peserta</span>
@@ -87,8 +90,8 @@ export function PublicRegistrationReceipt({ event, participants, emailQueued }: 
       </div>
       <div className="public-receipt__card-column" id="kartu-qr">
         <h3>Kartu QR {isGroup ? selected.fullName : "pribadi"}</h3>
-        <p className="public-receipt__card-intro">Simpan kartu ini. Tunjukkan QR saat presensi di lokasi acara.</p>
-        <ParticipantQrCard key={selected.participantCode} eventName={event.name} person={selected} showShareActions={isGroup} />
+        <p className="public-receipt__card-intro">{approved ? "Simpan kartu ini. Tunjukkan QR saat presensi di lokasi acara." : "Simpan sebagai bukti pendaftaran. QR berlaku untuk presensi setelah admin menyetujui."}</p>
+        <ParticipantQrCard key={selected.participantCode} eventName={event.name} person={selected} approvalStatus={approvalStatus} showShareActions={isGroup} />
         {isGroup && <p className="public-receipt__group-note">Pilih nama berikutnya untuk menyimpan atau membagikan kartu miliknya. Berikan QR hanya kepada peserta yang bersangkutan.</p>}
       </div>
     </div>

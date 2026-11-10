@@ -29,7 +29,8 @@ export async function getPublicParticipantCardService(token: string) {
     .where(and(eq(eventParticipants.id, payload.participantId), eq(eventParticipants.eventId, payload.eventId)))
     .limit(1);
   if (!participant) throw new NotFoundError("Kartu peserta tidak ditemukan.");
-  if (participant.qrTokenVersion !== payload.version || participant.approvalStatus !== "APPROVED" ||
+  if (participant.qrTokenVersion !== payload.version ||
+    !["PENDING_REVIEW", "WAITLISTED", "APPROVED"].includes(participant.approvalStatus) ||
     ["CANCELLED", "REPLACED"].includes(participant.confirmationStatus)) {
     throw new ValidationError("Kartu QR peserta sudah tidak aktif. Hubungi panitia.");
   }
