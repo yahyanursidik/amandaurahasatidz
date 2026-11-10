@@ -225,7 +225,8 @@ export async function approveParticipantService(
       reason: notes || "Persetujuan kelayakan peserta daurah",
       requestId,
     }) : Promise.resolve(),
-    queueApprovedParticipantCardEmail({ id: event.id, name: event.name, slug: event.slug }, updated),
+    queueApprovedParticipantCardEmail({ id: event.id, name: event.name, slug: event.slug,
+      endDate: event.endDate, attendanceConfirmationRequired: event.attendanceConfirmationRequired }, updated),
   ]);
   if (auditResult.status === "rejected") logError(requestId || "participant-approval", "Audit persetujuan peserta gagal disimpan", auditResult.reason);
   if (emailResult.status === "rejected") logError(requestId || "participant-approval", "Antrean kartu QR setelah persetujuan gagal disimpan", emailResult.reason);

@@ -57,8 +57,29 @@ describe("pesan QR dan kode pendaftaran", () => {
   });
 
   it("meminta konfirmasi ketika peserta disetujui tetapi belum mengonfirmasi", () => {
-    expect(buildParticipantRegistrationShareLinks({ ...details, confirmationStatus: "INVITED" }, "https://contoh.id").message)
-      .toContain("Konfirmasi kehadiran terlebih dahulu");
+    const links = buildParticipantRegistrationShareLinks({ ...details, confirmationStatus: "INVITED",
+      confirmationUrl: "/confirm#pcf_private.token" }, "https://contoh.id");
+    expect(links.message).toContain("https://contoh.id/confirm#pcf_private.token");
+    expect(links.message).toContain("1. Konfirmasi hadir / berhalangan");
+    expect(links.message).toContain("2. Bukti QR pribadi (belum aktif)");
+    expect(links.confirmationUrl).toBe("https://contoh.id/confirm#pcf_private.token");
+  });
+
+  it("dua tautan tetap tersedia setelah konfirmasi agar peserta bisa mengundurkan diri", () => {
+    const links = buildParticipantRegistrationShareLinks({ ...details,
+      confirmationUrl: "/confirm#pcf_private.token", attendanceConfirmationRequired: true }, "https://contoh.id");
+    expect(links.message).toContain("1. Status hadir / mengundurkan diri");
+    expect(links.message).toContain("2. Kartu QR pribadi (aktif)");
+    expect(links.message).toContain("https://contoh.id/confirm#pcf_private.token");
+    expect(links.message).toContain("https://contoh.id/card?token=pqr_abc.def");
+  });
+
+  it("tidak membagikan tautan lagi setelah peserta membatalkan", () => {
+    const links = buildParticipantRegistrationShareLinks({ ...details, confirmationStatus: "CANCELLED",
+      confirmationUrl: "/confirm#pcf_private.token" }, "https://contoh.id");
+    expect(links.cardUrl).toBeNull();
+    expect(links.confirmationUrl).toBeNull();
+    expect(links.message).not.toContain("pqr_abc");
   });
 
   it("memakai telepon cadangan jika WhatsApp invalid dan menolak header mailto tersisip", () => {
@@ -88,6 +109,14 @@ describe("layanan berbagi peserta yang dibatasi event", () => {
     const { PgDialect } = await import("drizzle-orm/pg-core");
     const query = new PgDialect().sqlToQuery(mocks.where.mock.calls[0][0]);
     expect(query.params).toEqual([details.participantId, details.eventId]);
+  });
+
+  it("menyediakan tautan pribadi lagi setelah hadir dikonfirmasi, untuk perubahan rencana", async () => {
+    mocks.rows = [{ ...details, id: details.participantId, endDate: "2099-12-31",
+      attendanceConfirmationRequired: true, qrTokenVersion: 1 }];
+    const result = await getParticipantShareService(details.eventId, details.participantId);
+    expect(result.confirmationUrl).toMatch(/^\/confirm#pcf_/);
+    expect(result.cardUrl).toBe("/card?token=pqr_abc.def");
   });
 
   it("tidak menerbitkan QR untuk peserta pending", async () => {

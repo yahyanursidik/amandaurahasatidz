@@ -7646,3 +7646,64 @@
 .institution-delegation__intro { margin: var(--space-institution-xs) 0 0; color: var(--color-institution-muted); font-size: var(--text-institution-small); line-height: 1.5; }
 .institution-delegation li > a { display: grid; gap: var(--space-institution-xs); min-width: 0; color: var(--color-institution-accent); font-weight: 750; }
 .institution-delegation li small { color: var(--color-institution-muted); font-size: var(--text-institution-small); font-weight: 600; }
+
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4
+ * genre: modern-minimal · macrostructure: Narrative Workflow · design-system: design.md
+ * variation: decision-first status, not the receipt's access-first layout
+ * contrast: pass (40–41) · mobile: pass (34, 49–57)
+ * Public personal confirmation and receipt handoff, with one clear decision on small screens.
+ */
+.public-receipt__confirmation { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-public-sm); margin-top: var(--space-public-md); border: 1px solid var(--color-public-rule); border-radius: var(--radius-public-control); background: var(--color-public-success-paper); color: var(--color-public-ink); padding: var(--space-public-md); }
+.public-receipt__confirmation > svg { width: 1.4rem; height: 1.4rem; color: var(--color-public-accent); }
+.public-receipt__confirmation strong { display: block; font-size: var(--text-public-body); }
+.public-receipt__confirmation p { margin: var(--space-public-xs) 0 var(--space-public-sm); font-size: var(--text-public-small); line-height: 1.55; }
+.public-receipt__confirmation-actions { display: flex; flex-wrap: wrap; gap: var(--space-public-xs); }
+.public-receipt__confirmation-actions a, .public-receipt__confirmation-actions button { display: inline-flex; min-height: 3rem; align-items: center; justify-content: center; gap: var(--space-public-xs); border: 1px solid var(--color-public-accent); border-radius: var(--radius-public-control); background: var(--color-public-surface); color: var(--color-public-accent); padding-inline: var(--space-public-md); font-weight: 800; text-decoration: none; white-space: nowrap; cursor: pointer; }
+.public-receipt__confirmation-actions a:first-child { background: var(--color-public-accent); color: var(--color-public-accent-ink); }
+.public-receipt__confirmation a svg { width: 1rem; height: 1rem; }
+.public-receipt__confirmation a:focus-visible, .public-receipt__confirmation button:focus-visible { outline: 3px solid var(--color-public-focus); outline-offset: 2px; }
+.public-receipt__confirmation a:active, .public-receipt__confirmation button:active { transform: translateY(1px); }
+.public-receipt__confirmation-note { font-weight: 700; }
+.public-confirm { width: min(100% - 2rem, 42rem); margin-inline: auto; padding-block: var(--space-public-xl) var(--space-public-2xl); color: var(--color-public-ink); font-family: var(--font-public-body); }
+.public-confirm__eyebrow { display: flex; align-items: center; gap: var(--space-public-xs); color: var(--color-public-accent); font-size: var(--text-public-small); font-weight: 800; }
+.public-confirm__eyebrow svg { width: 1.1rem; height: 1.1rem; }
+.public-confirm h1 { margin: var(--space-public-xs) 0 var(--space-public-lg); font-family: var(--font-public-display); font-size: clamp(2rem, 6vw, 3rem); line-height: 1.1; overflow-wrap: anywhere; }
+.public-confirm h2 { margin: 0; font-family: var(--font-public-display); font-size: clamp(1.2rem, 3vw, 1.5rem); line-height: 1.25; overflow-wrap: anywhere; }
+.public-confirm__identity { border: 1px solid var(--color-public-rule); border-radius: var(--radius-public-panel); background: var(--color-public-surface); color: var(--color-public-ink); padding: var(--space-public-lg); }
+.public-confirm__identity > p { margin: 0 0 var(--space-public-xs); color: var(--color-public-muted); }
+.public-confirm__facts { display: grid; gap: var(--space-public-xs); margin-top: var(--space-public-md); color: var(--color-public-muted); font-size: var(--text-public-small); }
+.public-confirm__facts span { display: flex; align-items: center; gap: var(--space-public-xs); min-width: 0; overflow-wrap: anywhere; }
+.public-confirm__facts svg { flex: none; width: 1rem; height: 1rem; color: var(--color-public-accent); }
+.public-confirm__facts strong { color: var(--color-public-ink); font-variant-numeric: tabular-nums; }
+.public-confirm__state { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--space-public-sm); margin-top: var(--space-public-md); border: 1px solid var(--color-public-rule); border-radius: var(--radius-public-control); background: var(--color-public-success-paper); color: var(--color-public-ink); padding: var(--space-public-md); }
+.public-confirm__state--muted { border-color: var(--color-public-rule); background: var(--color-public-surface); }
+.public-confirm__state > svg { width: 1.5rem; height: 1.5rem; color: var(--color-public-accent); }
+.public-confirm__state--muted > svg { color: var(--color-public-muted); }
+.public-confirm__state p, .public-confirm__decision p, .public-confirm__decline p, .public-confirm__privacy { margin: var(--space-public-xs) 0 0; color: var(--color-public-muted); font-size: var(--text-public-small); line-height: 1.6; }
+.public-confirm__deadline { margin: var(--space-public-md) 0 0; color: var(--color-public-ink); font-size: var(--text-public-small); font-weight: 800; }
+.public-confirm__decision { margin-top: var(--space-public-lg); }
+.public-confirm__primary, .public-confirm__secondary, .public-confirm__danger, .public-confirm__cancel { display: inline-flex; min-height: 3.5rem; align-items: center; justify-content: center; gap: var(--space-public-sm); border: 1px solid var(--color-public-accent); border-radius: var(--radius-public-control); padding-inline: var(--space-public-md); font-size: 1.05rem; font-weight: 800; white-space: nowrap; cursor: pointer; }
+.public-confirm__primary { width: 100%; background: var(--color-public-accent); color: var(--color-public-accent-ink); }
+.public-confirm__primary svg { width: 1.4rem; height: 1.4rem; flex: none; }
+.public-confirm__primary svg:last-child { margin-inline-start: auto; }
+.public-confirm__secondary { width: 100%; margin-top: var(--space-public-sm); background: var(--color-public-surface); color: var(--color-public-accent); }
+.public-confirm__secondary svg { width: 1.3rem; height: 1.3rem; }
+.public-confirm__decline { margin-top: var(--space-public-md); border: 1px solid var(--color-public-rule); border-radius: var(--radius-public-panel); background: var(--color-public-surface); color: var(--color-public-ink); padding: var(--space-public-md); }
+.public-confirm__decline > div { display: grid; gap: var(--space-public-xs); margin-top: var(--space-public-md); }
+.public-confirm__danger { border-color: var(--color-public-error); background: var(--color-public-error); color: var(--color-public-paper); }
+.public-confirm__cancel { border-color: var(--color-public-rule); background: var(--color-public-paper); color: var(--color-public-ink); }
+.public-confirm button:disabled { cursor: not-allowed; opacity: .55; }
+.public-confirm button:focus-visible, .public-confirm a:focus-visible { outline: 3px solid var(--color-public-focus); outline-offset: 2px; }
+.public-confirm button:active, .public-confirm__links a:active { transform: translateY(1px); }
+.public-confirm__feedback, .public-confirm__error { margin-top: var(--space-public-md); border: 1px solid var(--color-public-rule); border-radius: var(--radius-public-control); background: var(--color-public-surface); color: var(--color-public-ink); padding: var(--space-public-md); line-height: 1.55; }
+.public-confirm__feedback p { margin: var(--space-public-xs) 0; }
+.public-confirm__error { border-color: var(--color-public-error); background: var(--color-public-error-paper); color: var(--color-public-ink); }
+.public-confirm__card { min-width: 0; margin-top: var(--space-public-lg); }
+.public-confirm__links { display: grid; gap: var(--space-public-xs); margin-top: var(--space-public-lg); }
+.public-confirm__links a { display: inline-flex; min-width: 0; min-height: 3rem; align-items: center; justify-content: center; gap: var(--space-public-xs); border: 1px solid var(--color-public-rule); border-radius: var(--radius-public-control); background: var(--color-public-surface); color: var(--color-public-accent); padding-inline: var(--space-public-sm); font-weight: 800; text-decoration: none; white-space: nowrap; }
+.public-confirm__links svg { width: 1.1rem; height: 1.1rem; flex: none; }
+.public-confirm__privacy { margin-top: var(--space-public-md); text-align: center; }
+@media (min-width: 40rem) { .public-confirm__facts { grid-template-columns: repeat(2, minmax(0, 1fr)); } .public-confirm__decline > div, .public-confirm__links { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 39.999rem) { .public-receipt__confirmation-actions > * { width: 100%; } }
+@media (hover: hover) and (pointer: fine) { .public-confirm__primary:hover:not(:disabled), .public-receipt__confirmation-actions a:first-child:hover { background: var(--color-public-focus); } .public-confirm__secondary:hover:not(:disabled), .public-confirm__links a:hover, .public-confirm__cancel:hover:not(:disabled), .public-receipt__confirmation-actions a:not(:first-child):hover, .public-receipt__confirmation-actions button:hover { background: var(--color-public-paper); } }
+@media (prefers-reduced-motion: reduce) { .public-confirm button:active, .public-confirm__links a:active, .public-receipt__confirmation a:active, .public-receipt__confirmation button:active { transform: none; } }

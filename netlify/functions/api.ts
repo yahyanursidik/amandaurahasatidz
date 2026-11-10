@@ -25,6 +25,7 @@ import { validateRequestData } from "./lib/utils/validator";
 import { submitPublicRegistrationSchema } from "./lib/validations/publicRegistrationValidation";
 import { submitPublicRegistrationService } from "./lib/services/publicRegistrationService";
 import { getPublicParticipantCardService } from "./lib/services/participantCardService";
+import { getPublicParticipantConfirmationService, submitPublicParticipantConfirmationService } from "./lib/services/participantConfirmationService";
 import { getParticipantShareService } from "./lib/services/participantShareService";
 import { createManualParticipantService } from "./lib/services/manualParticipantService";
 import { manualParticipantSchema } from "./lib/validations/participantValidation";
@@ -930,6 +931,27 @@ export const handler: Handler = async (event, _context) => {
         "Cache-Control": "no-store", "Referrer-Policy": "no-referrer",
       };
       return { statusCode: response.statusCode, body: response.body, headers };
+    }
+
+    if (["/confirmations/public/status", "/confirmations/public/decision"].includes(path) && method === "POST") {
+      const body = event.body ? JSON.parse(event.body) : {};
+      const token = body?.token;
+      if (typeof token !== "string" || !token.startsWith("pcf_") || token.length > 512) {
+        throw new ValidationError("Tautan konfirmasi tidak valid.");
+      }
+      const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+      const deciding = path.endsWith("/decision");
+      const limit = checkRateLimit(`public_confirmation_${deciding ? "decision" : "status"}_${clientIp}_${token.slice(-16)}`,
+        deciding ? 5 : 30, deciding ? 600000 : 60000);
+      if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak permintaan. Coba lagi sebentar.", requestId, 429);
+      const decision = body?.decision;
+      if (deciding && decision !== "CONFIRM" && decision !== "DECLINE") {
+        throw new ValidationError("Pilih 'Insya Allah hadir' atau 'Berhalangan'.");
+      }
+      const result = !deciding ? await getPublicParticipantConfirmationService(token)
+        : await submitPublicParticipantConfirmationService(token, decision, requestId);
+      const response = buildSuccessResponse(result, requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
     }
 
     const participantShareMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/([a-f0-9-]+)\/share$/i);

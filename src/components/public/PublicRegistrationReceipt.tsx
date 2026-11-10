@@ -4,12 +4,13 @@
  */
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, CalendarDays, CheckCircle2, KeyRound, MessageCircle, UsersRound } from "lucide-react";
+import { ArrowRight, CalendarDays, CheckCircle2, Clock3, KeyRound, MessageCircle, UsersRound } from "lucide-react";
 import { ParticipantQrCard } from "@/components/public/ParticipantQrCard";
 import { publicRundownPath, registrationAttendanceWhatsAppUrl, type ReceiptParticipant } from "@/lib/publicRegistrationReceipt";
+import { buildEventWhatsAppUrl } from "@/lib/eventWhatsApp";
 
 type ReceiptProps = {
-  event: { name: string; slug?: string; publicContactWhatsapp?: string | null };
+  event: { name: string; slug?: string; publicContactWhatsapp?: string | null; attendanceConfirmationRequired?: boolean };
   participants: ReceiptParticipant[];
   emailQueued: number;
   approvalStatus?: string;
@@ -18,11 +19,22 @@ type ReceiptProps = {
 export function PublicRegistrationReceipt({ event, participants, emailQueued, approvalStatus = "PENDING_REVIEW" }: ReceiptProps) {
   const [selectedCode, setSelectedCode] = useState(participants[0]?.participantCode || "");
   const [copyStatus, setCopyStatus] = useState("");
+  const [linkCopied, setLinkCopied] = useState(false);
   const selected = participants.find((person) => person.participantCode === selectedCode) || participants[0];
   if (!selected) return null;
   const isGroup = participants.length > 1;
   const approved = approvalStatus === "APPROVED";
   const needsActivation = selected.passwordSetupRequired || Boolean(selected.temporaryPasswordIssued && !selected.temporaryPassword);
+  const confirmationShareUrl = isGroup && selected.confirmationUrl && selected.whatsapp
+    ? buildEventWhatsAppUrl([
+      "Assalamu’alaikum warahmatullahi wabarakatuh.", "",
+      `Ustadz ${selected.fullName}, pendaftaran ${event.name} telah tersimpan dengan kode ${selected.participantCode}.`,
+      "1. Status & konfirmasi pribadi (setelah disetujui admin, tanpa login):",
+      new URL(selected.confirmationUrl, window.location.origin).toString(), "",
+      "2. Bukti QR pendaftaran (aktif untuk presensi setelah disetujui dan memilih hadir):",
+      new URL(selected.cardUrl, window.location.origin).toString(), "",
+      "Kedua tautan ini khusus untuk Ustadz. Jazakumullahu khairan.",
+    ].join("\n"), selected.whatsapp) : null;
 
   const copyPassword = async () => {
     if (!selected.temporaryPassword) return;
@@ -34,6 +46,12 @@ export function PublicRegistrationReceipt({ event, participants, emailQueued, ap
     }
   };
 
+  const copyConfirmationLink = async () => {
+    if (!selected.confirmationUrl) return;
+    try { await navigator.clipboard.writeText(new URL(selected.confirmationUrl, window.location.origin).toString()); setLinkCopied(true); }
+    catch { setLinkCopied(false); }
+  };
+
   return <section className="public-receipt" aria-labelledby="public-receipt-title">
     <header className="public-receipt__header">
       <CheckCircle2 aria-hidden="true" />
@@ -43,12 +61,23 @@ export function PublicRegistrationReceipt({ event, participants, emailQueued, ap
       </div>
     </header>
 
-    {!approved && <p className="public-receipt__notice" role="status"><strong>Menunggu persetujuan admin.</strong> Simpan bukti QR dan kode pendaftaran ini. QR belum dapat dipakai untuk absensi sampai status disetujui. Pantau status di Portal Asatidz.</p>}
+    {!approved && <p className="public-receipt__notice" role="status"><strong>Saat mendaftar: menunggu persetujuan admin.</strong> QR belum dapat dipakai untuk absensi. Lihat status terbaru melalui tautan pribadi di bawah.</p>}
+    {selected.confirmationUrl && <div className="public-receipt__confirmation" role="status">
+      <Clock3 aria-hidden="true" /><div><strong>Langkah setelah disetujui</strong>
+        <p>Pilih hadir atau berhalangan lewat tautan ini. Jika rencana berubah, bisa mengundurkan diri sebelum presensi. Tidak perlu login. {isGroup ? "Tiap asatidz punya tautan sendiri." : ""}</p>
+        <div className="public-receipt__confirmation-actions">
+          <Link to={selected.confirmationUrl}>Lihat status & konfirmasi <ArrowRight aria-hidden="true" /></Link>
+          <button type="button" onClick={() => void copyConfirmationLink()}>{linkCopied ? "Tautan tersalin" : "Salin tautan"}</button>
+          {confirmationShareUrl && <a href={confirmationShareUrl} target="_blank" rel="noopener noreferrer">Kirim ke WhatsApp peserta</a>}
+        </div>
+        {isGroup && confirmationShareUrl && <p className="public-receipt__confirmation-note">Tujuan: {selected.whatsapp}. Pastikan nomor ini milik {selected.fullName} sebelum mengirim.</p>}
+      </div>
+    </div>}
     {emailQueued < participants.length && <p className="public-receipt__notice" role="status">Email informasi mungkin belum terkirim. Simpan bukti pendaftaran sekarang; data tetap tersimpan.</p>}
 
     {isGroup && <label className="public-receipt__select" htmlFor="receipt-person">
       <span><UsersRound aria-hidden="true" /> Pilih peserta</span>
-      <select id="receipt-person" value={selected.participantCode} onChange={(event) => { setSelectedCode(event.target.value); setCopyStatus(""); }}>
+      <select id="receipt-person" value={selected.participantCode} onChange={(event) => { setSelectedCode(event.target.value); setCopyStatus(""); setLinkCopied(false); }}>
         {participants.map((person) => <option key={person.participantCode} value={person.participantCode}>{person.fullName} · {person.participantCode}</option>)}
       </select>
     </label>}
@@ -90,8 +119,8 @@ export function PublicRegistrationReceipt({ event, participants, emailQueued, ap
       </div>
       <div className="public-receipt__card-column" id="kartu-qr">
         <h3>Kartu QR {isGroup ? selected.fullName : "pribadi"}</h3>
-        <p className="public-receipt__card-intro">{approved ? "Simpan kartu ini. Tunjukkan QR saat presensi di lokasi acara." : "Simpan sebagai bukti pendaftaran. QR berlaku untuk presensi setelah admin menyetujui."}</p>
-        <ParticipantQrCard key={selected.participantCode} eventName={event.name} person={selected} approvalStatus={approvalStatus} showShareActions={isGroup} />
+        <p className="public-receipt__card-intro">{approved ? "Simpan kartu ini. Tunjukkan QR saat presensi di lokasi acara." : "Simpan sebagai bukti pendaftaran. Periksa status terbaru melalui tautan pribadi. QR berlaku untuk presensi setelah admin menyetujui dan Ustadz mengonfirmasi kehadiran."}</p>
+        <ParticipantQrCard key={selected.participantCode} eventName={event.name} person={selected} approvalStatus={approvalStatus} confirmationStatus={event.attendanceConfirmationRequired === false ? "CONFIRMED" : "INVITED"} showShareActions={isGroup} />
         {isGroup && <p className="public-receipt__group-note">Pilih nama berikutnya untuk menyimpan atau membagikan kartu miliknya. Berikan QR hanya kepada peserta yang bersangkutan.</p>}
       </div>
     </div>

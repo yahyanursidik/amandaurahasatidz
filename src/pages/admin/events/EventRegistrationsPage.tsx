@@ -102,6 +102,7 @@ type Participant = {
   eventParticipationCount?: number;
   isDelegationLead: boolean;
   confirmationStatus: string;
+  confirmationStatusReason?: string | null;
   approvalStatus: string;
   statusReason?: string | null;
   institutionId?: string | null;
@@ -364,7 +365,7 @@ export const EventRegistrationsPage: React.FC = () => {
   useEffect(() => { setSearch(requestedSearch); }, [requestedSearch]);
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") || "ALL");
   const debouncedSearch = useDebouncedValue(search.trim());
-  const participantStatus = ["PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED"].includes(statusFilter) ? statusFilter : "ALL";
+  const participantStatus = ["PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED", "AWAITING_CONFIRMATION", "CANCELLED"].includes(statusFilter) ? statusFilter : "ALL";
   const participantFilterKey = JSON.stringify([debouncedSearch, participantStatus, participantSource, requestedInstitutionId, requestedInvitationId, id]);
   const [pagination, setPagination] = useState({ key: participantFilterKey, page: 1 });
   const participantPage = pagination.key === participantFilterKey ? pagination.page : 1;
@@ -545,7 +546,7 @@ export const EventRegistrationsPage: React.FC = () => {
   }, [loadData]);
 
   useEffect(() => {
-    setStatusFilter((participantView ? ["PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED"] : ["DRAFT", "SENT", "OPENED", "ACCEPTED", "DECLINED", "REVOKED"]).includes(requestedStatus)
+    setStatusFilter((participantView ? ["PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED", "AWAITING_CONFIRMATION", "CANCELLED"] : ["DRAFT", "SENT", "OPENED", "ACCEPTED", "DECLINED", "REVOKED"]).includes(requestedStatus)
       ? requestedStatus
       : "ALL");
   }, [participantView, requestedStatus]);
@@ -579,7 +580,7 @@ export const EventRegistrationsPage: React.FC = () => {
         const matchesSearch = `${participant.ustadzName} ${participant.participantCode} ${participant.institutionName || ""}`
           .toLowerCase()
           .includes(search.toLowerCase());
-        return matchesSearch && (participantSource === "ALL" || participantSourceCategory(participant.registrationSource) === participantSource) && (!requestedInstitutionId || participant.institutionId === requestedInstitutionId) && (!requestedInvitationId || participant.invitationId === requestedInvitationId) && (statusFilter === "ALL" || participant.approvalStatus === statusFilter || statusFilter === "DECLINED" && participant.approvalStatus === "REJECTED");
+        return matchesSearch && (participantSource === "ALL" || participantSourceCategory(participant.registrationSource) === participantSource) && (!requestedInstitutionId || participant.institutionId === requestedInstitutionId) && (!requestedInvitationId || participant.invitationId === requestedInvitationId) && (statusFilter === "ALL" || participant.approvalStatus === statusFilter || statusFilter === "DECLINED" && participant.approvalStatus === "REJECTED" || statusFilter === "CANCELLED" && participant.confirmationStatus === "CANCELLED" || statusFilter === "AWAITING_CONFIRMATION" && participant.approvalStatus === "APPROVED" && participant.confirmationStatus === "INVITED");
       }),
     [participants, search, statusFilter, participantSource, requestedInstitutionId, requestedInvitationId, demoMode]
   );
@@ -1180,7 +1181,7 @@ export const EventRegistrationsPage: React.FC = () => {
         <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_13rem_13rem]">
           <label className="relative block"><span className="sr-only">Cari peserta</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama, kode peserta, atau lembaga" className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-sm" /></label>
           <label className="block"><span className="sr-only">Filter jalur pendaftaran</span><select aria-label="Filter jalur pendaftaran" value={participantSource} onChange={(event) => { const next = new URLSearchParams(searchParams); if (event.target.value === "ALL") next.delete("source"); else next.set("source", event.target.value); setSearchParams(next, { replace: true }); }} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold"><option value="ALL">Semua jalur</option><option value="REGULAR">Pendaftaran reguler</option><option value="INSTITUTION">Undangan lembaga</option><option value="INDIVIDUAL">Undangan pribadi</option></select></label>
-          <label className="block"><span className="sr-only">Filter status peserta</span><select aria-label="Filter status peserta" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold"><option value="ALL">Semua status</option><option value="PENDING_REVIEW">Menunggu tinjauan</option><option value="APPROVED">Disetujui</option><option value="WAITLISTED">Daftar tunggu</option><option value="DECLINED">Ditolak</option></select></label>
+          <label className="block"><span className="sr-only">Filter status peserta</span><select aria-label="Filter status peserta" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold"><option value="ALL">Semua status</option><option value="PENDING_REVIEW">Menunggu tinjauan</option><option value="AWAITING_CONFIRMATION">Belum konfirmasi hadir</option><option value="APPROVED">Disetujui</option><option value="WAITLISTED">Daftar tunggu</option><option value="DECLINED">Ditolak</option><option value="CANCELLED">Berhalangan / mundur</option></select></label>
         </div>
         {showBulkApproval && <BulkParticipantApprovalPanel key={id} eventId={id} eventName={eventDeadline?.name}
           participants={selectionCandidates} filteredParticipants={filteredParticipants} pageParticipants={pagedParticipants}
@@ -1225,7 +1226,7 @@ export const EventRegistrationsPage: React.FC = () => {
                       <span className="mt-0.5 block whitespace-nowrap text-xs text-slate-500">{registrationTime.time}</span>
                     </div>
                    </div></td>
-                  <td data-label="Konfirmasi"><StatusBadge label={participantConfirmationLabel(participant.confirmationStatus)} variant={participant.confirmationStatus === "CONFIRMED" ? "success" : "neutral"} /></td>
+                  <td data-label="Konfirmasi"><StatusBadge label={participantConfirmationLabel(participant.confirmationStatus, participant.confirmationStatusReason)} variant={participant.confirmationStatus === "CONFIRMED" ? "success" : "neutral"} /></td>
                   <td data-label="Persetujuan" className="max-w-36"><StatusBadge label={participantApprovalLabel(participant.approvalStatus)} variant={participant.approvalStatus === "APPROVED" ? "success" : participant.approvalStatus === "PENDING_REVIEW" ? "warning" : "neutral"} />{["REJECTED", "DECLINED", "WAITLISTED", "PENDING_REVIEW"].includes(participant.approvalStatus) && <p className="mt-1 text-sm text-amber-900">{participant.statusReason ? `Alasan: ${participant.statusReason}` : "Alasan belum dicatat"}</p>}</td>
                   <td data-label="Aksi"><div className="flex max-w-72 flex-wrap gap-2">
                     <ParticipantProfileDialog
@@ -1241,6 +1242,7 @@ export const EventRegistrationsPage: React.FC = () => {
                         address: participant.ustadzAddress,
                         approvalStatus: participant.approvalStatus,
                         confirmationStatus: participant.confirmationStatus,
+                        confirmationStatusReason: participant.confirmationStatusReason,
                         registrationSource: participant.registrationSource,
                         registeredAt: participant.registeredAt,
                         eventName: participant.eventName,
@@ -1272,7 +1274,7 @@ export const EventRegistrationsPage: React.FC = () => {
                         publicUrl: eventDeadline?.slug ? `${window.location.origin}/events/${encodeURIComponent(eventDeadline.slug)}` : undefined,
                       }}
                     />
-                     <ParticipantShareDialog eventId={id} participantId={participant.id} participantName={participant.ustadzName} demoMode={demoMode} />
+                     {!['CANCELLED', 'REPLACED'].includes(participant.confirmationStatus) && <ParticipantShareDialog eventId={id} participantId={participant.id} participantName={participant.ustadzName} demoMode={demoMode} />}
                      <ParticipantManagementDialog key={`manage-${participant.id}`} eventId={id} participant={{ id: participant.id, name: participant.ustadzName,
                        participantCode: participant.participantCode, approvalStatus: participant.approvalStatus, confirmationStatus: participant.confirmationStatus }}
                        permissions={staffPermissions} disabled={loading || Boolean(participantBusy) || Boolean(participantImportBusy)} demoMode={demoMode}

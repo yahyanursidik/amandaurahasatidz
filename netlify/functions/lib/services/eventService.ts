@@ -82,6 +82,7 @@ export async function getEventBySlugPublicService(slug: string) {
     venueName: event.venueName,
     venueAddress: event.venueAddress,
     publicContactWhatsapp: event.publicContactWhatsapp,
+    attendanceConfirmationRequired: event.attendanceConfirmationRequired,
     mapsUrl: event.mapsUrl,
     registrationOpenAt: event.registrationOpenAt,
     registrationCloseAt: event.registrationCloseAt,

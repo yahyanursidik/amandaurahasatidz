@@ -45,6 +45,12 @@ export interface ParticipantQrPayload {
   version: number;
 }
 
+export interface ParticipantConfirmationPayload {
+  participantId: string;
+  eventId: string;
+  expiresAt: number;
+}
+
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function participantQrSecret() {
@@ -58,6 +64,45 @@ function participantQrSecret() {
     throw new Error("PARTICIPANT_QR_SECRET atau SESSION_SECRET belum dikonfigurasi.");
   }
   return "fallback_participant_qr_secret_for_local_development_2026";
+}
+
+function participantConfirmationSecret() {
+  const secret = process.env.PARTICIPANT_CONFIRMATION_SECRET ||
+    process.env.SESSION_SECRET || process.env.JWT_SECRET || process.env.AUTH_SECRET ||
+    process.env.INVITATION_OTP_SECRET;
+  if (!secret && (process.env.APP_ENV === "production" || process.env.CONTEXT === "production")) {
+    throw new Error("SESSION_SECRET atau PARTICIPANT_CONFIRMATION_SECRET belum dikonfigurasi.");
+  }
+  // A purpose-specific key keeps a QR or session signature unusable for decisions.
+  return crypto.createHmac("sha256", secret || "fallback_participant_confirmation_secret_for_local_development_2026")
+    .update("participant-confirmation:v1").digest();
+}
+
+export function signParticipantConfirmationToken(payload: ParticipantConfirmationPayload) {
+  if (!UUID_PATTERN.test(payload.participantId) || !UUID_PATTERN.test(payload.eventId) ||
+    !Number.isSafeInteger(payload.expiresAt) || payload.expiresAt <= 0) {
+    throw new Error("Payload konfirmasi peserta tidak valid.");
+  }
+  const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const signature = crypto.createHmac("sha256", participantConfirmationSecret()).update(encoded).digest("base64url");
+  return `pcf_${encoded}.${signature}`;
+}
+
+export function verifyParticipantConfirmationToken(rawToken: string, now = Date.now()): ParticipantConfirmationPayload | null {
+  const token = rawToken.trim();
+  if (!token.startsWith("pcf_") || token.length > 512) return null;
+  const parts = token.slice(4).split(".");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
+  const expected = Buffer.from(crypto.createHmac("sha256", participantConfirmationSecret())
+    .update(parts[0]).digest("base64url"));
+  const received = Buffer.from(parts[1]);
+  if (expected.length !== received.length || !crypto.timingSafeEqual(expected, received)) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
+    if (!UUID_PATTERN.test(payload.participantId) || !UUID_PATTERN.test(payload.eventId) ||
+      !Number.isSafeInteger(payload.expiresAt) || payload.expiresAt <= now) return null;
+    return payload;
+  } catch { return null; }
 }
 
 export function signParticipantQrToken(

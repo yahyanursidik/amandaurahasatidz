@@ -5,7 +5,7 @@ export const participantPageQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(100000).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(25),
   search: z.string().trim().max(100).default(""),
-  status: z.enum(["ALL", "NEEDS_ACTION", "PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED", "REJECTED", "CANCELLED"]).default("ALL"),
+  status: z.enum(["ALL", "NEEDS_ACTION", "AWAITING_CONFIRMATION", "PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED", "REJECTED", "CANCELLED"]).default("ALL"),
   source: z.enum(["ALL", "REGULAR", "INSTITUTION", "INDIVIDUAL"]).default("ALL"),
   contact: z.enum(["ALL", "COMPLETE", "INCOMPLETE", "NO_WHATSAPP", "NO_PORTAL"]).default("ALL"),
   institution: z.string().trim().max(180).optional(),

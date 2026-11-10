@@ -11,6 +11,7 @@ import {
   institutions,
 } from "../db/schema";
 import { eq, and, desc, isNull, asc } from "drizzle-orm";
+import { assertParticipantEligibleForCheckin } from "../services/deadlineService";
 
 export async function findAttendanceScheduleForEventRepository(eventId: string) {
   const db = getDbClient();
@@ -115,6 +116,15 @@ export async function recordAttendanceTransactionRepository(data: {
   sourceDevice?: string;
 }) {
   return await withTransaction(async (tx) => {
+    // Recheck while holding the participant row: a public "Berhalangan" response
+    // cannot race a QR scan and leave an attendance record on a cancelled seat.
+    const [participant] = await tx.select().from(eventParticipants)
+      .where(and(eq(eventParticipants.id, data.participantId), eq(eventParticipants.eventId, data.eventId)))
+      .limit(1).for("update");
+    const [event] = await tx.select({ attendanceConfirmationRequired: events.attendanceConfirmationRequired })
+      .from(events).where(eq(events.id, data.eventId)).limit(1);
+    if (!participant || !event) throw new Error("Peserta atau event tidak ditemukan saat presensi.");
+    assertParticipantEligibleForCheckin(participant, event);
     const unitCondition = data.sessionId
       ? eq(attendanceRecords.eventSessionId, data.sessionId)
       : and(

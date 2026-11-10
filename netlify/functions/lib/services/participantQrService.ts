@@ -28,6 +28,7 @@ export async function getParticipantQrTokenService(participantId: string): Promi
       qrIssuedAt: eventParticipants.qrIssuedAt,
       status: eventParticipants.confirmationStatus,
       approvalStatus: eventParticipants.approvalStatus,
+      attendanceConfirmationRequired: events.attendanceConfirmationRequired,
       eventName: events.name,
       ustadzName: ustadzProfiles.fullName,
     })
@@ -51,6 +52,9 @@ export async function getParticipantQrTokenService(participantId: string): Promi
   }
   if (p.approvalStatus !== "APPROVED") {
     throw new ForbiddenError("QR presensi tersedia setelah data peserta disetujui panitia.");
+  }
+  if (p.attendanceConfirmationRequired && p.status !== "CONFIRMED") {
+    throw new ForbiddenError("Konfirmasikan kehadiran pribadi sebelum membuka QR presensi.");
   }
 
   const issuedAt = p.qrIssuedAt || new Date();

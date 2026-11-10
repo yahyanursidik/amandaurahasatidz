@@ -58,10 +58,10 @@ export function assertParticipantEligibleForCheckin(
   if (["CANCELLED", "REPLACED"].includes(participant.confirmationStatus)) {
     throw new ValidationError(`Presensi ditolak: peserta berstatus ${participant.confirmationStatus}.`);
   }
-  if (event.attendanceConfirmationRequired !== false && participant.confirmationStatus !== "CONFIRMED") {
-    throw new ValidationError("Presensi ditolak: peserta belum mengonfirmasi kehadiran.");
-  }
   if (participant.approvalStatus !== "APPROVED") {
     throw new ValidationError("Presensi ditolak: data peserta belum disetujui panitia.");
+  }
+  if (event.attendanceConfirmationRequired !== false && participant.confirmationStatus !== "CONFIRMED") {
+    throw new ValidationError("Presensi ditolak: peserta belum mengonfirmasi kehadiran.");
   }
 }

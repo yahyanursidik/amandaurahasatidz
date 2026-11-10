@@ -18,6 +18,7 @@ type EventSummary = {
   endDate: string;
   venueName: string | null;
   publicContactWhatsapp?: string | null;
+  attendanceConfirmationRequired?: boolean;
   status: string;
   audienceMode: string;
   regularQuota: number | null;

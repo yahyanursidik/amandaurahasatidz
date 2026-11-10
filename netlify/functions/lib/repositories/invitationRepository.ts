@@ -330,7 +330,7 @@ export async function saveInstitutionDelegationRepository(
             registrationSource: invitation.invitationType === "INDIVIDUAL" ? "INDIVIDUAL_INVITATION" : "INSTITUTION_DELEGATION",
             participantCode: code,
             isDelegationLead: Boolean(delegate.isLead),
-            ...initialParticipantReviewState(),
+            ...initialParticipantReviewState(event.attendanceConfirmationRequired),
           })
           .onConflictDoNothing({ target: [eventParticipants.eventId, eventParticipants.ustadzId] })
           .returning();

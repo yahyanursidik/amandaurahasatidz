@@ -15,7 +15,7 @@ export const PublicLayout: React.FC<PublicLayoutProps> = ({ children, wide = fal
   useEffect(() => { if (mobileMenu.current) mobileMenu.current.open = false; }, [location.pathname]);
   const closeMenu = () => { if (mobileMenu.current) mobileMenu.current.open = false; };
   const navClass = ({ isActive }: { isActive: boolean }) => isActive ? "public-site__nav-link public-site__nav-link--active" : "public-site__nav-link";
-  const inProgramFlow = /^\/(events|invitation|check-in|card)(\/|$)/.test(location.pathname);
+  const inProgramFlow = /^\/(events|invitation|check-in|card|confirm)(\/|$)/.test(location.pathname);
   const programNavClass = ({ isActive }: { isActive: boolean }) => navClass({ isActive: isActive || inProgramFlow });
 
   return (

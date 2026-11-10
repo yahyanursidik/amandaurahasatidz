@@ -99,7 +99,7 @@ describe("Email Engine, Queue & Template Whitelist Unit Tests", () => {
     expect(html).toContain("PAR-2026-0099");
     expect(html).toContain("Pendaftaran Berhasil");
     expect(html).toContain("Ustadz Zaid bin Ali");
-    expect(html).toContain("no-reply@radiotarbiyahsunnah.com");
+    expect(html).toContain("no-reply@yts.web.id");
   });
 
   it("includes the Tarbiyah Sunnah logo in transactional and broadcast email when APP_URL is configured", () => {

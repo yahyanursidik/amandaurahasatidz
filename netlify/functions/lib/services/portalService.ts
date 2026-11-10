@@ -184,7 +184,7 @@ export async function confirmOwnPortalAttendanceService(
   if (!participation) throw new NotFoundError("Kepesertaan tidak ditemukan pada akun Anda.");
   if (["CANCELLED", "REPLACED"].includes(participation.confirmationStatus) ||
       ["CANCELLED", "ARCHIVED"].includes(participation.eventStatus) ||
-      participation.approvalStatus === "DECLINED") {
+      participation.approvalStatus !== "APPROVED") {
     throw new ForbiddenError("Kepesertaan ini tidak dapat dikonfirmasi. Hubungi panitia.");
   }
   if (participation.confirmationStatus !== "CONFIRMED") {

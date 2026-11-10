@@ -21,5 +21,7 @@ describe("jalur peserta lintas modul", () => {
     expect(participantApprovalLabel("PENDING_REVIEW")).toBe("Menunggu tinjauan");
     expect(participantApprovalLabel("APPROVED")).toBe("Disetujui");
     expect(participantConfirmationLabel("CONFIRMED")).toBe("Sudah konfirmasi");
+    expect(participantConfirmationLabel("CANCELLED", "Mengundurkan diri melalui tautan pribadi tanpa login.")).toBe("Mengundurkan diri");
+    expect(participantConfirmationLabel("CANCELLED", "Berhalangan melalui tautan pribadi tanpa login.")).toBe("Berhalangan");
   });
 });

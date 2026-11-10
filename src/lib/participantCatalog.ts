@@ -46,6 +46,8 @@ export function participantApprovalLabel(status: string): string {
   return approvalLabels[status] || status.replaceAll("_", " ");
 }
 
-export function participantConfirmationLabel(status: string): string {
+export function participantConfirmationLabel(status: string, reason?: string | null): string {
+  if (status === "CANCELLED" && reason?.startsWith("Mengundurkan diri melalui tautan pribadi")) return "Mengundurkan diri";
+  if (status === "CANCELLED" && reason?.startsWith("Berhalangan melalui tautan pribadi")) return "Berhalangan";
   return confirmationLabels[status] || status.replaceAll("_", " ");
 }

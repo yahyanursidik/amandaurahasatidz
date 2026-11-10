@@ -40,6 +40,7 @@ import {
 import { buildInstitutionInvitationPath } from "../../../../src/lib/invitationUrl";
 import { signCardForParticipant, cardPath } from "./participantCardService";
 import { queueRegistrationReceivedEmails } from "./participantCardEmailService";
+import { participantConfirmationPath, signConfirmationForParticipant } from "./participantConfirmationLink";
 import { countApprovedParticipantsBySourceRepository, countApprovedParticipantsForEventRepository } from "../repositories/participantRepository";
 import { logError } from "../utils/logger";
 import { invitationAllowsGroup, invitationParticipantLimit, isInvitationPending } from "../../../../src/lib/institutionInvitation";
@@ -451,6 +452,7 @@ export async function getPublicInstitutionInvitationService(rawToken: string, re
       venueName: event.venueName,
       venueAddress: event.venueAddress,
       publicContactWhatsapp: event.publicContactWhatsapp,
+      attendanceConfirmationRequired: event.attendanceConfirmationRequired,
       posterUrl: event.posterUrl,
       posterAlt: event.posterAlt,
       posterFocalPoint: event.posterFocalPoint,
@@ -634,7 +636,8 @@ export async function submitInstitutionResponseService(
   });
 
   const [emailResult, auditResult] = await Promise.allSettled([
-    queueRegistrationReceivedEmails({ id: event.id, name: event.name, slug: event.slug }, cards),
+    queueRegistrationReceivedEmails({ id: event.id, name: event.name, slug: event.slug,
+      endDate: event.endDate, attendanceConfirmationRequired: event.attendanceConfirmationRequired }, cards),
     payload.isFinal ? createAuditLog({
       actorUserId: null,
       action: "INVITATION_FINAL_RESPONSE_SUBMITTED",
@@ -651,7 +654,9 @@ export async function submitInstitutionResponseService(
 
   return {
     response: savedResponse,
-    participants: saved.participants.map((person, index) => ({ ...person, whatsapp: cards[index].whatsapp, qrToken: cards[index].qrToken, cardUrl: cardPath(cards[index].qrToken) })),
+    participants: saved.participants.map((person, index) => ({ ...person, whatsapp: cards[index].whatsapp, qrToken: cards[index].qrToken,
+      cardUrl: cardPath(cards[index].qrToken), confirmationUrl: event.attendanceConfirmationRequired
+        ? participantConfirmationPath(signConfirmationForParticipant(person, event.endDate)) : null })),
     portalAccounts,
     emailQueued,
     message: payload.isFinal
@@ -710,6 +715,7 @@ export async function getPublicIndividualInvitationService(rawToken: string, req
       venueName: event.venueName,
       venueAddress: event.venueAddress,
       publicContactWhatsapp: event.publicContactWhatsapp,
+      attendanceConfirmationRequired: event.attendanceConfirmationRequired,
       posterUrl: event.posterUrl,
       posterAlt: event.posterAlt,
       posterFocalPoint: event.posterFocalPoint,
@@ -758,7 +764,8 @@ export async function submitIndividualResponseService(rawToken: string, payload:
       shownOnce: Boolean(credential?.temporaryPassword) };
   });
 
-  const [emailResult, auditResult] = await Promise.allSettled([queueRegistrationReceivedEmails({ id: event.id, name: event.name, slug: event.slug }, cards), createAuditLog({
+  const [emailResult, auditResult] = await Promise.allSettled([queueRegistrationReceivedEmails({ id: event.id, name: event.name, slug: event.slug,
+    endDate: event.endDate, attendanceConfirmationRequired: event.attendanceConfirmationRequired }, cards), createAuditLog({
     actorUserId: null,
     action: "INDIVIDUAL_INVITATION_RSVP_SUBMITTED",
     resourceType: "INVITATION_RESPONSE",
@@ -773,7 +780,9 @@ export async function submitIndividualResponseService(rawToken: string, payload:
 
   return {
     response: saved.response,
-    participants: saved.participants.map((person, index) => ({ ...person, whatsapp: cards[index].whatsapp, qrToken: cards[index].qrToken, cardUrl: cardPath(cards[index].qrToken) })),
+    participants: saved.participants.map((person, index) => ({ ...person, whatsapp: cards[index].whatsapp, qrToken: cards[index].qrToken,
+      cardUrl: cardPath(cards[index].qrToken), confirmationUrl: event.attendanceConfirmationRequired
+        ? participantConfirmationPath(signConfirmationForParticipant(person, event.endDate)) : null })),
     portalAccounts,
     emailQueued,
     message: payload.responseStatus === "ACCEPTED"

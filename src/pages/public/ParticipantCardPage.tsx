@@ -9,7 +9,7 @@ import { ParticipantQrCard } from "@/components/public/ParticipantQrCard";
 import { ENV } from "@/config/env";
 import { publicRundownPath } from "@/lib/publicRegistrationReceipt";
 
-type Card = { ustadzName: string; eventName: string; eventSlug?: string | null; participantCode: string; opaqueQrToken: string; approvalStatus: string };
+type Card = { ustadzName: string; eventName: string; eventSlug?: string | null; participantCode: string; opaqueQrToken: string; approvalStatus: string; confirmationStatus: string; attendanceConfirmationRequired: boolean };
 
 export function ParticipantCardPage() {
   const [params] = useSearchParams();
@@ -32,7 +32,7 @@ export function ParticipantCardPage() {
   }, [token]);
 
   return <PublicLayout><main className="participant-card-page">
-    <h1>{card?.approvalStatus === "APPROVED" ? "Kartu peserta" : "Bukti pendaftaran"}</h1>
+    <h1>{card?.approvalStatus === "APPROVED" && (card.confirmationStatus === "CONFIRMED" || !card.attendanceConfirmationRequired) ? "Kartu peserta" : "Bukti pendaftaran"}</h1>
     {loading ? <p role="status">Memuat kartu peserta…</p> : error ? <p role="alert" className="rounded-xl bg-rose-50 p-4 text-rose-900">{error}</p> : card &&
       <>
         <nav className="participant-card-page__links" aria-label="Informasi peserta">
@@ -41,8 +41,10 @@ export function ParticipantCardPage() {
         </nav>
         <p className="participant-card-page__note">Untuk keamanan, password tidak ditampilkan di tautan kartu yang bisa dibagikan. Masuk dengan email pribadi; jika lupa sandi, buat sandi baru melalui email di halaman login.</p>
         {card.approvalStatus !== "APPROVED" && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 font-semibold text-amber-950">Pendaftaran menunggu persetujuan admin. QR ini adalah bukti pendaftaran dan belum dapat digunakan untuk absensi.</p>}
+        {card.approvalStatus === "APPROVED" && card.attendanceConfirmationRequired && card.confirmationStatus !== "CONFIRMED" && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 font-semibold text-amber-950">Pendaftaran disetujui, tetapi QR belum aktif. Buka tautan konfirmasi pribadi dari bukti pendaftaran atau email untuk memilih kehadiran tanpa login.</p>}
         <ParticipantQrCard eventName={card.eventName} person={{ fullName: card.ustadzName, participantCode: card.participantCode,
-          qrToken: card.opaqueQrToken, cardUrl: `/card?token=${encodeURIComponent(token)}` }} approvalStatus={card.approvalStatus} />
+          qrToken: card.opaqueQrToken, cardUrl: `/card?token=${encodeURIComponent(token)}` }} approvalStatus={card.approvalStatus}
+          confirmationStatus={card.confirmationStatus} confirmationRequired={card.attendanceConfirmationRequired} />
       </>}
   </main></PublicLayout>;
 }

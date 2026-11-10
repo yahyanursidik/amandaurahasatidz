@@ -11,13 +11,13 @@ import { formatEventDate, formatEventDateTime, eventTimezoneLabel } from "@/lib/
 
 type InvitationData = {
   invitation: { invitationNumber: string; quota?: number | null; allowGroup?: boolean; responseDeadline?: string | null; status: string };
-  event: { name: string; slug?: string; timezone?: string; startDate: string; endDate: string; venueName?: string | null; publicContactWhatsapp?: string | null };
+  event: { name: string; slug?: string; timezone?: string; startDate: string; endDate: string; venueName?: string | null; publicContactWhatsapp?: string | null; attendanceConfirmationRequired?: boolean };
   institution?: { name: string; code: string } | null;
   recipient?: { fullName: string } | null;
 };
 type Submission = {
   message: string;
-  participants?: Array<{ id: string; participantCode: string; qrToken: string; cardUrl: string; whatsapp?: string | null; approvalStatus: string }>;
+  participants?: Array<{ id: string; participantCode: string; qrToken: string; cardUrl: string; confirmationUrl?: string | null; whatsapp?: string | null; approvalStatus: string }>;
   emailQueued?: number;
   portalAccounts?: Array<{ participantId: string; participantName: string; email: string; temporaryPassword?: string | null; temporaryPasswordIssued?: boolean; passwordSetupRequired?: boolean; loginUrl: string; setupError?: string }>;
 };
@@ -46,6 +46,7 @@ export const InvitationRegistrationPage: React.FC = () => {
       participantCode: person.participantCode,
       qrToken: person.qrToken,
       cardUrl: person.cardUrl,
+      confirmationUrl: person.confirmationUrl,
       passwordSetupRequired: account?.passwordSetupRequired ?? !account?.temporaryPassword,
       temporaryPassword: account?.temporaryPassword,
       temporaryPasswordIssued: account?.temporaryPasswordIssued,

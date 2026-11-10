@@ -1,8 +1,8 @@
-/** A submitted registration records intent to attend, not an admin decision. */
-export function initialParticipantReviewState(now = new Date()) {
+/** Registration is not an attendance confirmation when the event requires a later personal response. */
+export function initialParticipantReviewState(confirmationRequired = true, now = new Date()) {
   return {
-    confirmationStatus: "CONFIRMED" as const,
+    confirmationStatus: confirmationRequired ? "INVITED" as const : "CONFIRMED" as const,
     approvalStatus: "PENDING_REVIEW" as const,
-    confirmedAt: now,
+    confirmedAt: confirmationRequired ? null : now,
   };
 }

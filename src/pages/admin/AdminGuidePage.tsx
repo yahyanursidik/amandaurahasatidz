@@ -75,11 +75,12 @@ export const ADMIN_GUIDE_STAGES: GuideStage[] = [
     steps: [
       "Buat tautan unik per lembaga. Kode unik lembaga dibuat otomatis; bagikan tautan dan kode melalui WhatsApp atau email.",
       "Pantau respons undangan dan perwakilan lembaga. Untuk peserta reguler, gunakan formulir publik; admin juga dapat menambah manual atau mengimpor CSV dari template.",
-      "Tinjau persetujuan dan akses portal. Setiap asatidz mendapat QR pribadi untuk check-in per individu, termasuk yang didaftarkan oleh ketua rombongan.",
+      "Setujui peserta, lalu kirim tautan konfirmasi pribadi dari tombol Bagikan QR / kode. Setiap asatidz—termasuk anggota rombongan—memilih hadir atau berhalangan tanpa login; QR aktif setelah konfirmasi bila diwajibkan.",
     ],
     actions: [
       { label: "Undangan", to: "/registrations?view=invitations", eventScoped: true },
       { label: "Peserta", to: "/registrations?view=participants", eventScoped: true },
+      { label: "Belum konfirmasi", to: "/registrations?view=participants&status=AWAITING_CONFIRMATION", eventScoped: true },
       { label: "Data lembaga", to: "/admin/institutions" },
     ],
   },
