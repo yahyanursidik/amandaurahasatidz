@@ -13,6 +13,7 @@ import { queueParticipantCardEmails } from "./participantCardEmailService";
 import { logError } from "../utils/logger";
 import { hashPassword } from "../utils/password";
 import { canIssueImmediatePassword, generateMemorableTemporaryPassword } from "../utils/memorablePassword";
+import { lockRegistrationEvent, assertRegistrationCapacity } from "./registrationCapacity";
 
 type PublicRegistrationInput = {
   fullName: string;
@@ -90,6 +91,9 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
   }
 
   const result = await withTransaction(async (tx) => {
+    const currentEvent = await lockRegistrationEvent(tx, event.id);
+    assertPublicRegistrationOpen(currentEvent);
+    await assertRegistrationCapacity(tx, currentEvent, "DIRECT_PUBLIC", people.length);
     const role = (await tx.select().from(roles).where(eq(roles.code, "USTADZ")).limit(1))[0];
     if (!role) throw new ConflictError("Konfigurasi peran asatidz belum siap. Hubungi admin.");
     // Fetch candidate identities in two queries instead of two queries per member.
@@ -98,7 +102,7 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
       tx.select().from(ustadzProfiles).where(inArray(ustadzProfiles.email, emails)),
       tx.select().from(users).where(inArray(users.email, emails)),
     ]);
-    // Validate the complete group before writing: Neon HTTP may not support interactive transactions.
+    // Validate every identity before writing; all following writes also roll back together.
     const existing = [];
     for (const person of people) {
       const profiles = profileRows.filter((item) => item.email === person.email);

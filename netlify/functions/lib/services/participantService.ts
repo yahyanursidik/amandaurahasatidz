@@ -8,6 +8,7 @@ import {
   updateParticipantApprovalStatusRepository,
   replaceParticipantTxRepository,
   provisionParticipantPortalAccountRepository,
+  findReplacementCandidatesRepository,
 } from "../repositories/participantRepository";
 import { randomInt } from "node:crypto";
 import { findEventByIdRepository } from "../repositories/eventRepository";
@@ -119,10 +120,13 @@ export async function updateParticipantStatusService(
   toStatus: string,
   reason?: string,
   actorUserId?: string,
-  requestId?: string
+  requestId?: string,
+  expectedEventId?: string,
 ) {
   const existing = await findParticipantByIdRepository(participantId);
   if (!existing) throw new NotFoundError(`Peserta ID ${participantId} tidak ditemukan.`);
+  if (expectedEventId && existing.eventId.toLowerCase() !== expectedEventId.toLowerCase()) throw new NotFoundError("Peserta tidak ditemukan pada event ini.");
+  if (!["CONFIRMED", "CANCELLED"].includes(toStatus)) throw new ValidationError("Gunakan aksi persetujuan, daftar tunggu, penolakan, atau penggantian yang sesuai.");
 
   let lateReview = false;
   if (toStatus === "CONFIRMED") {
@@ -223,10 +227,12 @@ export async function waitlistParticipantService(
   participantId: string,
   reason: string,
   actorUserId?: string,
-  requestId?: string
+  requestId?: string,
+  expectedEventId?: string,
 ) {
   const participant = await findParticipantByIdRepository(participantId);
   if (!participant) throw new NotFoundError(`Peserta ID ${participantId} tidak ditemukan.`);
+  assertParticipantCommandScope(participant, expectedEventId);
 
   const updated = await updateParticipantApprovalStatusRepository(participantId, "WAITLISTED", reason, actorUserId);
 
@@ -250,12 +256,14 @@ export async function declineParticipantService(
   participantId: string,
   reason: string,
   actorUserId?: string,
-  requestId?: string
+  requestId?: string,
+  expectedEventId?: string,
 ) {
   const participant = await findParticipantByIdRepository(participantId);
   if (!participant) throw new NotFoundError(`Peserta ID ${participantId} tidak ditemukan.`);
+  assertParticipantCommandScope(participant, expectedEventId);
 
-  const updated = await updateParticipantApprovalStatusRepository(participantId, "REJECTED", reason, actorUserId);
+  const updated = await updateParticipantApprovalStatusRepository(participantId, "DECLINED", reason, actorUserId);
 
   if (requestId) {
     await createAuditLog({
@@ -277,10 +285,14 @@ export async function cancelParticipantService(
   participantId: string,
   reason: string,
   actorUserId?: string,
-  requestId?: string
+  requestId?: string,
+  expectedEventId?: string,
 ) {
   const participant = await findParticipantByIdRepository(participantId);
   if (!participant) throw new NotFoundError(`Peserta ID ${participantId} tidak ditemukan.`);
+  if (expectedEventId && participant.eventId.toLowerCase() !== expectedEventId.toLowerCase()) throw new NotFoundError("Peserta tidak ditemukan pada event ini.");
+  if (participant.confirmationStatus === "CANCELLED") return participant;
+  if (!["INVITED", "CONFIRMED"].includes(participant.confirmationStatus)) throw new ValidationError("Peserta sudah diganti atau tidak aktif.");
 
   const updated = await updateParticipantStatusRepository(participantId, "CANCELLED", reason, actorUserId);
 
@@ -305,9 +317,27 @@ export async function replaceParticipantService(
   newUstadzId: string,
   reason: string,
   actorUserId?: string,
-  requestId?: string
+  requestId?: string,
+  expectedEventId?: string,
 ) {
+  const participant = await findParticipantByIdRepository(oldParticipantId);
+  if (!participant) throw new NotFoundError("Peserta yang diganti tidak ditemukan.");
+  assertParticipantCommandScope(participant, expectedEventId);
   return await replaceParticipantTxRepository(oldParticipantId, newUstadzId, reason, actorUserId, requestId);
+}
+
+function assertParticipantCommandScope(participant: { eventId: string; confirmationStatus: string; approvalStatus: string }, eventId?: string) {
+  if (eventId && participant.eventId.toLowerCase() !== eventId.toLowerCase()) throw new NotFoundError("Peserta tidak ditemukan pada event ini.");
+  if (!["INVITED", "CONFIRMED"].includes(participant.confirmationStatus) || ["DECLINED", "REJECTED"].includes(participant.approvalStatus)) {
+    throw new ValidationError("Peserta sudah tidak aktif atau telah ditolak.");
+  }
+}
+
+export async function getParticipantReplacementOptionsService(eventId: string, participantId: string, search: string) {
+  const participant = await findParticipantByIdRepository(participantId);
+  if (!participant) throw new NotFoundError("Peserta tidak ditemukan.");
+  assertParticipantCommandScope(participant, eventId);
+  return findReplacementCandidatesRepository(eventId, search);
 }
 
 // 6. Command bulkApproveParticipants (Returns per-item succeeded/failed breakdown)

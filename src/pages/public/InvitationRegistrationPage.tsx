@@ -1,17 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { ArrowLeft, CheckCircle2, Plus, Trash2 } from "lucide-react";
+import { ArrowLeft, CalendarDays, CheckCircle2, MapPin } from "lucide-react";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
-import { RegionFields, type RegionValue } from "@/components/public/RegionFields";
+import { InvitationResponseForm, type InvitationResponsePayload } from "@/components/invitations/InvitationResponseForm";
 import { ENV } from "@/config/env";
 import { PublicRegistrationReceipt } from "@/components/public/PublicRegistrationReceipt";
 import { readRegistrationProof, saveRegistrationProof } from "@/lib/registrationProof";
 import type { ReceiptParticipant } from "@/lib/publicRegistrationReceipt";
+import { formatEventDate, formatEventDateTime, eventTimezoneLabel } from "@/lib/eventDateTime";
 
-type Delegate = { fullName: string; email: string; whatsapp: string; phone: string; address: string; region: RegionValue; isLead: boolean };
 type InvitationData = {
-  invitation: { invitationNumber: string; quota?: number | null; responseDeadline?: string | null; status: string };
-  event: { name: string; slug?: string; startDate: string; endDate: string; venueName?: string | null; publicContactWhatsapp?: string | null };
+  invitation: { invitationNumber: string; quota?: number | null; allowGroup?: boolean; responseDeadline?: string | null; status: string };
+  event: { name: string; slug?: string; timezone?: string; startDate: string; endDate: string; venueName?: string | null; publicContactWhatsapp?: string | null };
   institution?: { name: string; code: string } | null;
 };
 type Submission = {
@@ -20,24 +20,17 @@ type Submission = {
   emailQueued?: number;
   portalAccounts?: Array<{ participantId: string; participantName: string; email: string; temporaryPassword?: string | null; temporaryPasswordIssued?: boolean; passwordSetupRequired?: boolean; loginUrl: string; setupError?: string }>;
 };
-const emptyRegion = (): RegionValue => ({ city: "", province: "", cityCode: "", provinceCode: "" });
-const newDelegate = (): Delegate => ({ fullName: "", email: "", whatsapp: "", phone: "", address: "", region: emptyRegion(), isLead: true });
 
 export const InvitationRegistrationPage: React.FC = () => {
   const { token = "" } = useParams<{ token: string }>();
   const invitationType = useLocation().pathname.includes("/individual/") ? "individual" : "institution";
   const proofKey = `registration:invitation:${invitationType}:${token}`;
   const [data, setData] = useState<InvitationData | null>(() => readRegistrationProof<InvitationData, Submission>(proofKey)?.event || null);
-  const [delegates, setDelegates] = useState<Delegate[]>([newDelegate()]);
-  const [institutionName, setInstitutionName] = useState("");
-  const [responseStatus, setResponseStatus] = useState<"ACCEPTED" | "DECLINED">("ACCEPTED");
-  const [notes, setNotes] = useState("");
+  const [delegates, setDelegates] = useState<InvitationResponsePayload["delegates"]>([]);
   const [submission, setSubmission] = useState<Submission | null>(() => readRegistrationProof<InvitationData, Submission>(proofKey)?.result || null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(!data);
   const [saving, setSaving] = useState(false);
-  const quota = invitationType === "individual" ? 1 : Math.max(1, data?.invitation.quota || 1);
-  const expired = Boolean(data?.invitation.responseDeadline && new Date(data.invitation.responseDeadline) < new Date());
   const receiptParticipants: ReceiptParticipant[] = submission?.participants?.map((person, index) => {
     const account = submission.portalAccounts?.find((item) => item.participantId === person.id);
     return {
@@ -57,36 +50,24 @@ export const InvitationRegistrationPage: React.FC = () => {
     const proof = readRegistrationProof<InvitationData, Submission>(proofKey);
     if (proof) { setData(proof.event); setSubmission(proof.result); setLoading(false); setError(""); return; }
     const controller = new AbortController();
-    setLoading(true); setError(""); setData(null); setSubmission(null); setDelegates([newDelegate()]);
+    setLoading(true); setError(""); setData(null); setSubmission(null); setDelegates([]);
     void fetch(`${ENV.API_BASE_URL}/invitations/public/${invitationType}/${encodeURIComponent(token)}`, { signal: controller.signal })
       .then(async (response) => {
         const result = await response.json();
         if (!response.ok) throw new Error(result.error?.message || "Undangan tidak dapat dibuka. Minta tautan baru dari panitia.");
-        if (!controller.signal.aborted) { setData(result.data); setInstitutionName(result.data.institution?.name || ""); }
+        if (!controller.signal.aborted) setData(result.data);
       })
       .catch((reason) => { if (!controller.signal.aborted) { setData(null); setError(reason instanceof Error ? reason.message : "Undangan tidak dapat dibuka."); } })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [token, invitationType, proofKey]);
 
-  const update = (index: number, changes: Partial<Delegate>) => setDelegates((items) =>
-    items.map((item, current) => current === index ? { ...item, ...changes } : item));
-
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const submit = async (payload: InvitationResponsePayload) => {
+    if (saving) return;
     setError("");
-    if (responseStatus === "ACCEPTED") {
-      if (delegates.length > quota) { setError(`Maksimal ${quota} peserta termasuk kepala rombongan.`); return; }
-      const emails = delegates.map((item) => item.email.trim().toLowerCase());
-      if (new Set(emails).size !== emails.length) { setError("Setiap peserta harus menggunakan email pribadi yang berbeda."); return; }
-    }
+    setDelegates(payload.delegates);
     setSaving(true);
     try {
-      const payload = { responseStatus, institutionName: institutionName.trim() || null, notes: notes.trim() || null,
-        isFinal: true, delegates: responseStatus === "ACCEPTED" ? delegates.map((item, index) => ({
-          fullName: item.fullName.trim(), email: item.email.trim(), whatsapp: item.whatsapp.trim(), phone: item.phone.trim() || null,
-          address: item.address.trim() || null, ...item.region, isLead: index === 0,
-        })) : [] };
       const response = await fetch(`${ENV.API_BASE_URL}/invitations/public/${invitationType}/${encodeURIComponent(token)}/response`, {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
       });
@@ -104,30 +85,13 @@ export const InvitationRegistrationPage: React.FC = () => {
       {loading ? <p role="status" className="rounded-xl bg-white p-8 text-sm">Memuat formulir undangan…</p> : !data ?
         <section role="alert" className="rounded-xl border border-rose-200 bg-white p-6"><h1 className="text-xl font-black">Undangan tidak tersedia</h1><p className="mt-2 text-sm">{error}</p></section> : <>
           <header className="rounded-2xl bg-emerald-950 p-6 text-white sm:p-8">
-            <p className="text-xs font-black uppercase tracking-widest text-emerald-300">{data.institution ? `Ahlan ${data.institution.name}` : "Undangan pribadi"} · {data.invitation.invitationNumber}</p>
+            <p className="text-xs font-black uppercase tracking-widest text-emerald-300">{data.institution ? "Undangan lembaga" : "Undangan pribadi"} · {data.invitation.invitationNumber}</p>
             <h1 className="mt-3 text-2xl font-black">{data.event.name}</h1>
-            <p className="mt-3 text-sm text-emerald-100">{data.event.venueName || "Lokasi menyusul"} · {data.event.startDate === data.event.endDate ? data.event.startDate : `${data.event.startDate} – ${data.event.endDate}`}</p>
-            {data.institution && <p className="mt-2 text-sm text-emerald-100">Diperuntukkan bagi {data.institution.name}</p>}
+            <p className="mt-3 flex items-start gap-2 text-sm text-emerald-100"><CalendarDays className="h-4 w-4 shrink-0" />{formatEventDate(data.event.startDate)}{data.event.startDate !== data.event.endDate ? ` – ${formatEventDate(data.event.endDate)}` : ""}</p>
+            <p className="mt-2 flex items-start gap-2 text-sm text-emerald-100"><MapPin className="h-4 w-4 shrink-0" />{data.event.venueName || "Lokasi menyusul"}</p>
+            {data.invitation.responseDeadline && !submission && <p className="mt-4 border-t border-emerald-800 pt-3 text-xs text-emerald-200">Konfirmasi sebelum {formatEventDateTime(data.invitation.responseDeadline, data.event.timezone || "Asia/Jakarta")} {eventTimezoneLabel(data.event.timezone || "Asia/Jakarta")}</p>}
           </header>
-           {submission ? receiptParticipants.length > 0 ? <PublicRegistrationReceipt event={data.event} participants={receiptParticipants} emailQueued={submission.emailQueued || 0} /> : <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-6" aria-live="polite"><CheckCircle2 className="h-8 w-8 text-emerald-700" /><h2 className="mt-3 text-xl font-black">Jawaban undangan tersimpan</h2><p className="mt-2 text-sm">{submission.message}</p><p className="mt-3 text-sm">Karena berhalangan hadir, tidak ada QR atau akses portal baru.</p></section> : <form onSubmit={(event) => void submit(event)} className="space-y-5 rounded-xl border border-slate-200 bg-white p-5 sm:p-7">
-            <div><h2 className="text-xl font-black">Konfirmasi undangan</h2><p className="mt-1 text-sm text-slate-600">Isi data diri atau rombongan sekali saja. Tautan undangan ini sudah menjadi akses formulir; tidak diperlukan kode verifikasi tambahan.</p></div>
-            {expired && <p role="alert" className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Batas respons undangan telah berakhir. Hubungi panitia.</p>}
-            <fieldset className="flex flex-wrap gap-4"><legend className="mb-2 text-sm font-bold">Status undangan</legend><label className="flex items-center gap-2 text-sm"><input type="radio" checked={responseStatus === "ACCEPTED"} onChange={() => setResponseStatus("ACCEPTED")} /> Saya akan hadir</label><label className="flex items-center gap-2 text-sm"><input type="radio" checked={responseStatus === "DECLINED"} onChange={() => setResponseStatus("DECLINED")} /> Berhalangan hadir</label></fieldset>
-            {responseStatus === "ACCEPTED" && <>
-              <label className="block text-sm font-bold">Nama lembaga/komunitas <span className="font-normal">(jika ada)</span><input value={institutionName} onChange={(change) => setInstitutionName(change.target.value)} readOnly={Boolean(data.institution)} maxLength={180} placeholder="Nama lembaga atau komunitas" className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3 read-only:bg-slate-50" /></label>
-              <div className="flex flex-wrap items-center justify-between gap-2"><div><h3 className="font-black">Data peserta</h3><p className="text-sm text-slate-600">{delegates.length} dari {quota} peserta, termasuk kepala rombongan. {quota > 1 ? `Maksimal ${quota - 1} anggota tambahan.` : ""}</p></div>{quota > 1 && <button type="button" onClick={() => setDelegates((items) => [...items, { ...newDelegate(), isLead: false }])} disabled={delegates.length >= quota} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-emerald-600 px-3 text-sm font-bold text-emerald-800 disabled:opacity-50"><Plus className="h-4 w-4" /> Tambah anggota</button>}</div>
-              {delegates.map((item, index) => <fieldset key={index} className="space-y-3 rounded-xl border border-slate-200 p-4"><legend className="px-2 font-bold">{index === 0 ? "Kepala rombongan / peserta utama" : `Anggota ${index + 1}`}</legend>{index > 0 && <button type="button" onClick={() => setDelegates((items) => items.filter((_, position) => position !== index))} className="inline-flex min-h-11 items-center gap-1 text-sm font-bold text-rose-700"><Trash2 className="h-4 w-4" /> Hapus anggota</button>}
-                <label className="block text-sm font-bold">Nama lengkap *<input value={item.fullName} onChange={(change) => update(index, { fullName: change.target.value })} required minLength={2} autoComplete="name" className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3" /></label>
-                <div className="grid gap-3 sm:grid-cols-2"><label className="block text-sm font-bold">Email pribadi *<input type="email" value={item.email} onChange={(change) => update(index, { email: change.target.value })} required autoComplete="email" className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3" /></label><label className="block text-sm font-bold">WhatsApp *<input type="tel" value={item.whatsapp} onChange={(change) => update(index, { whatsapp: change.target.value })} required minLength={9} autoComplete="tel" className="mt-1 min-h-11 w-full rounded-lg border border-slate-300 px-3" /></label></div>
-                <RegionFields prefix={`invitation-${index}`} value={item.region} onChange={(next) => update(index, { region: next })} />
-                <label className="block text-sm font-bold">Alamat domisili <span className="font-normal">(opsional)</span><textarea value={item.address} onChange={(change) => update(index, { address: change.target.value })} maxLength={500} rows={2} className="mt-1 w-full rounded-lg border border-slate-300 p-3" /></label>
-              </fieldset>)}
-            </>}
-            <label className="block text-sm font-bold">Catatan kepada panitia <span className="font-normal">(opsional)</span><textarea value={notes} onChange={(change) => setNotes(change.target.value)} maxLength={1000} rows={2} className="mt-1 w-full rounded-lg border border-slate-300 p-3" /></label>
-            {responseStatus === "ACCEPTED" && <label className="flex items-start gap-3 rounded-lg bg-emerald-50 p-3 text-sm text-slate-700"><input type="checkbox" required className="mt-1 h-4 w-4 accent-emerald-700" /><span>Saya sudah mendapat izin dari peserta yang didaftarkan. QR dan sandi awal masing-masing akan saya berikan secara pribadi.</span></label>}
-            {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-900">{error}</p>}
-            <button type="submit" disabled={saving || expired} className="min-h-12 rounded-lg bg-emerald-700 px-6 font-black text-white disabled:opacity-50">{saving ? "Menyimpan…" : "Kirim konfirmasi undangan"}</button>
-          </form>}
+           {submission ? receiptParticipants.length > 0 ? <PublicRegistrationReceipt event={data.event} participants={receiptParticipants} emailQueued={submission.emailQueued || 0} /> : <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-6" aria-live="polite"><CheckCircle2 className="h-8 w-8 text-emerald-700" /><h2 className="mt-3 text-xl font-black">Jawaban undangan tersimpan</h2><p className="mt-2 text-sm">{submission.message}</p><p className="mt-3 text-sm">Karena berhalangan hadir, tidak ada QR atau akses portal baru.</p></section> : <InvitationResponseForm key={`${invitationType}:${token}`} data={data} invitationType={invitationType} saving={saving} error={error} onSubmit={(payload) => void submit(payload)} />}
         </>}
     </div>
   </PublicLayout>;

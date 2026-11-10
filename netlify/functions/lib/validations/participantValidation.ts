@@ -34,7 +34,7 @@ export const createParticipantSchema = z.object({
 
 export const updateParticipantStatusSchema = z.object({
   fromStatus: z.string().optional().nullable(),
-  toStatus: z.enum(["INVITED", "CONFIRMED", "APPROVED", "WAITLISTED", "REJECTED", "CANCELLED", "REPLACED"]),
+  toStatus: z.enum(["CONFIRMED", "CANCELLED"]),
   reason: z.string().optional().nullable(),
 });
 
@@ -43,21 +43,25 @@ export const approveParticipantSchema = z.object({
 });
 
 export const waitlistParticipantSchema = z.object({
-  reason: z.string().min(2, "Alasan pengalihan ke waitlist wajib diisi"),
+  reason: z.string().trim().min(2, "Alasan pengalihan ke waitlist wajib diisi").max(1000),
 });
 
 export const declineParticipantSchema = z.object({
-  reason: z.string().min(2, "Alasan penolakan peserta wajib diisi"),
+  reason: z.string().trim().min(2, "Alasan penolakan peserta wajib diisi").max(1000),
 });
 
 export const cancelParticipantSchema = z.object({
-  reason: z.string().min(2, "Alasan pembatalan peserta wajib diisi"),
+  reason: z.string().trim().min(2, "Alasan pembatalan peserta wajib diisi").max(1000),
 });
 
 export const replaceParticipantSchema = z.object({
   oldParticipantId: z.string().uuid("ID Peserta lama tidak valid"),
   newUstadzId: z.string().uuid("ID Ustadz baru tidak valid"),
-  reason: z.string().min(3, "Alasan penggantian peserta wajib diisi"),
+  reason: z.string().trim().min(3, "Alasan penggantian peserta wajib diisi").max(1000),
+});
+
+export const replacementCandidateQuerySchema = z.object({
+  search: z.string().trim().min(2, "Ketik minimal 2 karakter").max(100),
 });
 
 export const replacePortalDelegationMemberSchema = z.object({

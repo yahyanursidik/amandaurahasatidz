@@ -118,6 +118,8 @@ import {
 
 import {
   createInvitationSchema,
+  updateInvitationSchema,
+  invitationInstitutionQuerySchema,
   requestInvitationOtpSchema,
   submitResponseSchema,
   submitIndividualInvitationSchema,
@@ -127,6 +129,8 @@ import {
 import {
   getInvitationsService,
   createInvitationService,
+  editInvitationService,
+  getInvitationInstitutionsService,
   sendInvitationService,
   revokeInvitationService,
   regenerateInvitationLinkService,
@@ -143,6 +147,7 @@ import {
 import {
   updateParticipantStatusSchema,
   replaceParticipantSchema,
+  replacementCandidateQuerySchema,
   approveParticipantSchema,
   waitlistParticipantSchema,
   declineParticipantSchema,
@@ -164,6 +169,7 @@ import {
   searchExistingUstadzProfilesService,
   updateParticipantStatusService,
   replaceParticipantService,
+  getParticipantReplacementOptionsService,
   approveParticipantService,
   waitlistParticipantService,
   declineParticipantService,
@@ -849,7 +855,8 @@ export const handler: Handler = async (event, _context) => {
     const partListMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants$/i);
     if (partListMatch && method === "GET") {
       const eventId = partListMatch[1];
-      requirePermission(userSession, "participants.read", eventId);
+      requirePermission(userSession ? { ...userSession, assignments: userSession.assignments.filter((assignment) =>
+        !["USTADZ", "INSTITUTION_REPRESENTATIVE"].includes(assignment.roleCode)) } : null, "participants.read", eventId);
       const data = await getParticipantsService(eventId);
       return buildSuccessResponse(data, requestId);
     }
@@ -938,15 +945,18 @@ export const handler: Handler = async (event, _context) => {
       const eventId = partStatusMatch[1];
       const participantId = partStatusMatch[2];
       const session = requireAuth(userSession);
-      requirePermission(session, "participants.update", eventId);
+      requirePermission({ ...session, assignments: session.assignments.filter((assignment) =>
+        !["USTADZ", "INSTITUTION_REPRESENTATIVE"].includes(assignment.roleCode)) }, "participants.update", eventId);
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(updateParticipantStatusSchema, body);
+      if (validated.toStatus === "CANCELLED") requirePermission(session, "participants.cancel", eventId);
       const updated = await updateParticipantStatusService(
         participantId,
         validated.toStatus,
         validated.reason || undefined,
         session.userId,
-        requestId
+        requestId,
+        eventId
       );
       return buildSuccessResponse(updated, requestId);
     }
@@ -958,15 +968,25 @@ export const handler: Handler = async (event, _context) => {
       const session = requireAuth(userSession);
       requirePermission(session, "participants.replace", eventId);
       const body = event.body ? JSON.parse(event.body) : {};
-      const validated = validateRequestData(replaceParticipantSchema, body);
+      const validated = validateRequestData(replaceParticipantSchema, { ...body, oldParticipantId: participantId });
       const result = await replaceParticipantService(
         participantId,
         validated.newUstadzId,
         validated.reason,
         session.userId,
-        requestId
+        requestId,
+        eventId
       );
       return buildSuccessResponse(result, requestId);
+    }
+
+    const replacementOptionsMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/([a-f0-9-]+)\/replacement-options$/i);
+    if (replacementOptionsMatch && method === "GET") {
+      const session = requireAuth(userSession);
+      const [, eventId, participantId] = replacementOptionsMatch;
+      requirePermission(session, "participants.replace", eventId);
+      const query = validateRequestData(replacementCandidateQuerySchema, event.queryStringParameters || {});
+      return buildSuccessResponse(await getParticipantReplacementOptionsService(eventId, participantId, query.search), requestId);
     }
 
     const partApproveMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/([a-f0-9-]+)\/approve$/i);
@@ -989,7 +1009,7 @@ export const handler: Handler = async (event, _context) => {
       requirePermission(session, "participants.waitlist", eventId);
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(waitlistParticipantSchema, body);
-      const result = await waitlistParticipantService(participantId, validated.reason, session.userId, requestId);
+      const result = await waitlistParticipantService(participantId, validated.reason, session.userId, requestId, eventId);
       return buildSuccessResponse(result, requestId);
     }
 
@@ -1001,7 +1021,7 @@ export const handler: Handler = async (event, _context) => {
       requirePermission(session, "participants.approve", eventId);
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(declineParticipantSchema, body);
-      const result = await declineParticipantService(participantId, validated.reason, session.userId, requestId);
+      const result = await declineParticipantService(participantId, validated.reason, session.userId, requestId, eventId);
       return buildSuccessResponse(result, requestId);
     }
 
@@ -1013,7 +1033,7 @@ export const handler: Handler = async (event, _context) => {
       requirePermission(session, "participants.cancel", eventId);
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(cancelParticipantSchema, body);
-      const result = await cancelParticipantService(participantId, validated.reason, session.userId, requestId);
+      const result = await cancelParticipantService(participantId, validated.reason, session.userId, requestId, eventId);
       return buildSuccessResponse(result, requestId);
     }
 
@@ -1031,8 +1051,27 @@ export const handler: Handler = async (event, _context) => {
     const invitationListMatch = path.match(/^\/events\/([a-f0-9-]+)\/invitations$/i);
     if (invitationListMatch && method === "GET") {
       const eventId = invitationListMatch[1];
-      requirePermission(userSession, "invitations.read", eventId);
+      // This is the staff list, not the institution representative's portal.
+      requirePermission(userSession ? { ...userSession, assignments: userSession.assignments.filter((assignment) =>
+        !["USTADZ", "INSTITUTION_REPRESENTATIVE"].includes(assignment.roleCode)) } : null, "invitations.read", eventId);
       return buildSuccessResponse(await getInvitationsService(eventId), requestId);
+    }
+
+    const invitationInstitutionsMatch = path.match(/^\/events\/([a-f0-9-]+)\/invitations\/institutions$/i);
+    if (invitationInstitutionsMatch && method === "GET") {
+      const eventId = invitationInstitutionsMatch[1];
+      requirePermission(userSession, "invitations.create", eventId);
+      const query = validateRequestData(invitationInstitutionQuerySchema, event.queryStringParameters || {});
+      return buildSuccessResponse(await getInvitationInstitutionsService(eventId, query.page ?? 1, query.pageSize ?? 100), requestId);
+    }
+
+    const invitationEditMatch = path.match(/^\/events\/([a-f0-9-]+)\/invitations\/([a-f0-9-]+)$/i);
+    if (invitationEditMatch && method === "PATCH") {
+      const session = requireAuth(userSession);
+      const [, eventId, invitationId] = invitationEditMatch;
+      requirePermission(session, "invitations.create", eventId);
+      const input = validateRequestData(updateInvitationSchema, event.body ? JSON.parse(event.body) : {});
+      return buildSuccessResponse(await editInvitationService(eventId, invitationId, input, session.userId, requestId), requestId);
     }
 
     if (invitationListMatch && method === "POST") {
@@ -1056,7 +1095,7 @@ export const handler: Handler = async (event, _context) => {
       const session = requireAuth(userSession);
       requirePermission(session, "invitations.send", eventId);
       return buildSuccessResponse(
-        await sendInvitationService(invitationId, session.userId, requestId),
+        await sendInvitationService(eventId, invitationId, session.userId, requestId),
         requestId
       );
     }
@@ -1068,7 +1107,7 @@ export const handler: Handler = async (event, _context) => {
       const session = requireAuth(userSession);
       requirePermission(session, "invitations.revoke", eventId);
       return buildSuccessResponse(
-        await revokeInvitationService(invitationId, session.userId, requestId),
+        await revokeInvitationService(eventId, invitationId, session.userId, requestId),
         requestId
       );
     }
@@ -1082,7 +1121,7 @@ export const handler: Handler = async (event, _context) => {
       const session = requireAuth(userSession);
       requirePermission(session, "invitations.create", eventId);
       return buildSuccessResponse(
-        await regenerateInvitationLinkService(invitationId, session.userId, requestId),
+        await regenerateInvitationLinkService(eventId, invitationId, session.userId, requestId),
         requestId
       );
     }

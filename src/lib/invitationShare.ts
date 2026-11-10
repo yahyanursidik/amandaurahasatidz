@@ -5,16 +5,19 @@ export interface InvitationShareContext {
   invitationUrl: string;
   accessCode?: string | null;
   responseDeadline?: string | null;
+  allowGroup?: boolean;
+  quota?: number;
+  timezone?: string;
 }
 
-const formatDeadline = (value?: string | null) => {
+const formatDeadline = (value?: string | null, timezone = "Asia/Jakarta") => {
   if (!value) return "sesuai informasi dari panitia";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "sesuai informasi dari panitia";
   return new Intl.DateTimeFormat("id-ID", {
     dateStyle: "long",
     timeStyle: "short",
-    timeZone: "Asia/Jakarta",
+    timeZone: ["Asia/Jakarta", "Asia/Makassar", "Asia/Jayapura"].includes(timezone) ? timezone : "Asia/Jakarta",
   }).format(date);
 };
 
@@ -39,9 +42,12 @@ export const buildInvitationShareText = (context: InvitationShareContext) =>
     "",
     ...(context.accessCode ? [`Kode unik lembaga: ${context.accessCode}`, ""] : []),
     `Nomor undangan: ${context.invitationNumber}`,
-    `Batas konfirmasi: ${formatDeadline(context.responseDeadline)}`,
+    `Batas konfirmasi: ${formatDeadline(context.responseDeadline, context.timezone)}`,
+    ...(context.allowGroup !== undefined ? [context.allowGroup
+      ? `Boleh membawa rombongan, maksimal ${context.quota || 2} peserta termasuk peserta utama.`
+      : "Undangan berlaku untuk satu perwakilan, tanpa peserta tambahan."] : []),
     "",
-    "Mohon menjaga tautan dan kode unik ini serta tidak meneruskannya kepada pihak di luar lembaga. Jazakumullahu khairan.",
+    `Mohon menjaga tautan${context.accessCode ? " dan kode unik" : ""} ini serta tidak meneruskannya kepada pihak di luar lembaga. Jazakumullahu khairan.`,
     "",
     "Wassalamu'alaikum warahmatullahi wabarakatuh.",
   ].join("\n");

@@ -38,8 +38,7 @@ export async function createManualParticipantService(
   const contacts = [...new Set([phone, person.whatsapp])];
 
   const result = await withTransaction(async (tx) => {
-    // Serializes manual entries for this event when interactive transactions are
-    // supported. Neon HTTP's existing fallback does not provide this guarantee.
+    // Serializes manual entries with the event's registration transactions.
     const [event] = await tx.select().from(events).where(eq(events.id, eventId)).limit(1).for("update");
     if (!event) throw new NotFoundError("Program daurah tidak ditemukan.");
     if (event.archivedAt || ["ARCHIVED", "COMPLETED", "CANCELLED"].includes(event.status)) {

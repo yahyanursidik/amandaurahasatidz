@@ -18,6 +18,7 @@
     "test:ustadz-whatsapp:browser": "node scripts/check-ustadz-whatsapp-browser.mjs",
     "test:communications:browser": "node scripts/check-event-communications-browser.mjs",
     "test:event-registration:browser": "node scripts/check-public-event-registration-browser.mjs",
+    "test:institution-invitations:browser": "node scripts/check-institution-invitations-browser.mjs",
     "test:kiosk:browser": "node scripts/check-kiosk-browser.mjs",
     "preview": "vite preview",
     "db:generate": "drizzle-kit generate",
@@ -49,6 +50,7 @@
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.28.2",
     "tailwind-merge": "^2.6.0",
+    "ws": "^8.22.2",
     "zod": "^3.24.1"
   },
   "devDependencies": {
@@ -58,6 +60,7 @@
     "@types/nodemailer": "^8.0.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
+    "@types/ws": "^8.18.2",
     "@vitejs/plugin-react": "6.0.5",
     "autoprefixer": "^10.4.20",
     "drizzle-kit": "^0.30.4",

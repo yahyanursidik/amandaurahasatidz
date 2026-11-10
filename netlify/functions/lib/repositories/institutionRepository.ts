@@ -9,7 +9,28 @@ import {
   ustadzProfiles,
   ustadzInstitutionAffiliations,
 } from "../db/schema";
-import { eq, ilike, and, or, isNull, count, desc, sql } from "drizzle-orm";
+import { eq, ilike, and, or, isNull, count, desc, sql, inArray, asc } from "drizzle-orm";
+
+/** Minimal master-data picker for event staff, without access to global histories. */
+export async function findInvitationInstitutionOptionsRepository(page: number, pageSize: number) {
+  const db = getDbClient();
+  const rows = await db.select({
+    id: institutions.id, code: institutions.code, name: institutions.name,
+    email: institutions.email, phone: institutions.phone, whatsapp: institutions.whatsapp,
+    address: institutions.address, cityCode: institutions.cityCode, provinceCode: institutions.provinceCode,
+  }).from(institutions).where(and(eq(institutions.status, "ACTIVE"), isNull(institutions.deletedAt)))
+    .orderBy(asc(institutions.name), asc(institutions.id)).limit(pageSize).offset((page - 1) * pageSize);
+  if (!rows.length) return [];
+  const representatives = await db.select({ institutionId: institutionRepresentatives.institutionId,
+    name: institutionRepresentatives.name, email: institutionRepresentatives.email, phone: institutionRepresentatives.phone,
+  }).from(institutionRepresentatives).where(inArray(institutionRepresentatives.institutionId, rows.map((row) => row.id)))
+    .orderBy(desc(institutionRepresentatives.isPrimary), desc(institutionRepresentatives.createdAt));
+  return rows.map((row) => {
+    const contact = representatives.find((representative) => representative.institutionId === row.id);
+    return { ...row, contactName: contact?.name || null, email: row.email || contact?.email || null,
+      whatsapp: row.whatsapp || row.phone || contact?.phone || null };
+  });
+}
 
 export interface InstitutionQueryParams {
   page?: number;

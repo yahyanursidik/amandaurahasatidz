@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 import { readFileSync } from "node:fs";
 import { renderToPipeableStream, renderToStaticMarkup } from "react-dom/server";
 import { StaticRouter } from "react-router-dom/server";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { RouteErrorBoundary, RouteLoadingBoundary } from "../../src/components/common/RouteLoadingBoundary";
 
 const session = vi.hoisted(() => ({ path: "/", authenticated: true, role: "SUPER_ADMIN" }));
@@ -43,6 +43,11 @@ function stream(element: React.ReactElement) {
 
 const appSource = readFileSync(new URL("../../src/App.tsx", import.meta.url), "utf8");
 const loaders = [...appSource.matchAll(/const (\w+) = lazy\(\(\) => import\("(\.\/[^"\n]+)"\)/g)];
+
+// Transform the shell once in setup: cold Windows dependency transforms are not
+// a page-loading benchmark. Page factories remain lazy and each assertion below
+// still runs against a fresh App/module registry with the original 15s budget.
+beforeAll(async () => { await import("../../src/App"); vi.resetModules(); }, 90_000);
 
 let consoleError: ReturnType<typeof vi.spyOn>;
 let consoleWarn: ReturnType<typeof vi.spyOn>;

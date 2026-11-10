@@ -13,9 +13,11 @@ import {
   users,
   ustadzInstitutionAffiliations,
 } from "../db/schema";
-import { eq, and, count, desc, inArray, notInArray, or, sql } from "drizzle-orm";
+import { eq, and, count, desc, inArray, notInArray, or, sql, isNull, ilike, notExists, asc } from "drizzle-orm";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../utils/errors";
+import { lockRegistrationEvent, assertRegistrationCapacity } from "../services/registrationCapacity";
+import { randomUUID } from "node:crypto";
 
 export async function countInstitutionParticipantsRepository(eventId: string, institutionId: string): Promise<number> {
   const db = getDbClient();
@@ -226,23 +228,25 @@ export async function updateParticipantStatusRepository(
   reason?: string | null,
   changedBy?: string | null
 ) {
-  const db = getDbClient();
-  const existing = await findParticipantByIdRepository(participantId);
-  if (!existing) return null;
-
-  const updated = await db
-    .update(eventParticipants)
-    .set({
-      confirmationStatus: toStatus,
-      ...(toStatus === "CONFIRMED" ? { confirmedAt: new Date() } : {}),
+  const hint = await findParticipantByIdRepository(participantId);
+  if (!hint) throw new NotFoundError("Peserta tidak ditemukan.");
+  return withTransaction(async (tx) => {
+    await lockRegistrationEvent(tx, hint.eventId);
+    const [existing] = await tx.select().from(eventParticipants).where(eq(eventParticipants.id, participantId)).limit(1).for("update");
+    if (!existing) throw new NotFoundError("Peserta tidak ditemukan.");
+    if (existing.confirmationStatus === toStatus) return existing;
+    if (!["INVITED", "CONFIRMED"].includes(existing.confirmationStatus) || !["CONFIRMED", "CANCELLED"].includes(toStatus)) {
+      throw new ConflictError("Status peserta sudah berubah atau tidak dapat diperbarui melalui aksi ini.");
+    }
+    if (toStatus === "CONFIRMED" && ["DECLINED", "REJECTED"].includes(existing.approvalStatus)) throw new ConflictError("Peserta ditolak tidak dapat dikonfirmasi hadir.");
+    const [updated] = await tx.update(eventParticipants).set({ confirmationStatus: toStatus,
+      ...(toStatus === "CONFIRMED" ? { confirmedAt: new Date() } : { cancelledAt: new Date(), qrTokenVersion: sql`${eventParticipants.qrTokenVersion} + 1` }),
       updatedAt: new Date(),
-    })
-    .where(eq(eventParticipants.id, participantId))
-    .returning();
-
-  await recordStatusHistoryRepository(participantId, existing.confirmationStatus, toStatus, reason, changedBy);
-
-  return updated[0];
+    }).where(eq(eventParticipants.id, participantId)).returning();
+    await tx.insert(participantStatusHistories).values({ participantId, statusType: "CONFIRMATION_STATUS",
+      fromStatus: existing.confirmationStatus, toStatus, reason: reason || null, changedBy: changedBy || null });
+    return updated;
+  });
 }
 
 export async function replaceParticipantTxRepository(
@@ -252,18 +256,31 @@ export async function replaceParticipantTxRepository(
   actorUserId?: string,
   requestId?: string
 ) {
+  const hint = await findParticipantByIdRepository(oldParticipantId);
+  if (!hint) throw new NotFoundError("Peserta yang diganti tidak ditemukan.");
   return await withTransaction(async (tx) => {
+    await lockRegistrationEvent(tx, hint.eventId);
     const oldPart = await tx
       .select()
       .from(eventParticipants)
       .where(eq(eventParticipants.id, oldParticipantId))
-      .limit(1);
+      .limit(1).for("update");
 
     if (oldPart.length === 0) {
       throw new Error(`Peserta ID ${oldParticipantId} tidak ditemukan.`);
     }
 
     const oldRecord = oldPart[0];
+    if (!["INVITED", "CONFIRMED"].includes(oldRecord.confirmationStatus) || ["REJECTED", "DECLINED"].includes(oldRecord.approvalStatus)) {
+      throw new ConflictError("Peserta sudah tidak aktif atau telah ditolak; tidak dapat diganti.");
+    }
+    const [profile] = await tx.select().from(ustadzProfiles).where(eq(ustadzProfiles.id, newUstadzId)).limit(1);
+    if (!profile || profile.profileStatus !== "ACTIVE" || profile.deletedAt || profile.mergedIntoId) throw new ValidationError("Pilih profil asatidz pengganti yang aktif.");
+    const [duplicate] = await tx.select({ id: eventParticipants.id }).from(eventParticipants)
+      .where(and(eq(eventParticipants.eventId, oldRecord.eventId), eq(eventParticipants.ustadzId, newUstadzId))).limit(1);
+    if (duplicate) throw new ConflictError("Asatidz pengganti sudah terdaftar pada event ini.");
+    const [attendance] = await tx.select({ id: attendanceRecords.id }).from(attendanceRecords).where(eq(attendanceRecords.participantId, oldParticipantId)).limit(1);
+    if (attendance) throw new ConflictError("Peserta sudah memiliki presensi. Gunakan pembatalan agar riwayat kehadiran tidak dialihkan ke orang lain.");
 
     // 1. Mark old participant as REPLACED (Do NOT hard delete!)
     const updatedOld = await tx
@@ -271,6 +288,7 @@ export async function replaceParticipantTxRepository(
       .set({
         confirmationStatus: "REPLACED",
         cancelledAt: new Date(),
+        qrTokenVersion: sql`${eventParticipants.qrTokenVersion} + 1`,
         updatedAt: new Date(),
       })
       .where(eq(eventParticipants.id, oldParticipantId))
@@ -287,7 +305,7 @@ export async function replaceParticipantTxRepository(
     });
 
     // 2. Create new participant record referencing oldParticipantId
-    const newCode = `PAR-RPL-${Date.now().toString().substring(7)}`;
+    const newCode = `P-${randomUUID().replace(/-/g, "").toUpperCase()}`;
     const createdNew = await tx
       .insert(eventParticipants)
       .values({
@@ -295,6 +313,8 @@ export async function replaceParticipantTxRepository(
         ustadzId: newUstadzId,
         institutionId: oldRecord.institutionId,
         invitationId: oldRecord.invitationId,
+        publicGroupId: oldRecord.publicGroupId,
+        registrationSource: oldRecord.registrationSource,
         participantCode: newCode,
         isDelegationLead: oldRecord.isDelegationLead,
         confirmationStatus: "CONFIRMED",
@@ -304,6 +324,12 @@ export async function replaceParticipantTxRepository(
         notes: `Pengganti untuk ${oldRecord.participantCode}`,
       })
       .returning();
+
+    if (oldRecord.institutionId) {
+      const [affiliation] = await tx.select({ id: ustadzInstitutionAffiliations.id }).from(ustadzInstitutionAffiliations)
+        .where(and(eq(ustadzInstitutionAffiliations.ustadzId, newUstadzId), eq(ustadzInstitutionAffiliations.institutionId, oldRecord.institutionId))).limit(1);
+      if (!affiliation) await tx.insert(ustadzInstitutionAffiliations).values({ ustadzId: newUstadzId, institutionId: oldRecord.institutionId, status: "ACTIVE", isPrimary: false });
+    }
 
     // Record status history for new participant
     await tx.insert(participantStatusHistories).values({
@@ -350,7 +376,10 @@ export async function replacePortalDelegationMemberTxRepository(
   },
   requestId: string,
 ) {
+  const hint = await findParticipantByIdRepository(actorParticipantId);
+  if (!hint) throw new NotFoundError("Pendaftaran kepala rombongan tidak ditemukan.");
   return withTransaction(async (tx) => {
+    await lockRegistrationEvent(tx, hint.eventId);
     const actorRows = await tx
       .select()
       .from(eventParticipants)
@@ -633,28 +662,34 @@ export async function updateParticipantApprovalStatusRepository(
   reason?: string | null,
   changedBy?: string | null
 ) {
-  const db = getDbClient();
-  const existing = await findParticipantByIdRepository(participantId);
-  if (!existing) return null;
-
-  const updated = await db
-    .update(eventParticipants)
-    .set({
-      approvalStatus: toApprovalStatus,
+  const hint = await findParticipantByIdRepository(participantId);
+  if (!hint) throw new NotFoundError("Peserta tidak ditemukan.");
+  return withTransaction(async (tx) => {
+    const event = await lockRegistrationEvent(tx, hint.eventId);
+    const [existing] = await tx.select().from(eventParticipants).where(eq(eventParticipants.id, participantId)).limit(1).for("update");
+    if (!existing) throw new NotFoundError("Peserta tidak ditemukan.");
+    if (!["INVITED", "CONFIRMED"].includes(existing.confirmationStatus)) throw new ConflictError("Peserta sudah dibatalkan atau diganti.");
+    if (existing.approvalStatus === toApprovalStatus) return existing;
+    if (["DECLINED", "REJECTED"].includes(existing.approvalStatus)) throw new ConflictError("Peserta sudah ditolak. Tinjau data melalui pengelola sebelum mendaftar ulang.");
+    if (!["APPROVED", "WAITLISTED", "DECLINED", "REJECTED", "PENDING_REVIEW"].includes(toApprovalStatus)) throw new ValidationError("Status persetujuan tidak valid.");
+    if (toApprovalStatus === "APPROVED") await assertRegistrationCapacity(tx, event, existing.registrationSource, 1);
+    const [updated] = await tx.update(eventParticipants).set({ approvalStatus: toApprovalStatus,
       approvedAt: toApprovalStatus === "APPROVED" ? new Date() : existing.approvedAt,
-      updatedAt: new Date(),
-    })
-    .where(eq(eventParticipants.id, participantId))
-    .returning();
-
-  await db.insert(participantStatusHistories).values({
-    participantId,
-    statusType: "APPROVAL_STATUS",
-    fromStatus: existing.approvalStatus,
-    toStatus: toApprovalStatus,
-    reason: reason || null,
-    changedBy: changedBy || null,
+      ...(toApprovalStatus === "APPROVED" ? { approvedBy: changedBy || null } : {}),
+      ...(existing.approvalStatus === "APPROVED" ? { qrTokenVersion: sql`${eventParticipants.qrTokenVersion} + 1` } : {}), updatedAt: new Date(),
+    }).where(eq(eventParticipants.id, participantId)).returning();
+    await tx.insert(participantStatusHistories).values({ participantId, statusType: "APPROVAL_STATUS", fromStatus: existing.approvalStatus,
+      toStatus: toApprovalStatus, reason: reason || null, changedBy: changedBy || null });
+    return updated;
   });
+}
 
-  return updated[0];
+export async function findReplacementCandidatesRepository(eventId: string, search: string) {
+  const db = getDbClient();
+  const registered = db.select({ id: eventParticipants.id }).from(eventParticipants)
+    .where(and(eq(eventParticipants.eventId, eventId), eq(eventParticipants.ustadzId, ustadzProfiles.id)));
+  return db.select({ id: ustadzProfiles.id, fullName: ustadzProfiles.fullName, email: ustadzProfiles.email })
+    .from(ustadzProfiles).where(and(eq(ustadzProfiles.profileStatus, "ACTIVE"), isNull(ustadzProfiles.deletedAt), isNull(ustadzProfiles.mergedIntoId),
+      or(ilike(ustadzProfiles.fullName, `%${search}%`), ilike(ustadzProfiles.email, `%${search}%`)), notExists(registered)))
+    .orderBy(asc(ustadzProfiles.fullName), asc(ustadzProfiles.id)).limit(20);
 }
