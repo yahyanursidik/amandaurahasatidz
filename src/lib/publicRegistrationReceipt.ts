@@ -16,13 +16,14 @@ export function buildRegistrationAttendanceMessage(
   participants: Pick<ReceiptParticipant, "fullName" | "participantCode">[],
 ) {
   const names = participants.map((person) => `• ${person.fullName} — ${person.participantCode}`).join("\n");
-  const attendance = participants.length > 1 ? "kami akan hadir" : "saya akan hadir";
+  const attendance = participants.length > 1 ? "kami berencana hadir" : "saya berencana hadir";
   return [
     "Assalamu’alaikum warahmatullahi wabarakatuh.",
     "",
     `Saya ingin mengabari panitia bahwa pendaftaran untuk ${eventName} telah tersimpan. Insya Allah ${attendance}:`,
     names,
     "",
+    "Kami menunggu persetujuan admin sebelum QR dapat digunakan untuk absensi.",
     "Mohon kabari bila ada perubahan informasi kegiatan. Jazakumullahu khairan.",
   ].join("\n");
 }

@@ -19,6 +19,8 @@ import { createAuditLog } from "./auditService";
 import { assertAttendanceConfirmationAllowed, assertParticipantEligibleForCheckin } from "./deadlineService";
 import { hashPassword } from "../utils/password";
 import { isRegularRegistrationSource, quotaForSource } from "./eventQuota";
+import { queueApprovedParticipantCardEmail } from "./participantCardEmailService";
+import { logError } from "../utils/logger";
 import { z } from "zod";
 import { bulkApproveSchema } from "../validations/participantValidation";
 import type { ParticipantPageQuery } from "../validations/participantValidation";
@@ -213,8 +215,8 @@ export async function approveParticipantService(
 
   const updated = await updateParticipantApprovalStatusRepository(participantId, "APPROVED", notes, actorUserId);
 
-  if (requestId) {
-    await createAuditLog({
+  const [auditResult, emailResult] = await Promise.allSettled([
+    requestId ? createAuditLog({
       actorUserId: actorUserId || null,
       action: "PARTICIPANT_APPROVED",
       resourceType: "EVENT_PARTICIPANT",
@@ -222,8 +224,11 @@ export async function approveParticipantService(
       eventId: participant.eventId,
       reason: notes || "Persetujuan kelayakan peserta daurah",
       requestId,
-    });
-  }
+    }) : Promise.resolve(),
+    queueApprovedParticipantCardEmail({ id: event.id, name: event.name, slug: event.slug }, updated),
+  ]);
+  if (auditResult.status === "rejected") logError(requestId || "participant-approval", "Audit persetujuan peserta gagal disimpan", auditResult.reason);
+  if (emailResult.status === "rejected") logError(requestId || "participant-approval", "Antrean kartu QR setelah persetujuan gagal disimpan", emailResult.reason);
 
   return updated;
 }

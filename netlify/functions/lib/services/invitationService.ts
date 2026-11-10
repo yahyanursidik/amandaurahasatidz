@@ -39,7 +39,7 @@ import {
 } from "./institutionAccessCodeService";
 import { buildInstitutionInvitationPath } from "../../../../src/lib/invitationUrl";
 import { signCardForParticipant, cardPath } from "./participantCardService";
-import { queueParticipantCardEmails } from "./participantCardEmailService";
+import { queueRegistrationReceivedEmails } from "./participantCardEmailService";
 import { countApprovedParticipantsBySourceRepository, countApprovedParticipantsForEventRepository } from "../repositories/participantRepository";
 import { logError } from "../utils/logger";
 import { invitationAllowsGroup, invitationParticipantLimit, isInvitationPending } from "../../../../src/lib/institutionInvitation";
@@ -634,7 +634,7 @@ export async function submitInstitutionResponseService(
   });
 
   const [emailResult, auditResult] = await Promise.allSettled([
-    queueParticipantCardEmails({ id: event.id, name: event.name, slug: event.slug }, cards),
+    queueRegistrationReceivedEmails({ id: event.id, name: event.name, slug: event.slug }, cards),
     payload.isFinal ? createAuditLog({
       actorUserId: null,
       action: "INVITATION_FINAL_RESPONSE_SUBMITTED",
@@ -645,7 +645,7 @@ export async function submitInstitutionResponseService(
       requestId,
     }) : Promise.resolve(),
   ]);
-  if (emailResult.status === "rejected") logError(requestId, "Antrean kartu QR undangan lembaga gagal disimpan", emailResult.reason);
+  if (emailResult.status === "rejected") logError(requestId, "Antrean pemberitahuan pendaftaran undangan lembaga gagal disimpan", emailResult.reason);
   if (auditResult.status === "rejected") logError(requestId, "Audit undangan lembaga gagal disimpan", auditResult.reason);
   const emailQueued = emailResult.status === "fulfilled" ? emailResult.value : 0;
 
@@ -655,7 +655,7 @@ export async function submitInstitutionResponseService(
     portalAccounts,
     emailQueued,
     message: payload.isFinal
-      ? "Konfirmasi final undangan berhasil disimpan. Terima kasih atas partisipasi lembaga Anda."
+      ? "Konfirmasi undangan tersimpan. Data perwakilan menunggu persetujuan admin sebelum QR dapat dipakai untuk presensi."
       : "Draft respon undangan berhasil disimpan sementara.",
   };
 }
@@ -758,7 +758,7 @@ export async function submitIndividualResponseService(rawToken: string, payload:
       shownOnce: Boolean(credential?.temporaryPassword) };
   });
 
-  const [emailResult, auditResult] = await Promise.allSettled([queueParticipantCardEmails({ id: event.id, name: event.name, slug: event.slug }, cards), createAuditLog({
+  const [emailResult, auditResult] = await Promise.allSettled([queueRegistrationReceivedEmails({ id: event.id, name: event.name, slug: event.slug }, cards), createAuditLog({
     actorUserId: null,
     action: "INDIVIDUAL_INVITATION_RSVP_SUBMITTED",
     resourceType: "INVITATION_RESPONSE",
@@ -767,7 +767,7 @@ export async function submitIndividualResponseService(rawToken: string, payload:
     reason: `RSVP undangan individu ${invitation.invitationNumber}: ${payload.responseStatus}`,
     requestId,
   })]);
-  if (emailResult.status === "rejected") logError(requestId, "Antrean kartu QR undangan individu gagal disimpan", emailResult.reason);
+  if (emailResult.status === "rejected") logError(requestId, "Antrean pemberitahuan pendaftaran undangan individu gagal disimpan", emailResult.reason);
   if (auditResult.status === "rejected") logError(requestId, "Audit undangan individu gagal disimpan", auditResult.reason);
   const emailQueued = emailResult.status === "fulfilled" ? emailResult.value : 0;
 
@@ -776,6 +776,8 @@ export async function submitIndividualResponseService(rawToken: string, payload:
     participants: saved.participants.map((person, index) => ({ ...person, whatsapp: cards[index].whatsapp, qrToken: cards[index].qrToken, cardUrl: cardPath(cards[index].qrToken) })),
     portalAccounts,
     emailQueued,
-    message: `Konfirmasi undangan (${payload.responseStatus}) berhasil disimpan.`,
+    message: payload.responseStatus === "ACCEPTED"
+      ? "Jawaban undangan tersimpan. Pendaftaran menunggu persetujuan admin sebelum QR dapat dipakai untuk presensi."
+      : "Jawaban undangan ditolak berhasil disimpan.",
   };
 }

@@ -9,11 +9,12 @@ import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normaliz
 import { createAuditLog } from "./auditService";
 import { resolveRegistrationInstitution } from "./registrationInstitutionService";
 import { signCardForParticipant, cardPath } from "./participantCardService";
-import { queueParticipantCardEmails } from "./participantCardEmailService";
+import { queueRegistrationReceivedEmails } from "./participantCardEmailService";
 import { logError } from "../utils/logger";
 import { hashPassword } from "../utils/password";
 import { canIssueImmediatePassword, generateMemorableTemporaryPassword } from "../utils/memorablePassword";
 import { lockRegistrationEvent, assertRegistrationCapacity } from "./registrationCapacity";
+import { initialParticipantReviewState } from "./registrationReviewState";
 
 type PublicRegistrationInput = {
   fullName: string;
@@ -170,7 +171,7 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
         eventId: event.id, ustadzId: profile.id, registrationSource: "DIRECT_PUBLIC",
         institutionId,
         publicGroupId, isDelegationLead: Boolean(publicGroupId && index === 0), participantCode,
-        confirmationStatus: "CONFIRMED", approvalStatus: "APPROVED", confirmedAt: new Date(), approvedAt: new Date(),
+        ...initialParticipantReviewState(),
       }).returning())[0];
       const qrToken = signCardForParticipant(participant);
       registered.push({ participantId: participant.id, fullName: person.fullName, email: person.email, whatsapp: person.whatsapp,
@@ -179,7 +180,7 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
     }
     return {
       participantCode: registered[0].participantCode,
-      approvalStatus: "APPROVED",
+      approvalStatus: "PENDING_REVIEW",
       portalLoginUrl: "/login/ustadz",
       passwordSetupRequired: registered[0].passwordSetupRequired,
       publicGroupId,
@@ -194,12 +195,12 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
     eventId: event.id,
     afterData: { participantCode: result.participantCode, approvalStatus: result.approvalStatus, publicGroupId: result.publicGroupId, participantCount: result.participants.length, consentConfirmed: input.consentConfirmed },
     requestId,
-  }), queueParticipantCardEmails({ id: event.id, name: event.name, slug: event.slug }, result.participants.map((person) => ({
+  }), queueRegistrationReceivedEmails({ id: event.id, name: event.name, slug: event.slug }, result.participants.map((person) => ({
     participantId: person.participantId, ustadzName: person.fullName, email: person.email,
     participantCode: person.participantCode, qrToken: person.qrToken,
   })))]);
   if (auditResult.status === "rejected") logError(requestId, "Audit pendaftaran reguler gagal disimpan", auditResult.reason);
-  if (emailResult.status === "rejected") logError(requestId, "Antrean kartu QR reguler gagal disimpan", emailResult.reason);
+  if (emailResult.status === "rejected") logError(requestId, "Antrean pemberitahuan pendaftaran reguler gagal disimpan", emailResult.reason);
   const emailQueued = emailResult.status === "fulfilled" ? emailResult.value : 0;
   return {
     participantCode: result.participantCode,

@@ -53,7 +53,7 @@ export function buildParticipantRegistrationMessage(details: ParticipantShareDet
       "Simpan kartu dan tunjukkan QR/kode kepada panitia saat presensi.",
       ...(details.confirmationStatus !== "CONFIRMED" ? ["Konfirmasi kehadiran terlebih dahulu sesuai arahan panitia."] : []),
       "Tautan QR bersifat pribadi. Jangan meneruskannya kepada orang lain.",
-    ] : ["Kode ini adalah bukti pendaftaran, belum berlaku untuk presensi. QR tersedia setelah pendaftaran disetujui panitia."]),
+    ] : ["Kode ini adalah bukti pendaftaran, belum berlaku untuk presensi. QR presensi aktif setelah pendaftaran disetujui panitia."]),
     "",
     "Jazakumullahu khairan.",
     `Panitia ${details.eventName}`,
