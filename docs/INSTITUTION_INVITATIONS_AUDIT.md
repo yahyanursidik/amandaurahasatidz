@@ -104,5 +104,6 @@ Script opsional `scripts/check-event-transactions-live.mjs` memerlukan endpoint 
 - **51 pengujian khusus undangan** lulus (schema/service/repository/API/RBAC/UI), ditambah regresi transaksi serta command peserta.
 - **Browser terisolasi** lulus pada seluruh lebar yang disebutkan di atas.
 - **Typecheck dan build produksi** lulus.
+- **Instalasi bersih**: `npm ci --ignore-scripts --dry-run` lulus; lockfile menyertakan peer dependency esbuild beserta paket platform agar tidak bergantung pada cache lokal.
 - Suite luas terakhir: **1.049 lulus, 1 dilewati**. Timeout cold import shell Windows diperbaiki dengan pre-transform App di setup; assertion lazy-route dan batas 15 detik per test tetap dipertahankan.
 - Uji live pada branch terisolasi membuktikan rollback, perlindungan konkurensi kapasitas dan integritas command peserta; fixture browser juga menguji refresh yang melepas row agar lock aksi panitia tidak tertinggal.
