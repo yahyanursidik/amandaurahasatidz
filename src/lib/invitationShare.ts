@@ -1,5 +1,6 @@
 export interface InvitationShareContext {
   institutionName: string;
+  recipientType?: "INSTITUTION" | "INDIVIDUAL";
   eventName: string;
   invitationNumber: string;
   invitationUrl: string;
@@ -35,19 +36,26 @@ export const buildInvitationShareText = (context: InvitationShareContext) =>
     "Assalamu'alaikum warahmatullahi wabarakatuh.",
     "",
     `Yth. ${context.institutionName},`,
-    `Kami panitia Aman Daurah Asatidz mengundang perwakilan lembaga untuk menghadiri ${context.eventName}.`,
+    context.recipientType === "INDIVIDUAL"
+      ? `Kami panitia Aman Daurah Asatidz mengundang Anda secara pribadi untuk menghadiri ${context.eventName}.`
+      : `Kami panitia Aman Daurah Asatidz mengundang perwakilan lembaga untuk menghadiri ${context.eventName}.`,
     "",
-    "Silakan konfirmasi kehadiran dan daftarkan para asatidz yang mewakili lembaga melalui tautan khusus berikut:",
+    context.recipientType === "INDIVIDUAL"
+      ? "Silakan konfirmasi kehadiran melalui tautan pribadi berikut:"
+      : "Silakan konfirmasi kehadiran dan daftarkan para asatidz yang mewakili lembaga melalui tautan khusus berikut:",
     context.invitationUrl,
     "",
     ...(context.accessCode ? [`Kode unik lembaga: ${context.accessCode}`, ""] : []),
     `Nomor undangan: ${context.invitationNumber}`,
     `Batas konfirmasi: ${formatDeadline(context.responseDeadline, context.timezone)}`,
-    ...(context.allowGroup !== undefined ? [context.allowGroup
+    ...(context.recipientType === "INDIVIDUAL" ? ["Undangan ini hanya untuk satu asatidz dan tidak dapat dialihkan."]
+      : context.allowGroup !== undefined ? [context.allowGroup
       ? `Boleh membawa rombongan, maksimal ${context.quota || 2} peserta termasuk peserta utama.`
       : "Undangan berlaku untuk satu perwakilan, tanpa peserta tambahan."] : []),
     "",
-    `Mohon menjaga tautan${context.accessCode ? " dan kode unik" : ""} ini serta tidak meneruskannya kepada pihak di luar lembaga. Jazakumullahu khairan.`,
+    context.recipientType === "INDIVIDUAL"
+      ? "Mohon simpan tautan pribadi ini dan jangan meneruskannya kepada orang lain. Jazakumullahu khairan."
+      : `Mohon menjaga tautan${context.accessCode ? " dan kode unik" : ""} ini serta tidak meneruskannya kepada pihak di luar lembaga. Jazakumullahu khairan.`,
     "",
     "Wassalamu'alaikum warahmatullahi wabarakatuh.",
   ].join("\n");

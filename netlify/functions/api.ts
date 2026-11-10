@@ -124,6 +124,7 @@ import {
   createInvitationSchema,
   updateInvitationSchema,
   invitationInstitutionQuerySchema,
+  invitationUstadzQuerySchema,
   requestInvitationOtpSchema,
   submitResponseSchema,
   submitIndividualInvitationSchema,
@@ -135,6 +136,7 @@ import {
   createInvitationService,
   editInvitationService,
   getInvitationInstitutionsService,
+  getInvitationUstadzOptionsService,
   sendInvitationService,
   revokeInvitationService,
   regenerateInvitationLinkService,
@@ -319,6 +321,9 @@ export const handler: Handler = async (event, _context) => {
     const pubIndivMatch = path.match(/^\/invitations\/public\/individual\/([a-z0-9_]+)$/i);
     if (pubIndivMatch && method === "GET") {
       const rawToken = pubIndivMatch[1];
+      const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+      const rateLimit = checkRateLimit(`pub_inv_individual_get_${clientIp}`, 10, 60000);
+      if (!rateLimit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Batas akses undangan terlampaui. Coba kembali sebentar.", requestId, 429);
       const invData = await getPublicIndividualInvitationService(rawToken, requestId);
       const response = buildSuccessResponse(invData, requestId);
       return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
@@ -1102,6 +1107,14 @@ export const handler: Handler = async (event, _context) => {
       requirePermission(userSession, "invitations.create", eventId);
       const query = validateRequestData(invitationInstitutionQuerySchema, event.queryStringParameters || {});
       return buildSuccessResponse(await getInvitationInstitutionsService(eventId, query.page ?? 1, query.pageSize ?? 100), requestId);
+    }
+
+    const invitationUstadzMatch = path.match(/^\/events\/([a-f0-9-]+)\/invitations\/ustadz$/i);
+    if (invitationUstadzMatch && method === "GET") {
+      const eventId = invitationUstadzMatch[1];
+      requirePermission(userSession, "invitations.create", eventId);
+      const query = validateRequestData(invitationUstadzQuerySchema, event.queryStringParameters || {});
+      return buildSuccessResponse(await getInvitationUstadzOptionsService(eventId, query.search, query.page, query.pageSize), requestId);
     }
 
     const invitationEditMatch = path.match(/^\/events\/([a-f0-9-]+)\/invitations\/([a-f0-9-]+)$/i);

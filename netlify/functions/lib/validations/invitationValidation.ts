@@ -21,6 +21,9 @@ export const createInvitationSchema = z.object({
       message: "Pilih lembaga penerima undangan",
     });
   }
+  if (value.invitationType === "INSTITUTION" && value.ustadzId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["ustadzId"], message: "Undangan lembaga tidak memakai penerima perorangan" });
+  }
   if (value.invitationType === "INDIVIDUAL" && !value.ustadzId) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
@@ -28,10 +31,17 @@ export const createInvitationSchema = z.object({
       message: "Pilih asatidz penerima undangan individu",
     });
   }
+  if (value.invitationType === "INDIVIDUAL" && value.institutionId) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["institutionId"], message: "Undangan perorangan tidak memakai lembaga penerima" });
+  }
+  if (value.invitationType === "INDIVIDUAL" && (value.allowGroup || value.quota != null && value.quota !== 1)) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["quota"], message: "Undangan perorangan hanya berlaku untuk satu asatidz" });
+  }
 });
 
 export const updateInvitationSchema = z.object({
   institutionId: z.string().uuid("ID lembaga tidak valid").optional(),
+  ustadzId: z.string().uuid("ID asatidz tidak valid").optional(),
   invitationNumber: invitationNumber.optional(),
   quota: quota.optional(),
   allowGroup: z.boolean().optional(),
@@ -42,6 +52,12 @@ export const updateInvitationSchema = z.object({
 export const invitationInstitutionQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   pageSize: z.coerce.number().int().min(1).max(100).default(100),
+});
+
+export const invitationUstadzQuerySchema = z.object({
+  search: z.string().trim().max(120).default(""),
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(20),
 });
 
 export const submitResponseSchema = z.object({
@@ -96,7 +112,7 @@ export const submitResponseSchema = z.object({
   }
 });
 
-export const submitIndividualInvitationSchema = submitResponseSchema.innerType().omit({ isFinal: true })
+export const submitIndividualInvitationSchema = submitResponseSchema.innerType().omit({ isFinal: true, institutionName: true })
   .refine((value) => value.responseStatus !== "ACCEPTED" || value.delegates?.length === 1,
     "Undangan individu hanya untuk satu peserta.");
 

@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router-dom";
 import { InvitationResponseForm } from "../../src/components/invitations/InvitationResponseForm";
 import { InstitutionInvitationForm } from "../../src/components/invitations/InstitutionInvitationForm";
+import { IndividualInvitationForm } from "../../src/components/invitations/IndividualInvitationForm";
 import { buildInvitationShareText } from "../../src/lib/invitationShare";
 
 describe("formulir undangan lembaga", () => {
@@ -34,9 +35,21 @@ describe("formulir undangan lembaga", () => {
     expect(html).not.toContain("Peserta tambahan 1");
     expect(html).toContain("Peserta utama");
   });
-  it("mempertahankan input lembaga opsional hanya untuk undangan individu tanpa lembaga", () => {
-    const html = renderToStaticMarkup(<InvitationResponseForm data={{ invitation: data.invitation }} invitationType="individual" saving={false} error="" onSubmit={() => {}} />);
-    expect(html).toContain("Nama lembaga/komunitas"); expect(html).not.toContain("Saya membawa rombongan");
+  it("mengunci nama penerima pribadi dan tidak menawarkan rombongan atau lembaga", () => {
+    const html = renderToStaticMarkup(<InvitationResponseForm data={{ invitation: data.invitation, recipient: { fullName: "Ustadz Ahmad" } }} invitationType="individual" saving={false} error="" onSubmit={() => {}} />);
+    expect(html).toContain("Ahlan wa sahlan"); expect(html).toContain("Undangan pribadi ini untuk Anda");
+    expect(html).toContain('value="Ustadz Ahmad"'); expect(html).toContain('readonly=""');
+    expect(html).not.toContain("Nama lembaga/komunitas"); expect(html).not.toContain("Saya membawa rombongan");
+  });
+  it("editor undangan pribadi memilih satu profil dan satu tenggat", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><IndividualInvitationForm
+      value={{ ustadzId: "u", invitationNumber: "PR-01", responseDeadline: "2027-01-01T12:00" }}
+      onChange={() => {}} onSubmit={() => {}} onCancel={() => {}} loadOptions={async () => []}
+      selectedRecipient={{ id: "u", fullName: "Ustadz Ahmad", email: "ahmad@example.invalid" }}
+      editing recipientLocked timezone="Asia/Makassar" busy={false} disabled={false} canOpenProfile canCreateProfile={false} /></MemoryRouter>);
+    expect(html).toContain("Edit undangan pribadi"); expect(html).toContain("ahmad@example.invalid");
+    expect(html).toContain("/admin/ustadz/u"); expect(html).toContain("WITA");
+    expect(html).not.toContain("Kuota peserta");
   });
   it("editor menggunakan kontak master dan batas waktu lengkap dalam zona event", () => {
     const html = renderToStaticMarkup(<MemoryRouter><InstitutionInvitationForm institutions={[{ id: "i", code: "MU", name: "Ma'had Uji", email: "kontak@example.invalid", contactName: "PIC Lembaga" }]}
@@ -63,5 +76,12 @@ describe("formulir undangan lembaga", () => {
     expect(buildInvitationShareText({ ...context, allowGroup: false })).toContain("tanpa peserta tambahan");
     expect(buildInvitationShareText({ ...context, allowGroup: true, quota: 4 })).toContain("maksimal 4 peserta");
     expect(buildInvitationShareText(context)).not.toContain("kode unik");
+  });
+  it("pesan undangan perorangan tidak memakai teks perwakilan lembaga", () => {
+    const message = buildInvitationShareText({ institutionName: "Ustadz Ahmad", recipientType: "INDIVIDUAL",
+      eventName: "Daurah Uji", invitationNumber: "PR-01", invitationUrl: "https://example.invalid/invitation/individual/token" });
+    expect(message).toContain("mengundang Anda secara pribadi");
+    expect(message).toContain("hanya untuk satu asatidz");
+    expect(message).not.toContain("perwakilan lembaga");
   });
 });
