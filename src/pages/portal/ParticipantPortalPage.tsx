@@ -34,6 +34,7 @@ import { eventApi } from "@/lib/eventApi";
 import { ProfileEditor, type PortalProfile } from "@/components/portal/ProfileEditor";
 import { PortalGreeting } from "@/components/portal/PortalGreeting";
 import { choosePortalParticipationId, readPortalParticipationSelection, savePortalParticipationSelection } from "@/lib/portalParticipation";
+import { participantSourceLabel } from "@/lib/participantCatalog";
 
 type PortalTab =
   | "HOME"
@@ -313,13 +314,6 @@ const statusVariant = (status: string): StatusVariant => {
   if (["CANCELLED", "DECLINED", "REPLACED"].includes(status)) return "danger";
   return "info";
 };
-
-const sourceLabel = (source: string) =>
-  source === "INSTITUTION_DELEGATION"
-    ? "Delegasi lembaga"
-    : source === "INDIVIDUAL_INVITATION"
-      ? "Undangan individual"
-      : "Pendaftaran mandiri";
 
 const approvalLabel: Record<string, string> = {
   APPROVED: "Disetujui",
@@ -806,7 +800,7 @@ export const ParticipantPortalPage: React.FC = () => {
                 {selectedParticipation.eventCode}
               </span>
               <StatusBadge
-                label={sourceLabel(selectedParticipation.registrationSource)}
+                label={participantSourceLabel(selectedParticipation.registrationSource)}
                 variant="info"
               />
               <StatusBadge
@@ -932,7 +926,7 @@ export const ParticipantPortalPage: React.FC = () => {
               <div className="p-5 sm:p-6">
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge
-                    label={sourceLabel(participation.registrationSource)}
+                    label={participantSourceLabel(participation.registrationSource)}
                     variant="info"
                   />
                   <StatusBadge

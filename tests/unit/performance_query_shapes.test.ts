@@ -36,6 +36,17 @@ describe("bounded read query shapes", () => {
     expect(projection).not.toContain('"email"'); expect(projection).not.toContain('"address"');
     expect(mocks.client.mock.calls[0][1]).toEqual(expect.arrayContaining(["PENDING_REVIEW", "WAITLISTED", "INVITED", "CONFIRMED", 25]));
   });
+  it("keeps participant source filtering in SQL for both page and bulk-selection projections", async () => {
+    const eventId = "11111111-1111-4111-8111-111111111111";
+    await findParticipantPageRepository(eventId, participantPageQuerySchema.parse({ source: "INDIVIDUAL" }));
+    expect(queries()[0]).toContain('"registration_source"');
+    expect(mocks.client.mock.calls[0][1]).toContain("INDIVIDUAL_INVITATION");
+    expect(queries()[1]).toContain('"registration_source"');
+    mocks.client.mockClear();
+    await findParticipantPageRepository(eventId, participantPageQuerySchema.parse({ source: "REGULAR", projection: "selection" }));
+    expect(queries()[0]).toContain("not in");
+    expect(mocks.client.mock.calls[0][1]).toEqual(expect.arrayContaining(["INSTITUTION_DELEGATION", "INDIVIDUAL_INVITATION"]));
+  });
   it("uses SQL aggregates for directory summaries rather than returning all active profiles", async () => {
     const result = await findUstadzProfilesRepository({ page: 2, pageSize: 25, duplicate: "true", quality: "incomplete" });
     expect(result.data).toEqual([]); expect(mocks.client).toHaveBeenCalledTimes(3);
@@ -81,7 +92,7 @@ describe("bounded read query shapes", () => {
     await read(); expect(mocks.client).toHaveBeenCalledTimes(1); expect(queries()[0]).toContain("count(*)"); expect(queries()[0]).toContain("jsonb_agg");
   });
   it("validates pagination and filter bounds instead of accepting unbounded or invalid input", () => {
-    for (const value of [{ page: 0 }, { pageSize: 1001 }, { projection: "raw" }, { institutionId: "not-a-uuid" }, { status: "unknown" }]) expect(participantPageQuerySchema.safeParse(value).success).toBe(false);
+    for (const value of [{ page: 0 }, { pageSize: 1001 }, { projection: "raw" }, { institutionId: "not-a-uuid" }, { status: "unknown" }, { source: "unknown" }]) expect(participantPageQuerySchema.safeParse(value).success).toBe(false);
     expect(publicProgramQuerySchema.safeParse({ pageSize: 1000 }).success).toBe(false);
   });
 });

@@ -32,6 +32,7 @@ import { canManageUstadz, canMergeUstadz } from "@/lib/ustadzPermissions";
 import { canAccessYtsNotes } from "@/lib/ustadzNotes";
 import { YtsNotesPanel } from "@/components/admin/ustadz/YtsNotesPanel";
 import { institutionRegionLabel } from "@/lib/institutionRegion";
+import { participantSourceLabel } from "@/lib/participantCatalog";
 
 type Tab = "PROFILE" | "AFFILIATIONS" | "EVENTS" | "QUALITY" | "NOTES";
 
@@ -50,12 +51,6 @@ const attendanceLabel: Record<string, string> = {
   TIDAK_HADIR: "Tidak hadir", HADIR_SEBAGIAN: "Hadir sebagian", HADIR_LENGKAP: "Hadir lengkap",
   NOT_STARTED: "Belum dimulai", NO_REQUIREMENT: "Tanpa presensi wajib",
 };
-const registrationLabel: Record<string, string> = {
-  DIRECT_PUBLIC: "Pendaftaran publik", DIRECT_ADMIN_UPLOAD: "Unggahan admin", ADMIN_ENTRY: "Entri admin",
-  INSTITUTION_DELEGATION: "Undangan lembaga", INSTITUTION_DELEGATION_REPLACEMENT: "Pengganti delegasi",
-  INDIVIDUAL_INVITATION: "Undangan individu",
-};
-
 const missingLabels: Array<[keyof UstadzProfile, string]> = [
   ["email", "Email"],
   ["address", "Alamat"],
@@ -417,7 +412,7 @@ export const UstadzShowPage: React.FC = () => {
                     profile.eventHistory?.map((event) => (
                       <article key={event.participantId}>
                         <time>{formatDate(event.eventStartDate)}</time>
-                        <div><strong><Link to={`/admin/events/${event.eventId}`}>{event.eventName}</Link></strong><span>{event.eventCode} · Peserta {event.participantCode}</span><small>{event.institutionId ? <Link to={`/admin/institutions/${event.institutionId}`}>{event.institutionName}</Link> : "Peserta individu"} · {registrationLabel[event.registrationSource] || event.registrationSource.replaceAll("_", " ")}</small><small>Status: {approvalLabel[event.approvalStatus] || event.approvalStatus.replaceAll("_", " ")}{event.statusReason ? ` · Alasan: ${event.statusReason}` : ["REJECTED", "DECLINED", "WAITLISTED"].includes(event.approvalStatus) ? " · Alasan belum dicatat panitia" : ""}</small><Link to={`/admin/events/${event.eventId}/registrations?view=participants&search=${encodeURIComponent(event.participantCode)}`}>Buka pendaftaran peserta</Link></div>
+                        <div><strong><Link to={`/admin/events/${event.eventId}`}>{event.eventName}</Link></strong><span>{event.eventCode} · Peserta {event.participantCode}</span><small>{event.institutionId ? <Link to={`/admin/institutions/${event.institutionId}`}>{event.institutionName}</Link> : "Peserta individu"} · {participantSourceLabel(event.registrationSource)}</small><small>Status: {approvalLabel[event.approvalStatus] || event.approvalStatus.replaceAll("_", " ")}{event.statusReason ? ` · Alasan: ${event.statusReason}` : ["REJECTED", "DECLINED", "WAITLISTED"].includes(event.approvalStatus) ? " · Alasan belum dicatat panitia" : ""}</small><Link to={`/admin/events/${event.eventId}/registrations?view=participants&search=${encodeURIComponent(event.participantCode)}`}>Buka pendaftaran peserta</Link></div>
                         <div><span>{attendanceLabel[event.attendanceStatus] || event.attendanceStatus.replaceAll("_", " ")}</span><strong>{event.attendedUnits}/{event.requiredUnits} unit · {event.completionPercentage}%</strong><Link to={`/admin/events/${event.eventId}/attendance/${event.participantId}/report`}>Lihat rapor kehadiran</Link></div>
                       </article>
                     ))

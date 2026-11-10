@@ -72,6 +72,8 @@ export interface InstitutionInvitationHistory {
 export interface InstitutionParticipant {
   id: string;
   participantCode: string;
+  registrationSource: string;
+  invitationId?: string | null;
   confirmationStatus: string;
   approvalStatus: string;
   isDelegationLead: boolean;

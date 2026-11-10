@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useGetIdentity } from "@refinedev/core";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { PageHeader } from "@/components/common/PageHeader";
 import { EmptyState } from "@/components/common/EmptyState";
@@ -7,6 +8,11 @@ import { StatusBadge } from "@/components/common/StatusBadge";
 import { InstitutionWorkspaceNav } from "@/components/admin/institutions/InstitutionWorkspaceNav";
 import { Institution, InstitutionRepresentative, institutionApi, institutionTypeLabel } from "@/lib/institutionApi";
 import { institutionRegionLabel } from "@/lib/institutionRegion";
+import { invitationStatusLabel } from "@/lib/institutionInvitation";
+import { participantApprovalLabel, participantSourceLabel } from "@/lib/participantCatalog";
+import { participantStaffPermissions } from "@/lib/participantManagement";
+import { ROLE_PERMISSIONS, type RoleCode } from "@/config/permissions";
+import type { AuthIdentity } from "@/lib/refine/authProvider";
 import { Archive, Building2, CalendarDays, Check, Contact, Edit3, Mail, Phone, Plus, ShieldCheck, Trash2, UserRoundCheck, UsersRound, X } from "lucide-react";
 
 type Tab = "overview" | "contacts" | "affiliations" | "invitations";
@@ -14,7 +20,7 @@ const tabItems: Array<{ id: Tab; label: string; icon: React.ComponentType<{ clas
   { id: "overview", label: "Ringkasan", icon: Building2 },
   { id: "contacts", label: "Kontak & PIC", icon: Contact },
   { id: "affiliations", label: "Asatidz terafiliasi", icon: UsersRound },
-  { id: "invitations", label: "Undangan & delegasi", icon: CalendarDays },
+  { id: "invitations", label: "Undangan & peserta", icon: CalendarDays },
 ];
 const emptyRepresentative = { name: "", email: "", phone: "", position: "", isPrimary: false };
 const whatsappUrl = (value?: string | null) => {
@@ -25,6 +31,9 @@ const whatsappUrl = (value?: string | null) => {
 export const InstitutionDetailPage: React.FC = () => {
   const { id = "" } = useParams();
   const navigate = useNavigate();
+  const { data: identity } = useGetIdentity<AuthIdentity>();
+  const canBrowseEvents = Boolean(identity?.assignments.some((assignment) => ROLE_PERMISSIONS[assignment.roleCode as RoleCode]?.includes("events.read")));
+  const eventPermissions = (eventId: string) => participantStaffPermissions(identity?.assignments, eventId);
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedTab = searchParams.get("tab");
   const activeTab: Tab = tabItems.some((tab) => tab.id === requestedTab) ? requestedTab as Tab : "overview";
@@ -132,8 +141,14 @@ export const InstitutionDetailPage: React.FC = () => {
         {activeTab === "affiliations" && <section className="institution-detail-section"><div className="institution-section-heading"><div><h2>Asatidz terafiliasi</h2><p>Profil asatidz yang memiliki hubungan aktif dengan lembaga.</p></div><Link className="institution-button institution-button--quiet" to="/admin/ustadz">Kelola asatidz</Link></div>{!item.affiliations?.length ? <EmptyState title="Belum ada afiliasi" description="Afiliasi ditambahkan melalui profil asatidz." /> : <div className="institution-affiliation-list">{item.affiliations.map((aff) => <Link key={aff.id} to={`/admin/ustadz/${aff.ustadzId}`}><UserRoundCheck /><div><strong>{aff.ustadzName}</strong><span>{aff.position || "Posisi belum diisi"} · {aff.status}</span></div>{aff.verifiedAt && <ShieldCheck />}</Link>)}</div>}</section>}
 
         {activeTab === "invitations" && <div className="institution-detail-grid">
-          <section className="institution-detail-section institution-detail-section--wide"><div className="institution-section-heading institution-section-heading--inset"><div><h2>Riwayat undangan</h2><p>Buka event untuk melihat tautan dan respons.</p></div><Link className="institution-button institution-button--quiet" to="/admin/events">Semua event</Link></div>{!item.invitationHistory?.length ? <EmptyState title="Belum pernah diundang" description="Buka event, lalu pilih lembaga ini saat membuat undangan." /> : <div className="institution-history-list">{item.invitationHistory.map((invite) => <Link key={invite.id} to={`/admin/events/${invite.eventId}/registrations?view=invitations&institutionId=${id}`}><div><strong>{invite.eventName}</strong><span>{invite.eventCode} · {new Date(invite.eventStartDate).toLocaleDateString("id-ID")}</span></div><StatusBadge label={invite.responseStatus || invite.status} variant={invite.responseStatus === "ACCEPTED" || invite.status === "RESPONDED" ? "success" : "info"} /><span>Kuota {invite.quota || "—"}</span></Link>)}</div>}</section>
-          <section className="institution-detail-section institution-detail-section--wide"><h2>Delegasi per event</h2>{participantByEvent.length === 0 ? <EmptyState title="Belum ada delegasi" description="Asatidz yang didaftarkan lembaga akan muncul per event." /> : participantByEvent.map((group) => <div className="institution-delegation" key={group.eventId}><div><strong>{group.eventName}</strong><Link to={`/admin/events/${group.eventId}/registrations?view=participants&institutionId=${id}`}>Lihat {group.participants.length} peserta</Link></div><ul>{group.participants.map((participant) => <li key={participant.id}><Link to={`/admin/ustadz/${participant.ustadzId}`}>{participant.ustadzName}{participant.isDelegationLead ? " · Ketua delegasi" : ""}</Link><StatusBadge label={participant.approvalStatus} variant={participant.approvalStatus === "APPROVED" ? "success" : "warning"} /></li>)}</ul></div>)}</section>
+          <section className="institution-detail-section institution-detail-section--wide"><div className="institution-section-heading institution-section-heading--inset"><div><h2>Riwayat undangan</h2><p>Setiap nomor undangan dan respons akhir ditampilkan sekali.</p></div>{canBrowseEvents && <Link className="institution-button institution-button--quiet" to="/admin/events">Semua event</Link>}</div>{!item.invitationHistory?.length ? <EmptyState title="Belum pernah diundang" description="Buka event, lalu pilih lembaga ini saat membuat undangan." /> : <div className="institution-history-list">{item.invitationHistory.map((invite) => {
+            const content = <><div><strong>{invite.eventName}</strong><span>{invite.invitationNumber} · {new Date(invite.eventStartDate).toLocaleDateString("id-ID")}</span></div><StatusBadge label={invitationStatusLabel[invite.responseStatus || invite.status] || invite.responseStatus || invite.status} variant={invite.responseStatus === "ACCEPTED" || invite.status === "ACCEPTED" ? "success" : "info"} /><span>Kuota {invite.quota || "—"}</span></>;
+            const permissions = eventPermissions(invite.eventId);
+            return permissions.includes("invitations.read") ? <Link key={invite.id} to={`/admin/events/${invite.eventId}/registrations?view=invitations&institutionId=${id}&invitationId=${invite.id}`}>{content}</Link>
+              : permissions.includes("events.read") ? <Link key={invite.id} to={`/admin/events/${invite.eventId}`}>{content}</Link>
+                : <div key={invite.id}>{content}</div>;
+          })}</div>}</section>
+          <section className="institution-detail-section institution-detail-section--wide"><h2>Peserta terkait lembaga</h2><p className="institution-delegation__intro">Termasuk pendaftar reguler yang mencantumkan lembaga ini; jalur tiap asatidz ditampilkan di bawah namanya.</p>{participantByEvent.length === 0 ? <EmptyState title="Belum ada peserta terkait" description="Asatidz yang terdaftar dengan lembaga ini akan muncul per event." /> : participantByEvent.map((group) => <div className="institution-delegation" key={group.eventId}><div><strong>{group.eventName}</strong>{eventPermissions(group.eventId).includes("participants.read") ? <Link to={`/admin/events/${group.eventId}/registrations?view=participants&institutionId=${id}`}>Lihat {group.participants.length} peserta</Link> : <span>{group.participants.length} peserta</span>}</div><ul>{group.participants.map((participant) => <li key={participant.id}><Link to={`/admin/ustadz/${participant.ustadzId}`}><span>{participant.ustadzName}{participant.isDelegationLead ? " · Ketua rombongan" : ""}</span><small>{participantSourceLabel(participant.registrationSource)}</small></Link><StatusBadge label={participantApprovalLabel(participant.approvalStatus)} variant={participant.approvalStatus === "APPROVED" ? "success" : "warning"} /></li>)}</ul></div>)}</section>
         </div>}
 
         <section className="institution-danger-zone"><div><Archive /><div><h2>Nonaktifkan lembaga</h2><p>Riwayat undangan dan peserta tetap tersimpan serta dapat diaudit.</p></div></div><button type="button" disabled={item.status === "INACTIVE" || pending} onClick={async () => { if (!window.confirm(`Nonaktifkan ${item.name}? Riwayat undangan dan peserta tetap tersimpan.`)) return; setPending(true); try { await institutionApi.deactivate(id); navigate("/admin/institutions?status=INACTIVE"); } catch (cause) { setError(cause instanceof Error ? cause.message : "Lembaga gagal dinonaktifkan."); } finally { setPending(false); } }}>{item.status === "INACTIVE" ? "Sudah nonaktif" : "Nonaktifkan"}</button></section>

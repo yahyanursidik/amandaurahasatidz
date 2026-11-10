@@ -1,4 +1,4 @@
-/* Hallmark · pre-emit critique: P5 H5 E4 S5 R4 V4
+/* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4
  * Hallmark · genre: editorial · tone: utilitarian · macrostructure: Workbench
  * audience: event administrators · use: manage institution invitations and individual attendance readiness
  */
@@ -52,7 +52,7 @@ import { buildInstitutionInvitationPath } from "@/lib/invitationUrl";
 import { parseParticipantCsv } from "@/lib/participantImportCsv";
 import { eventTimezoneLabel, formatEventDateTime, fromEventIso, toEventIso } from "@/lib/eventDateTime";
 import { invitationAllowsGroup, invitationStatusLabel, isInvitationPending, type InstitutionInvitationValues, type InvitationInstitutionOption } from "@/lib/institutionInvitation";
-import { approvalSelectionCandidate, emptyParticipantSummary, type ParticipantPageMeta, type ApprovalSelectionCandidate } from "@/lib/participantCatalog";
+import { approvalSelectionCandidate, emptyParticipantSummary, participantApprovalLabel, participantConfirmationLabel, participantSourceCategory, participantSourceLabel, type ParticipantSourceFilter, type ParticipantPageMeta, type ApprovalSelectionCandidate } from "@/lib/participantCatalog";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 type Invitation = {
@@ -211,7 +211,7 @@ const demoParticipants: Participant[] = [
     confirmationStatus: "CONFIRMED",
     approvalStatus: "APPROVED",
     institutionName: "Ma'had Ilmu Sunnah Bandung",
-    registrationSource: "INSTITUTION_INVITATION",
+    registrationSource: "INSTITUTION_DELEGATION",
     registeredAt: "2026-07-22T10:30:00+07:00",
   },
   {
@@ -233,7 +233,7 @@ const demoParticipants: Participant[] = [
     confirmationStatus: "CONFIRMED",
     approvalStatus: "PENDING_REVIEW",
     institutionName: "Ma'had Ilmu Sunnah Bandung",
-    registrationSource: "INSTITUTION_INVITATION",
+    registrationSource: "INSTITUTION_DELEGATION",
     registeredAt: "2026-07-22T10:42:00+07:00",
   },
 ];
@@ -349,6 +349,9 @@ export const EventRegistrationsPage: React.FC = () => {
   const requestedInstitutionId = searchParams.get("institutionId") || "";
   const requestedInvitationId = searchParams.get("invitationId") || "";
   const requestedStatus = searchParams.get("status") || "ALL";
+  const requestedSearch = searchParams.get("search") || "";
+  const requestedSource = searchParams.get("source");
+  const participantSource: ParticipantSourceFilter = requestedSource === "REGULAR" || requestedSource === "INSTITUTION" || requestedSource === "INDIVIDUAL" ? requestedSource : "ALL";
   const demoMode = import.meta.env.DEV && !isUuid(id);
   const activeEventId = useRef(id);
   activeEventId.current = id;
@@ -357,12 +360,12 @@ export const EventRegistrationsPage: React.FC = () => {
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [search, setSearch] = useState(() => searchParams.get("search") || "");
-  useEffect(() => { setSearch(searchParams.get("search") || ""); }, [searchParams]);
+  const [search, setSearch] = useState(requestedSearch);
+  useEffect(() => { setSearch(requestedSearch); }, [requestedSearch]);
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") || "ALL");
   const debouncedSearch = useDebouncedValue(search.trim());
   const participantStatus = ["PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED"].includes(statusFilter) ? statusFilter : "ALL";
-  const participantFilterKey = JSON.stringify([debouncedSearch, participantStatus, requestedInstitutionId, requestedInvitationId, id]);
+  const participantFilterKey = JSON.stringify([debouncedSearch, participantStatus, participantSource, requestedInstitutionId, requestedInvitationId, id]);
   const [pagination, setPagination] = useState({ key: participantFilterKey, page: 1 });
   const participantPage = pagination.key === participantFilterKey ? pagination.page : 1;
   const setParticipantPage = (page: number) => setPagination({ key: participantFilterKey, page });
@@ -412,7 +415,7 @@ export const EventRegistrationsPage: React.FC = () => {
   const loadIndividualOptions = useCallback((query: string, page: number, signal: AbortSignal) =>
     api<IndividualInvitationRecipient[]>(`/events/${id}/invitations/ustadz?${new URLSearchParams({ search: query, page: String(page), pageSize: "20" })}`, { signal }), [id]);
 
-  const participantQuery = new URLSearchParams({ page: String(participantPage), pageSize: "25", search: debouncedSearch, status: participantStatus,
+  const participantQuery = new URLSearchParams({ page: String(participantPage), pageSize: "25", search: debouncedSearch, status: participantStatus, source: participantSource,
     ...(requestedInstitutionId ? { institutionId: requestedInstitutionId } : {}), ...(requestedInvitationId ? { invitationId: requestedInvitationId } : {}) }).toString();
   const readKey = `${id}:${participantView ? participantQuery : "invitations"}:${permissionsKey}`;
   const currentReadKey = useRef(readKey);
@@ -479,7 +482,7 @@ export const EventRegistrationsPage: React.FC = () => {
           filteredEligible: eligibleApprovalIds(list).length, summary: { total: list.length,
             approved: list.filter((item) => item.approvalStatus === "APPROVED").length,
             pending: list.filter((item) => item.approvalStatus === "PENDING_REVIEW").length,
-            institution: list.filter((item) => item.institutionName).length, pendingEligible: eligibleApprovalIds(list, true).length } });
+            institution: list.filter((item) => participantSourceCategory(item.registrationSource) === "INSTITUTION").length, pendingEligible: eligibleApprovalIds(list, true).length } });
       } else {
         setInvitations(result.data as Invitation[] || []);
         if (canReadParticipants) {
@@ -564,9 +567,10 @@ export const EventRegistrationsPage: React.FC = () => {
           .toLowerCase()
           .includes(search.toLowerCase());
         return matchesSearch && (invitation.invitationType || "INSTITUTION") === invitationAudience &&
-          (!requestedInstitutionId || invitation.institutionId === requestedInstitutionId) && (statusFilter === "ALL" || invitation.status === statusFilter);
+          (!requestedInstitutionId || invitation.institutionId === requestedInstitutionId) &&
+          (!requestedInvitationId || invitation.id === requestedInvitationId) && (statusFilter === "ALL" || invitation.status === statusFilter);
       }),
-    [invitations, search, statusFilter, requestedInstitutionId, invitationAudience]
+    [invitations, search, statusFilter, requestedInstitutionId, requestedInvitationId, invitationAudience]
   );
   const filteredParticipants = useMemo(
     () =>
@@ -575,17 +579,19 @@ export const EventRegistrationsPage: React.FC = () => {
         const matchesSearch = `${participant.ustadzName} ${participant.participantCode} ${participant.institutionName || ""}`
           .toLowerCase()
           .includes(search.toLowerCase());
-        return matchesSearch && (!requestedInstitutionId || participant.institutionId === requestedInstitutionId) && (!requestedInvitationId || participant.invitationId === requestedInvitationId) && (statusFilter === "ALL" || participant.approvalStatus === statusFilter || statusFilter === "DECLINED" && participant.approvalStatus === "REJECTED");
+        return matchesSearch && (participantSource === "ALL" || participantSourceCategory(participant.registrationSource) === participantSource) && (!requestedInstitutionId || participant.institutionId === requestedInstitutionId) && (!requestedInvitationId || participant.invitationId === requestedInvitationId) && (statusFilter === "ALL" || participant.approvalStatus === statusFilter || statusFilter === "DECLINED" && participant.approvalStatus === "REJECTED");
       }),
-    [participants, search, statusFilter, requestedInstitutionId, requestedInvitationId, demoMode]
+    [participants, search, statusFilter, participantSource, requestedInstitutionId, requestedInvitationId, demoMode]
   );
   const participantPageCount = demoMode ? Math.max(1, Math.ceil(filteredParticipants.length / 25)) : participantMeta.pageCount;
   const visibleParticipantPage = Math.min(participantPage, participantPageCount);
   const pagedParticipants = demoMode ? filteredParticipants.slice((visibleParticipantPage - 1) * 25, visibleParticipantPage * 25) : participants;
   const participantTotal = demoMode ? filteredParticipants.length : participantMeta.total;
   const participantSummary = demoMode ? { total: participants.length, approved: participants.filter((item) => item.approvalStatus === "APPROVED").length,
-    pending: participants.filter((item) => item.approvalStatus === "PENDING_REVIEW").length, institution: participants.filter((item) => item.institutionName).length,
+    pending: participants.filter((item) => item.approvalStatus === "PENDING_REVIEW").length, institution: participants.filter((item) => participantSourceCategory(item.registrationSource) === "INSTITUTION").length,
     pendingEligible: eligibleApprovalIds(participants, true).length } : participantMeta.summary;
+  const showBulkApproval = canApproveParticipants && (selectedParticipants.length > 0 || (demoMode
+    ? eligibleApprovalIds(filteredParticipants).length > 0 : participantMeta.filteredEligible > 0));
 
   useEffect(() => {
     // Preserve selections from other pages; prune only rows whose new status we know.
@@ -664,6 +670,7 @@ export const EventRegistrationsPage: React.FC = () => {
   const switchInvitationAudience = (audience: "INSTITUTION" | "INDIVIDUAL") => {
     resetInvitationForm(); setInvitationAudience(audience); setStatusFilter("ALL"); setSearch("");
     const next = new URLSearchParams(searchParams);
+    next.delete("invitationId");
     if (audience === "INDIVIDUAL") { next.set("type", "individual"); next.delete("institutionId"); }
     else next.delete("type");
     setSearchParams(next, { replace: true });
@@ -1030,11 +1037,11 @@ export const EventRegistrationsPage: React.FC = () => {
         <EventWorkspaceNav eventId={id} />
         {(requestedInstitutionId || requestedInvitationId) && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950"><span>{requestedInvitationId ? "Peserta dari undangan terpilih" : `Peserta dari ${institutions.find((institution) => institution.id === requestedInstitutionId)?.name || "lembaga terpilih"}`}</span><Link className="font-bold underline" to={`/admin/events/${id}/registrations?view=participants`}>Tampilkan semua</Link></div>}
         {demoMode && (
-          <div className="mb-5 border-t-2 border-amber-500 bg-amber-50 p-3 text-xs text-amber-950">
+          <div className="mb-5 border-t-2 border-amber-500 bg-amber-50 p-3 text-sm text-amber-950">
             Mode pratinjau aktif. Tindakan persetujuan tidak mengubah database.
           </div>
         )}
-        {error && <div role="alert" className="mb-5 border-t-2 border-rose-500 bg-rose-50 p-3 text-xs text-rose-900">{error}</div>}
+        {error && <div role="alert" className="mb-5 border-t-2 border-rose-500 bg-rose-50 p-3 text-sm text-rose-900">{error}</div>}
         <section className="grid grid-cols-2 border-y border-slate-200 bg-white sm:grid-cols-4">
           {[
              ["Total peserta", participantSummary.total],
@@ -1044,7 +1051,7 @@ export const EventRegistrationsPage: React.FC = () => {
           ].map(([label, value]) => (
             <div key={String(label)} className="border-b border-r border-slate-200 p-4">
               <p className="text-2xl font-black tabular-nums text-slate-950">{loading ? "—" : value}</p>
-              <p className="mt-1 truncate text-[10px] font-black uppercase tracking-wide text-slate-500">{label}</p>
+              <p className="mt-1 text-sm font-bold text-slate-600">{label}</p>
             </div>
           ))}
         </section>
@@ -1170,11 +1177,12 @@ export const EventRegistrationsPage: React.FC = () => {
             </div>
           )}
         </section>}
-        <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_13rem]">
-          <label className="relative block"><span className="sr-only">Cari peserta</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama, kode peserta, atau lembaga" className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-xs" /></label>
-          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold"><option value="ALL">Semua status</option><option value="PENDING_REVIEW">Menunggu tinjauan</option><option value="APPROVED">Disetujui</option><option value="WAITLISTED">Daftar tunggu</option><option value="DECLINED">Ditolak</option></select>
+        <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_13rem_13rem]">
+          <label className="relative block"><span className="sr-only">Cari peserta</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama, kode peserta, atau lembaga" className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-sm" /></label>
+          <label className="block"><span className="sr-only">Filter jalur pendaftaran</span><select aria-label="Filter jalur pendaftaran" value={participantSource} onChange={(event) => { const next = new URLSearchParams(searchParams); if (event.target.value === "ALL") next.delete("source"); else next.set("source", event.target.value); setSearchParams(next, { replace: true }); }} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold"><option value="ALL">Semua jalur</option><option value="REGULAR">Pendaftaran reguler</option><option value="INSTITUTION">Undangan lembaga</option><option value="INDIVIDUAL">Undangan pribadi</option></select></label>
+          <label className="block"><span className="sr-only">Filter status peserta</span><select aria-label="Filter status peserta" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold"><option value="ALL">Semua status</option><option value="PENDING_REVIEW">Menunggu tinjauan</option><option value="APPROVED">Disetujui</option><option value="WAITLISTED">Daftar tunggu</option><option value="DECLINED">Ditolak</option></select></label>
         </div>
-        {canApproveParticipants && <BulkParticipantApprovalPanel key={id} eventId={id} eventName={eventDeadline?.name}
+        {showBulkApproval && <BulkParticipantApprovalPanel key={id} eventId={id} eventName={eventDeadline?.name}
           participants={selectionCandidates} filteredParticipants={filteredParticipants} pageParticipants={pagedParticipants}
           loadScope={demoMode ? undefined : loadApprovalScope} scopeKey={participantFilterKey}
           scopeCounts={demoMode ? undefined : { filtered: participantMeta.filteredEligible, pending: participantMeta.summary.pendingEligible }}
@@ -1190,14 +1198,14 @@ export const EventRegistrationsPage: React.FC = () => {
         {approvalMessage && <p role="status" className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950">{approvalMessage}</p>}
         <div className="mt-4 max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white">
           {loading ? <div className="h-64 animate-pulse bg-slate-100" /> : filteredParticipants.length ? (
-            <table className="min-w-[72rem] w-full text-left text-sm" aria-label="Daftar peserta event">
+            <table className="event-participants-table min-w-[72rem] w-full text-left text-sm" aria-label="Daftar peserta event">
               <thead className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-600"><tr><th className="px-3 py-3"><span className="sr-only">Pilih</span></th><th className="px-3 py-3">Kode</th><th className="px-3 py-3">Asatidz</th><th className="px-3 py-3">Lembaga</th><th className="px-3 py-3">Waktu daftar</th><th className="px-3 py-3">Konfirmasi</th><th className="px-3 py-3">Persetujuan</th><th className="px-3 py-3">Aksi</th></tr></thead>
               <tbody className="divide-y divide-slate-100">
                {pagedParticipants.map((participant) => {
                 const registrationTime = formatRegisteredAt(participant.registeredAt);
                 return (
                  <tr key={participant.id} className="align-top hover:bg-slate-50 [&>td]:px-3 [&>td]:py-3">
-                  <td>
+                  <td data-label="Pilih" className={!canApproveParticipants || !canApproveParticipant(participant) ? "event-participants-table__unselectable" : undefined}>
                    <input
                     type="checkbox"
                     aria-label={`Pilih ${participant.ustadzName}`}
@@ -1207,19 +1215,19 @@ export const EventRegistrationsPage: React.FC = () => {
                     className="h-4 w-4 accent-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                    />
                   </td>
-                  <td className="font-mono font-bold text-emerald-800">{participant.participantCode}</td>
-                  <td className="max-w-56"><p className="font-black text-slate-900">{participant.ustadzName}</p><p className="mt-1 break-all text-xs text-slate-600">{participant.ustadzWhatsapp || participant.ustadzPhone || participant.ustadzEmail || "Kontak belum diisi"}</p>{(participant.eventParticipationCount || 0) > 1 && <Link to={`/admin/ustadz/${participant.ustadzId}`} className="mt-1 inline-block text-xs font-bold text-emerald-800 underline">Terdaftar di {participant.eventParticipationCount} event · lihat riwayat</Link>}{participant.publicGroupId && <p className="mt-1 text-xs font-bold text-emerald-800">{participant.isDelegationLead ? "Kepala rombongan reguler" : "Anggota rombongan reguler"}</p>}</td>
-                  <td className="max-w-44 break-words text-slate-600">{participant.institutionName || (participant.publicGroupId ? `Rombongan ${participant.publicGroupId.slice(0, 8)}` : "Individu")}</td>
-                  <td><div className="flex items-start gap-2 text-slate-700">
+                  <td data-label="Kode" className="font-mono font-bold text-emerald-800">{participant.participantCode}</td>
+                  <td data-label="Asatidz" className="max-w-56"><p className="font-black text-slate-900">{participant.ustadzName}</p><p className="mt-1 break-all text-sm text-slate-600">{participant.ustadzWhatsapp || participant.ustadzPhone || participant.ustadzEmail || "Kontak belum diisi"}</p><p className="mt-1 text-sm font-bold text-emerald-800">{participantSourceLabel(participant.registrationSource)}</p>{participant.invitationId && canReadInvitations && <Link to={`/admin/events/${id}/registrations?view=invitations&type=${participantSourceCategory(participant.registrationSource) === "INDIVIDUAL" ? "individual" : "institution"}&invitationId=${participant.invitationId}`} className="mt-1 inline-block text-sm font-bold text-emerald-800 underline">Lihat undangan</Link>}{(participant.eventParticipationCount || 0) > 1 && canOpenUstadzData && <Link to={`/admin/ustadz/${participant.ustadzId}`} className="mt-1 inline-block text-sm font-bold text-emerald-800 underline">Terdaftar di {participant.eventParticipationCount} event · lihat riwayat</Link>}{participant.publicGroupId && <p className="mt-1 text-sm font-bold text-emerald-800">{participant.isDelegationLead ? "Kepala rombongan reguler" : "Anggota rombongan reguler"}</p>}</td>
+                  <td data-label="Lembaga" className="max-w-44 break-words text-slate-600">{participant.institutionId && participant.institutionName && canOpenMasterData ? <Link to={`/admin/institutions/${participant.institutionId}?tab=invitations`} className="font-bold text-emerald-800 underline">{participant.institutionName}</Link> : participant.institutionName || (participant.publicGroupId ? `Rombongan ${participant.publicGroupId.slice(0, 8)}` : "Individu")}</td>
+                  <td data-label="Waktu daftar"><div className="flex items-start gap-2 text-slate-700">
                     <CalendarClock className="mt-0.5 h-4 w-4 shrink-0 text-emerald-700" />
                     <div>
                       <time dateTime={participant.registeredAt || undefined} className="block whitespace-nowrap font-bold">{registrationTime.date}</time>
                       <span className="mt-0.5 block whitespace-nowrap text-xs text-slate-500">{registrationTime.time}</span>
                     </div>
                    </div></td>
-                  <td><StatusBadge label={participant.confirmationStatus.replaceAll("_", " ")} variant={participant.confirmationStatus === "CONFIRMED" ? "success" : "neutral"} /></td>
-                  <td className="max-w-36"><StatusBadge label={participant.approvalStatus.replaceAll("_", " ")} variant={participant.approvalStatus === "APPROVED" ? "success" : participant.approvalStatus === "PENDING_REVIEW" ? "warning" : "neutral"} />{["REJECTED", "DECLINED", "WAITLISTED", "PENDING_REVIEW"].includes(participant.approvalStatus) && <p className="mt-1 text-xs text-amber-900">{participant.statusReason ? `Alasan: ${participant.statusReason}` : "Alasan belum dicatat"}</p>}</td>
-                  <td><div className="flex max-w-72 flex-wrap gap-2">
+                  <td data-label="Konfirmasi"><StatusBadge label={participantConfirmationLabel(participant.confirmationStatus)} variant={participant.confirmationStatus === "CONFIRMED" ? "success" : "neutral"} /></td>
+                  <td data-label="Persetujuan" className="max-w-36"><StatusBadge label={participantApprovalLabel(participant.approvalStatus)} variant={participant.approvalStatus === "APPROVED" ? "success" : participant.approvalStatus === "PENDING_REVIEW" ? "warning" : "neutral"} />{["REJECTED", "DECLINED", "WAITLISTED", "PENDING_REVIEW"].includes(participant.approvalStatus) && <p className="mt-1 text-sm text-amber-900">{participant.statusReason ? `Alasan: ${participant.statusReason}` : "Alasan belum dicatat"}</p>}</td>
+                  <td data-label="Aksi"><div className="flex max-w-72 flex-wrap gap-2">
                     <ParticipantProfileDialog
                       participant={{
                         id: participant.id,
@@ -1237,7 +1245,7 @@ export const EventRegistrationsPage: React.FC = () => {
                         registeredAt: participant.registeredAt,
                         eventName: participant.eventName,
                       }}
-                      masterProfileHref={`/admin/ustadz/${participant.ustadzId}`}
+                      masterProfileHref={canOpenUstadzData ? `/admin/ustadz/${participant.ustadzId}` : undefined}
                     />
                     <ParticipantCommunicationPanel
                       disabled={demoMode}
@@ -1303,7 +1311,7 @@ export const EventRegistrationsPage: React.FC = () => {
               })}
               </tbody>
             </table>
-           ) : <div className="p-10 text-center text-xs text-slate-500">Tidak ada peserta yang cocok.</div>}
+           ) : <div className="p-10 text-center text-sm text-slate-600">Tidak ada peserta yang cocok.</div>}
          </div>
           {participantTotal > 0 && <nav aria-label="Halaman peserta event" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm"><span>Menampilkan {(visibleParticipantPage - 1) * 25 + 1}–{Math.min(visibleParticipantPage * 25, participantTotal)} dari {participantTotal} peserta</span><div className="flex items-center gap-2"><button type="button" disabled={loading || visibleParticipantPage <= 1} onClick={() => setParticipantPage(visibleParticipantPage - 1)} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Sebelumnya</button><span>Halaman {visibleParticipantPage}/{participantPageCount}</span><button type="button" disabled={loading || visibleParticipantPage >= participantPageCount} onClick={() => setParticipantPage(visibleParticipantPage + 1)} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Berikutnya</button></div></nav>}
       </AdminLayout>
@@ -1323,7 +1331,7 @@ export const EventRegistrationsPage: React.FC = () => {
         actions={
           <div className="flex flex-wrap gap-2">{canCreateInvitations && <button type="button" disabled={submitting || invitationEventLocked} onClick={() => { resetInvitationForm(); window.requestAnimationFrame(() => document.getElementById(invitationAudience === "INDIVIDUAL" ? "individual-invitation-editor" : "institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" })); }} className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-4 w-4" /> {invitationAudience === "INDIVIDUAL" ? "Undang asatidz" : "Undang lembaga"}</button>}<Link
             to={`/admin/events/${id}`}
-            className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+            className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
           >
             <ArrowLeft className="h-4 w-4" />
             Detail event
@@ -1340,7 +1348,7 @@ export const EventRegistrationsPage: React.FC = () => {
           <span className="rounded-full bg-white/20 px-2 tabular-nums">{invitations.filter((item) => (item.invitationType || "INSTITUTION") === audience).length}</span>
         </button>)}
       </nav>
-      {requestedInstitutionId && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-l-4 border-emerald-600 bg-emerald-50 px-4 py-3 text-sm text-emerald-950"><span>Undangan untuk {institutions.find((institution) => institution.id === requestedInstitutionId)?.name || "lembaga terpilih"}</span><Link className="font-bold underline" to={`/admin/events/${id}/registrations?view=invitations`}>Tampilkan semua</Link></div>}
+      {(requestedInstitutionId || requestedInvitationId) && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-l-4 border-emerald-600 bg-emerald-50 px-4 py-3 text-sm text-emerald-950"><span>{requestedInvitationId ? "Undangan terkait peserta atau riwayat lembaga" : `Undangan untuk ${institutions.find((institution) => institution.id === requestedInstitutionId)?.name || "lembaga terpilih"}`}</span><Link className="font-bold underline" to={`/admin/events/${id}/registrations?view=invitations`}>Tampilkan semua</Link></div>}
 
       {eventDeadline && (
         <div className="mb-5 grid gap-3 border-y border-slate-200 bg-white p-4 text-sm sm:grid-cols-2">
@@ -1350,7 +1358,7 @@ export const EventRegistrationsPage: React.FC = () => {
       )}
 
       {demoMode && (
-        <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-xs text-amber-950">
+        <div className="mb-5 flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
           <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" />
           <p>
             Mode pratinjau aktif karena event contoh belum memakai UUID database. Seluruh interaksi tetap dapat dicoba tanpa
@@ -1377,7 +1385,7 @@ export const EventRegistrationsPage: React.FC = () => {
       {eventDeadline?.audienceMode && !audienceAllowed(invitationAudience) && <p className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-950">Jalur undangan {invitationAudience === "INDIVIDUAL" ? "perorangan" : "lembaga"} belum diaktifkan. <Link to={`/admin/events/${id}/edit`} className="font-bold underline">Atur jalur peserta</Link></p>}
 
       {error && (
-        <div role="alert" className="mt-5 flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-xs text-rose-900">
+        <div role="alert" className="mt-5 flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
           <XCircle className="h-4 w-4 shrink-0" />
           <span>{error}</span>
         </div>
@@ -1455,7 +1463,7 @@ export const EventRegistrationsPage: React.FC = () => {
                         <p className="mt-1 text-sm text-slate-600">
                           {invitation.registeredCount ?? delegates.length} dari {invitation.invitationType === "INDIVIDUAL" ? 1 : invitation.quota || 1} peserta · {invitation.invitationType === "INDIVIDUAL" ? "Satu asatidz" : invitationAllowsGroup(invitation) ? "Rombongan diizinkan" : "Satu perwakilan"}
                         </p>
-                        {invitation.responseDeadline && <p className="mt-2 text-xs text-slate-500">Batas respons: {formatEventDateTime(invitation.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta")} {eventTimezoneLabel(eventDeadline?.timezone || "Asia/Jakarta")}</p>}
+                        {invitation.responseDeadline && <p className="mt-2 text-sm text-slate-600">Batas respons: {formatEventDateTime(invitation.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta")} {eventTimezoneLabel(eventDeadline?.timezone || "Asia/Jakarta")}</p>}
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {canCreateInvitations && (invitation.institutionId || invitation.ustadzId) && invitation.status !== "REVOKED" && (
@@ -1484,7 +1492,7 @@ export const EventRegistrationsPage: React.FC = () => {
                           <button
                             onClick={() => void updateInvitation(invitation, "send")}
                             disabled={Boolean(invitationActionBusy) || submitting || Boolean(linkBusy)}
-                            className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
+                            className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-3 text-sm font-bold text-white hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
                           >
                             <Send className="h-3.5 w-3.5" />
                             Tandai terkirim
@@ -1494,7 +1502,7 @@ export const EventRegistrationsPage: React.FC = () => {
                           <button
                             onClick={() => void updateInvitation(invitation, "revoke")}
                             disabled={Boolean(invitationActionBusy) || submitting || Boolean(linkBusy)}
-                            className="inline-flex min-h-[44px] items-center whitespace-nowrap rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700"
+                            className="inline-flex min-h-[44px] items-center whitespace-nowrap rounded-lg border border-slate-300 px-3 text-sm font-bold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700"
                           >
                             Cabut
                           </button>
