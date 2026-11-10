@@ -1,4 +1,5 @@
 import { getDbClient } from "../db/client";
+import { withTransaction } from "../db/transaction";
 import {
   institutions,
   institutionRepresentatives,
@@ -124,6 +125,13 @@ export async function findInstitutionByCodeRepository(code: string) {
   return rows[0] || null;
 }
 
+/** PIC mutations only need existence, not the institution's full event history. */
+export async function findInstitutionIdentityRepository(id: string) {
+  const [institution] = await getDbClient().select({ id: institutions.id }).from(institutions)
+    .where(eq(institutions.id, id)).limit(1);
+  return institution || null;
+}
+
 export async function findInstitutionByIdRepository(id: string) {
   const db = getDbClient();
   const inst = await db
@@ -159,7 +167,7 @@ export async function findInstitutionByIdRepository(id: string) {
       })
       .from(invitations)
       .innerJoin(events, eq(invitations.eventId, events.id))
-      .leftJoin(invitationResponses, eq(invitationResponses.invitationId, invitations.id))
+      .leftJoin(invitationResponses, and(eq(invitationResponses.invitationId, invitations.id), eq(invitationResponses.isFinal, true)))
       .where(eq(invitations.institutionId, id))
       .orderBy(desc(events.startDate)),
     db
@@ -168,6 +176,8 @@ export async function findInstitutionByIdRepository(id: string) {
         participantCode: eventParticipants.participantCode,
         confirmationStatus: eventParticipants.confirmationStatus,
         approvalStatus: eventParticipants.approvalStatus,
+        registrationSource: eventParticipants.registrationSource,
+        invitationId: eventParticipants.invitationId,
         isDelegationLead: eventParticipants.isDelegationLead,
         eventId: events.id,
         eventName: events.name,
@@ -252,9 +262,18 @@ export async function softDeleteInstitutionRepository(id: string) {
 }
 
 export async function createRepresentativeRepository(data: typeof institutionRepresentatives.$inferInsert) {
-  const db = getDbClient();
-  const created = await db.insert(institutionRepresentatives).values(data).returning();
-  return created[0];
+  return withTransaction(async (tx) => {
+    await tx.select({ id: institutions.id }).from(institutions)
+      .where(eq(institutions.id, data.institutionId)).limit(1).for("update");
+    const [primary] = await tx.select({ id: institutionRepresentatives.id }).from(institutionRepresentatives)
+      .where(and(eq(institutionRepresentatives.institutionId, data.institutionId), eq(institutionRepresentatives.isPrimary, true))).limit(1);
+    const makePrimary = Boolean(data.isPrimary || !primary);
+    if (makePrimary && primary) await tx.update(institutionRepresentatives)
+      .set({ isPrimary: false, updatedAt: new Date() })
+      .where(eq(institutionRepresentatives.institutionId, data.institutionId));
+    const [created] = await tx.insert(institutionRepresentatives).values({ ...data, isPrimary: makePrimary }).returning();
+    return created;
+  });
 }
 
 export async function findRepresentativeByIdRepository(id: string) {
@@ -267,32 +286,54 @@ export async function findRepresentativeByIdRepository(id: string) {
   return rows[0] || null;
 }
 
-export async function clearPrimaryRepresentativeRepository(institutionId: string) {
-  const db = getDbClient();
-  await db
-    .update(institutionRepresentatives)
-    .set({ isPrimary: false, updatedAt: new Date() })
-    .where(eq(institutionRepresentatives.institutionId, institutionId));
-}
-
 export async function updateRepresentativeRepository(
   id: string,
   data: Partial<typeof institutionRepresentatives.$inferInsert>
 ) {
-  const db = getDbClient();
-  const rows = await db
-    .update(institutionRepresentatives)
-    .set({ ...data, updatedAt: new Date() })
-    .where(eq(institutionRepresentatives.id, id))
-    .returning();
-  return rows[0] || null;
+  return withTransaction(async (tx) => {
+    const [target] = await tx.select({ institutionId: institutionRepresentatives.institutionId })
+      .from(institutionRepresentatives).where(eq(institutionRepresentatives.id, id)).limit(1);
+    if (!target) return null;
+    await tx.select({ id: institutions.id }).from(institutions)
+      .where(eq(institutions.id, target.institutionId)).limit(1).for("update");
+    const [current] = await tx.select().from(institutionRepresentatives)
+      .where(and(eq(institutionRepresentatives.id, id), eq(institutionRepresentatives.institutionId, target.institutionId))).limit(1);
+    if (!current) return null;
+    if (data.isPrimary === true) await tx.update(institutionRepresentatives)
+      .set({ isPrimary: false, updatedAt: new Date() })
+      .where(eq(institutionRepresentatives.institutionId, current.institutionId));
+    if (data.isPrimary === false && current.isPrimary) {
+      const [next] = await tx.select({ id: institutionRepresentatives.id }).from(institutionRepresentatives)
+        .where(and(eq(institutionRepresentatives.institutionId, current.institutionId), sql`${institutionRepresentatives.id} <> ${id}`))
+        .orderBy(asc(institutionRepresentatives.createdAt), asc(institutionRepresentatives.id)).limit(1);
+      if (next) await tx.update(institutionRepresentatives).set({ isPrimary: true, updatedAt: new Date() })
+        .where(eq(institutionRepresentatives.id, next.id));
+      else data = { ...data, isPrimary: true };
+    }
+    const [updated] = await tx.update(institutionRepresentatives).set({ ...data, updatedAt: new Date() })
+      .where(eq(institutionRepresentatives.id, id)).returning();
+    return updated || null;
+  });
 }
 
 export async function deleteRepresentativeRepository(id: string) {
-  const db = getDbClient();
-  const rows = await db
-    .delete(institutionRepresentatives)
-    .where(eq(institutionRepresentatives.id, id))
-    .returning();
-  return rows[0] || null;
+  return withTransaction(async (tx) => {
+    const [target] = await tx.select({ institutionId: institutionRepresentatives.institutionId })
+      .from(institutionRepresentatives).where(eq(institutionRepresentatives.id, id)).limit(1);
+    if (!target) return null;
+    await tx.select({ id: institutions.id }).from(institutions)
+      .where(eq(institutions.id, target.institutionId)).limit(1).for("update");
+    const [current] = await tx.select().from(institutionRepresentatives)
+      .where(and(eq(institutionRepresentatives.id, id), eq(institutionRepresentatives.institutionId, target.institutionId))).limit(1);
+    if (!current) return null;
+    const [deleted] = await tx.delete(institutionRepresentatives).where(eq(institutionRepresentatives.id, id)).returning();
+    if (current.isPrimary) {
+      const [next] = await tx.select({ id: institutionRepresentatives.id }).from(institutionRepresentatives)
+        .where(eq(institutionRepresentatives.institutionId, current.institutionId))
+        .orderBy(asc(institutionRepresentatives.createdAt), asc(institutionRepresentatives.id)).limit(1);
+      if (next) await tx.update(institutionRepresentatives).set({ isPrimary: true, updatedAt: new Date() })
+        .where(eq(institutionRepresentatives.id, next.id));
+    }
+    return deleted || null;
+  });
 }

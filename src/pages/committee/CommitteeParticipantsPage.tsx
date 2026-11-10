@@ -35,7 +35,7 @@ import { ParticipantProfileDialog } from "@/components/participants/ParticipantP
 import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
 import { eventApi, eventApiEnvelope } from "@/lib/eventApi";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
-import { approvalSelectionCandidate, emptyParticipantSummary, type ParticipantPageMeta, type ApprovalSelectionCandidate } from "@/lib/participantCatalog";
+import { approvalSelectionCandidate, emptyParticipantSummary, participantSourceCategory, participantSourceLabel, type ParticipantSourceFilter, type ParticipantPageMeta, type ApprovalSelectionCandidate } from "@/lib/participantCatalog";
 import { availableParticipantCommands, participantStaffPermissions } from "@/lib/participantManagement";
 import type { AuthIdentity } from "@/lib/refine/authProvider";
 import { canApproveParticipant, runParticipantBulkApproval, selectionAfterBulkApproval, type BulkApprovalResponse } from "@/lib/participantBulkApproval";
@@ -108,7 +108,7 @@ const previewParticipants: CommitteeParticipant[] = [
     institutionName: "Ma'had Ilmu Sunnah Bandung",
     approvalStatus: "APPROVED",
     confirmationStatus: "CONFIRMED",
-    registrationSource: "INSTITUTION_INVITATION",
+    registrationSource: "INSTITUTION_DELEGATION",
     registeredAt: "2026-07-22T10:30:00+07:00",
     portalPasswordConfigured: true,
   },
@@ -124,7 +124,7 @@ const previewParticipants: CommitteeParticipant[] = [
     institutionName: "Ma'had Ilmu Sunnah Bandung",
     approvalStatus: "PENDING_REVIEW",
     confirmationStatus: "CONFIRMED",
-    registrationSource: "INSTITUTION_INVITATION",
+    registrationSource: "INSTITUTION_DELEGATION",
     registeredAt: "2026-07-22T10:42:00+07:00",
     portalPasswordConfigured: false,
   },
@@ -246,6 +246,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
   const [contactFilter, setContactFilter] = useState<ContactFilter>("ALL");
+  const [sourceFilter, setSourceFilter] = useState<ParticipantSourceFilter>("ALL");
   const [institutionFilter, setInstitutionFilter] = useState("ALL");
   const [sort, setSort] = useState<SortOption>("PRIORITY");
   const { data: identity, isLoading: identityLoading } = useGetIdentity<AuthIdentity>();
@@ -255,7 +256,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
   const canApprove = permissions.includes("participants.approve");
   const canExport = permissions.includes("participants.export");
   const debouncedSearch = useDebouncedValue(search.trim());
-  const filterKey = JSON.stringify([selectedEventId, debouncedSearch, statusFilter, contactFilter, institutionFilter, sort]);
+  const filterKey = JSON.stringify([selectedEventId, debouncedSearch, statusFilter, contactFilter, sourceFilter, institutionFilter, sort]);
   const [pagination, setPagination] = useState({ key: filterKey, page: 1 });
   const page = pagination.key === filterKey ? pagination.page : 1;
   const [pageMeta, setPageMeta] = useState<ParticipantPageMeta>({ page: 1, pageSize: 25, total: 0, pageCount: 1, filteredEligible: 0, summary: emptyParticipantSummary() });
@@ -265,7 +266,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
   const currentFilterKey = useRef(filterKey);
   currentFilterKey.current = filterKey;
   const participantQuery = new URLSearchParams({ page: String(page), pageSize: "25", search: debouncedSearch,
-    status: statusFilter, contact: contactFilter, institution: institutionFilter, sort, includeInstitutions: "true" }).toString();
+    status: statusFilter, contact: contactFilter, source: sourceFilter, institution: institutionFilter, sort, includeInstitutions: "true" }).toString();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const selectedIdsRef = useRef(selectedIds);
   selectedIdsRef.current = selectedIds;
@@ -409,7 +410,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
         const contactMatch = contactFilter === "ALL" || (contactFilter === "COMPLETE" && missing.length === 0) || (contactFilter === "INCOMPLETE" && missing.length > 0) || (contactFilter === "NO_WHATSAPP" && !hasWhatsapp) || (contactFilter === "NO_PORTAL" && !participant.portalPasswordConfigured);
         const institutionMatch = institutionFilter === "ALL" || (institutionFilter === "INDIVIDUAL" ? !participant.institutionName : participant.institutionName === institutionFilter);
         const searchMatch = !keyword || [participant.ustadzName, participant.participantCode, participant.institutionName, participant.ustadzWhatsapp, participant.ustadzPhone, participant.ustadzEmail].filter(Boolean).some((value) => String(value).toLocaleLowerCase("id-ID").includes(keyword));
-        return statusMatch && contactMatch && institutionMatch && searchMatch;
+        return statusMatch && contactMatch && (sourceFilter === "ALL" || participantSourceCategory(participant.registrationSource) === sourceFilter) && institutionMatch && searchMatch;
       })
       .sort((a, b) => {
         if (sort === "NAME") return a.ustadzName.localeCompare(b.ustadzName, "id-ID");
@@ -419,7 +420,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
         if (sort === "OLDEST") return aTime - bTime;
         return (priority[a.approvalStatus] ?? 9) - (priority[b.approvalStatus] ?? 9) || bTime - aTime;
       });
-  }, [contactFilter, institutionFilter, participants, search, sort, statusFilter, previewMode]);
+  }, [contactFilter, sourceFilter, institutionFilter, participants, search, sort, statusFilter, previewMode]);
 
   const pendingIds = filteredParticipants.filter((item) => item.approvalStatus === "PENDING_REVIEW" && canApproveParticipant(item)).map((item) => item.id);
   const pendingTotal = previewMode ? pendingIds.length : pageMeta.filteredPendingEligible || 0;
@@ -438,6 +439,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
     setSearch("");
     setStatusFilter("ALL");
     setContactFilter("ALL");
+    setSourceFilter("ALL");
     setInstitutionFilter("ALL");
     setSort("PRIORITY");
   };
@@ -614,6 +616,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
               <label className="block"><span className="mb-2 block text-sm font-bold text-slate-800">Cari peserta</span><span className="relative block"><Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-500" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nama, kode, lembaga" className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700" /></span></label>
               <label className="block"><span className="mb-2 block text-sm font-bold text-slate-800">Tahap keputusan</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700"><option value="ALL">Semua tahap</option><option value="NEEDS_ACTION">Perlu tindakan</option><option value="PENDING_REVIEW">Menunggu tinjauan</option><option value="APPROVED">Disetujui</option><option value="WAITLISTED">Daftar tunggu</option><option value="DECLINED">Ditolak</option><option value="CANCELLED">Dibatalkan</option></select></label>
               <label className="block"><span className="mb-2 block text-sm font-bold text-slate-800">Kesiapan data</span><select value={contactFilter} onChange={(event) => setContactFilter(event.target.value as ContactFilter)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700"><option value="ALL">Semua data</option><option value="COMPLETE">Kontak lengkap</option><option value="INCOMPLETE">Kontak belum lengkap</option><option value="NO_WHATSAPP">Tanpa WhatsApp</option><option value="NO_PORTAL">Akses portal belum siap</option></select></label>
+              <label className="block"><span className="mb-2 block text-sm font-bold text-slate-800">Jalur pendaftaran</span><select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as ParticipantSourceFilter)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700"><option value="ALL">Semua jalur</option><option value="REGULAR">Pendaftaran reguler</option><option value="INSTITUTION">Undangan lembaga</option><option value="INDIVIDUAL">Undangan pribadi</option></select></label>
               <label className="block"><span className="mb-2 block text-sm font-bold text-slate-800">Lembaga</span><select value={institutionFilter} onChange={(event) => setInstitutionFilter(event.target.value)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700"><option value="ALL">Semua lembaga</option><option value="INDIVIDUAL">Peserta individu</option>{institutions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
               <label className="block"><span className="mb-2 block text-sm font-bold text-slate-800">Urutkan</span><select value={sort} onChange={(event) => setSort(event.target.value as SortOption)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700"><option value="PRIORITY">Prioritas tindakan</option><option value="NEWEST">Pendaftaran terbaru</option><option value="OLDEST">Pendaftaran terlama</option><option value="NAME">Nama A–Z</option></select></label>
             </div>
@@ -640,7 +643,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
                 <div>{canSelect ? <input type="checkbox" disabled={Boolean(busy) || loading || requiresRefresh} checked={selectedIds.includes(participant.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, participant.id] : current.filter((id) => id !== participant.id))} aria-label={`Pilih ${participant.ustadzName}`} className="mt-1 h-5 w-5 accent-teal-800" /> : <UserRoundCheck className="mt-1 h-5 w-5 text-slate-400" aria-hidden="true" />}</div>
                 <div className="min-w-0">
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="min-w-0"><p className="font-mono text-sm font-bold text-teal-800">{participant.participantCode}</p><h3 className="mt-1 overflow-wrap-anywhere text-lg font-black text-slate-950">{participant.ustadzName}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{participant.institutionName || (participant.publicGroupId ? `Rombongan reguler ${participant.publicGroupId.slice(0, 8)}` : "Peserta individu")}</p>{participant.publicGroupId && <p className="text-xs font-bold text-teal-800">{participant.isDelegationLead ? "Kepala rombongan" : "Anggota rombongan"}</p>}</div>
+                    <div className="min-w-0"><p className="font-mono text-sm font-bold text-teal-800">{participant.participantCode}</p><h3 className="mt-1 overflow-wrap-anywhere text-lg font-black text-slate-950">{participant.ustadzName}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{participant.institutionName || (participant.publicGroupId ? `Rombongan reguler ${participant.publicGroupId.slice(0, 8)}` : "Peserta individu")}</p><p className="text-sm font-bold text-teal-800">{participantSourceLabel(participant.registrationSource)}</p>{participant.publicGroupId && <p className="text-sm font-bold text-teal-800">{participant.isDelegationLead ? "Kepala rombongan" : "Anggota rombongan"}</p>}</div>
                     <div className="flex flex-wrap gap-2"><StatusBadge label={approvalLabels[participant.approvalStatus] || participant.approvalStatus.replaceAll("_", " ")} variant={approvalVariant(participant.approvalStatus)} /><StatusBadge label={missing.length === 0 ? "Kontak lengkap" : `${missing.length} data belum lengkap`} variant={missing.length === 0 ? "success" : "warning"} /><StatusBadge label={participant.portalPasswordConfigured ? "Portal siap" : "Portal belum siap"} variant={participant.portalPasswordConfigured ? "info" : "neutral"} /></div>
                   </div>
 
@@ -660,7 +663,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
                     </div>
                     <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 xl:border-0 xl:pt-0">
                       <ParticipantProfileDialog participant={{ id: participant.id, ustadzId: participant.ustadzId, name: participant.ustadzName, participantCode: participant.participantCode, institutionName: participant.institutionName, email: participant.ustadzEmail, phone: participant.ustadzPhone, whatsapp: participant.ustadzWhatsapp, address: participant.ustadzAddress, approvalStatus: participant.approvalStatus, confirmationStatus: participant.confirmationStatus, registrationSource: participant.registrationSource, registeredAt: participant.registeredAt, eventName: participant.eventName || selectedEvent?.name }} />
-                      <ParticipantCommunicationPanel disabled={previewMode} participant={contact} senderRole="committee" initialTemplate={participant.registrationSource === "PUBLIC_REGULAR" ? "REGULAR_REGISTRATION" : "EVENT_INVITATION"} event={{ name: participant.eventName || selectedEvent?.name, startDate: participant.eventStartDate || selectedEvent?.startDate, endDate: participant.eventEndDate || selectedEvent?.endDate, venueName: participant.eventVenueName || selectedEvent?.venueName, venueAddress: participant.eventVenueAddress || selectedEvent?.venueAddress }} />
+                      <ParticipantCommunicationPanel disabled={previewMode} participant={contact} senderRole="committee" initialTemplate={participantSourceCategory(participant.registrationSource) === "REGULAR" ? "REGULAR_REGISTRATION" : "EVENT_INVITATION"} event={{ name: participant.eventName || selectedEvent?.name, startDate: participant.eventStartDate || selectedEvent?.startDate, endDate: participant.eventEndDate || selectedEvent?.endDate, venueName: participant.eventVenueName || selectedEvent?.venueName, venueAddress: participant.eventVenueAddress || selectedEvent?.venueAddress }} />
                       {permissions.includes("participants.manage_portal_access") && <ParticipantPortalAccessAction eventId={selectedEventId} participant={{ id: participant.id, name: participant.ustadzName, email: participant.ustadzEmail, portalPasswordConfigured: participant.portalPasswordConfigured }} previewMode={previewMode} onCompleted={() => {
                         // Keep the row mounted: the one-time credential dialog must not disappear on refresh.
                         if (activeEvent.current !== selectedEventId || !mounted.current) return;

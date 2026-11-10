@@ -1,6 +1,7 @@
 import {
   findInstitutionsRepository,
   findInstitutionByCodeRepository,
+  findInstitutionIdentityRepository,
   findInstitutionByIdRepository,
   createInstitutionRepository,
   updateInstitutionRepository,
@@ -8,7 +9,6 @@ import {
   softDeleteInstitutionRepository,
   createRepresentativeRepository,
   findRepresentativeByIdRepository,
-  clearPrimaryRepresentativeRepository,
   updateRepresentativeRepository,
   deleteRepresentativeRepository,
   InstitutionQueryParams,
@@ -26,6 +26,10 @@ export async function getInstitutionByIdService(id: string) {
     throw new NotFoundError(`Lembaga dengan ID ${id} tidak ditemukan.`);
   }
   return inst;
+}
+
+async function assertInstitutionExists(id: string) {
+  if (!await findInstitutionIdentityRepository(id)) throw new NotFoundError(`Lembaga dengan ID ${id} tidak ditemukan.`);
 }
 
 export async function createInstitutionService(data: any, actorUserId: string, requestId: string) {
@@ -104,11 +108,7 @@ export async function deleteInstitutionService(id: string, actorUserId: string, 
 }
 
 export async function addRepresentativeService(institutionId: string, data: any, actorUserId: string, requestId: string) {
-  await getInstitutionByIdService(institutionId);
-
-  if (data.isPrimary) {
-    await clearPrimaryRepresentativeRepository(institutionId);
-  }
+  await assertInstitutionExists(institutionId);
 
   const repData = {
     ...data,
@@ -136,13 +136,10 @@ export async function updateRepresentativeService(
   actorUserId: string,
   requestId: string
 ) {
-  await getInstitutionByIdService(institutionId);
+  await assertInstitutionExists(institutionId);
   const existing = await findRepresentativeByIdRepository(representativeId);
   if (!existing || existing.institutionId !== institutionId) {
     throw new NotFoundError("Perwakilan lembaga tidak ditemukan.");
-  }
-  if (data.isPrimary) {
-    await clearPrimaryRepresentativeRepository(institutionId);
   }
   const updated = await updateRepresentativeRepository(representativeId, data);
   await createAuditLog({
@@ -163,7 +160,7 @@ export async function deleteRepresentativeService(
   actorUserId: string,
   requestId: string
 ) {
-  await getInstitutionByIdService(institutionId);
+  await assertInstitutionExists(institutionId);
   const existing = await findRepresentativeByIdRepository(representativeId);
   if (!existing || existing.institutionId !== institutionId) {
     throw new NotFoundError("Perwakilan lembaga tidak ditemukan.");

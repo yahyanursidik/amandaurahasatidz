@@ -30,6 +30,17 @@ const institution = { id: institutionId, code: 'MU-01', name: "Ma'had Ilmu dan D
 const ustadz = { id: '88888888-8888-4888-8888-888888888888', fullName: 'Ustadz Ahmad Uji', email: 'ahmad@example.invalid', whatsapp: '081234500000', phone: null };
 let invitations = [{ id, invitationType: 'INSTITUTION', institutionId, institutionName: institution.name, invitationNumber: 'UND-01',
   quota: 3, allowGroup: true, status: 'SENT', sentAt: null, respondedAt: null, responseDeadline: event.invitationResponseDeadline }];
+const browserParticipants = [
+  { id: 'a0000000-0000-4000-8000-000000000001', ustadzId: ustadz.id, ustadzName: 'Ustadz Reguler',
+    participantCode: 'P-REG', institutionId, institutionName: institution.name, invitationId: null,
+    registrationSource: 'DIRECT_PUBLIC', approvalStatus: 'APPROVED', confirmationStatus: 'CONFIRMED', registeredAt: '2026-01-01T08:00:00Z' },
+  { id: 'a0000000-0000-4000-8000-000000000002', ustadzId: ustadz.id, ustadzName: 'Ustadz Delegasi',
+    participantCode: 'P-INST', institutionId, institutionName: institution.name, invitationId: id,
+    registrationSource: 'INSTITUTION_DELEGATION', approvalStatus: 'APPROVED', confirmationStatus: 'CONFIRMED', registeredAt: '2026-01-02T08:00:00Z' },
+  { id: 'a0000000-0000-4000-8000-000000000003', ustadzId: ustadz.id, ustadzName: 'Ustadz Pribadi',
+    participantCode: 'P-IND', institutionId: null, institutionName: null, invitationId: 'a0000000-0000-4000-8000-000000000004',
+    registrationSource: 'INDIVIDUAL_INVITATION', approvalStatus: 'APPROVED', confirmationStatus: 'CONFIRMED', registeredAt: '2026-01-03T08:00:00Z' },
+];
 const requests = [], failures = [], screenshots = [];
 const fixture = {
   name: 'institution-invitation-fixtures',
@@ -40,6 +51,7 @@ const fixture = {
         if (url.searchParams.get('mode') === 'commands') commandParticipant = { id: commandId, name: 'Ustadz Uji Status', participantCode: 'P-COMMAND', approvalStatus: 'APPROVED', confirmationStatus: 'CONFIRMED' };
         const entry = url.searchParams.get('mode') === 'commands' ? '/qa/participants'
           : url.searchParams.get('mode') === 'individual' ? '/invitation/individual/personal'
+          : url.searchParams.get('mode') === 'participant' ? `/admin/events/${eventId}/registrations?view=participants`
           : url.searchParams.get('mode') === 'admin' ? `/admin/events/${eventId}/registrations?view=invitations`
           : `/invitation/institution/${url.searchParams.get('token') || 'group'}`;
         response.setHeader('Content-Type', 'text/html');
@@ -66,11 +78,17 @@ const fixture = {
       const route = url.pathname.slice('/api/v1'.length), method = request.method;
       const chunks = []; for await (const chunk of request) chunks.push(chunk);
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {};
-      requests.push({ route, method, body });
+      requests.push({ route, method, body, query: url.searchParams.toString() });
       let data;
       if (route === `/events/${eventId}/invitations/institutions`) data = [institution];
       else if (route === `/events/${eventId}/invitations/ustadz`) data = [ustadz];
-      else if (route === `/events/${eventId}/participants`) data = commandParticipant ? [commandParticipant] : [];
+      else if (route === `/events/${eventId}/participants`) data = commandParticipant ? [commandParticipant]
+        : browserParticipants.filter((person) => {
+          const source = url.searchParams.get('source') || 'ALL';
+          return source === 'ALL' || source === 'REGULAR' && person.registrationSource === 'DIRECT_PUBLIC'
+            || source === 'INSTITUTION' && person.registrationSource === 'INSTITUTION_DELEGATION'
+            || source === 'INDIVIDUAL' && person.registrationSource === 'INDIVIDUAL_INVITATION';
+        });
       else if (route === `/events/${eventId}/participants/${commandId}/replacement-options`) data = [{ id: replacementId, fullName: 'Ustadz Pengganti', email: 'pengganti@example.invalid' }];
       else if (method === 'POST' && route.startsWith(`/events/${eventId}/participants/${commandId}/`)) {
         const action = route.split('/').at(-1);
@@ -349,8 +367,24 @@ try {
   const personalResponse = requests.find((item) => item.route === '/invitations/public/individual/personal/response');
   assert.equal(personalResponse.body.delegates.length, 1);
   assert.equal('institutionName' in personalResponse.body, false);
+  commandParticipant = null;
+  await navigate('mode=participant');
+  await until(`document.querySelectorAll('.event-participants-table tbody tr').length===3`, 'participant route list');
+  assert.equal(await evaluate(`document.body.textContent.includes('Pendaftaran publik') && document.body.textContent.includes('Undangan lembaga') && document.body.textContent.includes('Undangan pribadi')`), true);
+  assert.equal(await evaluate(`document.body.textContent.includes('Persetujuan massal peserta')`), false, 'hide inactive bulk approval controls');
+  assert.equal(await evaluate(`document.querySelector('.event-participants-table tbody tr:nth-child(2) a[href*="invitationId="]')?.getAttribute('href').includes('invitationId=${id}')`), true, 'delegation links to its exact invitation');
+  for (const width of [320, 375, 414, 768]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 850, deviceScaleFactor: 1, mobile: width < 768 });
+    assert.equal(await evaluate(`document.querySelector('.event-participants-table').scrollWidth<=document.querySelector('.event-participants-table').clientWidth`), true, `participant rows fit ${width}px`);
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 850, deviceScaleFactor: 1, mobile: true });
+  await screenshot('participant-admin-mobile');
+  await fill('select[aria-label="Filter jalur pendaftaran"]', 'INDIVIDUAL');
+  await until(`document.querySelectorAll('.event-participants-table tbody tr').length===1`, 'personal participant filter');
+  assert.equal(await evaluate(`document.querySelector('.event-participants-table tbody tr')?.textContent.includes('P-IND')`), true);
+  assert.equal(requests.some((item) => item.route === `/events/${eventId}/participants` && item.query.includes('source=INDIVIDUAL')), true);
   assert.deepEqual(failures, [], 'no browser exceptions or unexpected API requests');
-  console.log(JSON.stringify({ result: 'PASS', widths: [320, 375, 390, 414, 768, 1280], checks: ['master institution picker', 'edit persists group policy', 'quota two from admin to same public invitation', 'unchecked group hides add button and clears members', 'admin disables public group controls', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection', 'revoked invitation replacement keeps old link disabled', 'personal picker and share', 'personal edit', 'personal public RSVP and QR'], screenshots }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', widths: [320, 375, 390, 414, 768, 1280], checks: ['master institution picker', 'edit persists group policy', 'quota two from admin to same public invitation', 'unchecked group hides add button and clears members', 'admin disables public group controls', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection', 'revoked invitation replacement keeps old link disabled', 'personal picker and share', 'personal edit', 'personal public RSVP and QR', 'participant route filters', 'participant mobile cards'], screenshots }, null, 2));
 } finally {
   socket?.close(); browser?.kill(); await server.close();
   await new Promise((resolve) => setTimeout(resolve, 400));

@@ -11,6 +11,7 @@ import {
   X,
 } from "lucide-react";
 import { StatusBadge } from "@/components/common/StatusBadge";
+import { participantApprovalLabel, participantConfirmationLabel, participantSourceLabel } from "@/lib/participantCatalog";
 
 export type ParticipantProfileSummary = {
   id: string;
@@ -42,17 +43,6 @@ const formatRegisteredAt = (value?: string | null) => {
     timeZone: "Asia/Jakarta",
     timeZoneName: "short",
   }).format(date);
-};
-
-const sourceLabel = (source?: string | null) => {
-  const labels: Record<string, string> = {
-    INSTITUTION_INVITATION: "Undangan lembaga",
-    INDIVIDUAL_INVITATION: "Undangan individu",
-    PUBLIC_REGISTRATION: "Pendaftaran umum",
-    ADMIN_ENTRY: "Input admin",
-    REPLACEMENT: "Peserta pengganti",
-  };
-  return source ? labels[source] || source.replaceAll("_", " ") : "Sumber belum dicatat";
 };
 
 export const ParticipantProfileDialog: React.FC<{
@@ -101,11 +91,11 @@ export const ParticipantProfileDialog: React.FC<{
         <div className="space-y-5 p-5">
           <div className="flex flex-wrap gap-2">
             <StatusBadge
-              label={participant.approvalStatus.replaceAll("_", " ")}
+              label={participantApprovalLabel(participant.approvalStatus)}
               variant={participant.approvalStatus === "APPROVED" ? "success" : "warning"}
             />
             <StatusBadge
-              label={participant.confirmationStatus.replaceAll("_", " ")}
+              label={participantConfirmationLabel(participant.confirmationStatus)}
               variant={participant.confirmationStatus === "CONFIRMED" ? "success" : "neutral"}
             />
           </div>
@@ -117,7 +107,7 @@ export const ParticipantProfileDialog: React.FC<{
               { label: "Telepon / WhatsApp", value: participant.whatsapp || participant.phone || "Belum diisi", icon: Phone },
               { label: "Alamat", value: participant.address || "Belum diisi", icon: MapPin },
               { label: "Waktu pendaftaran", value: formatRegisteredAt(participant.registeredAt), icon: CalendarClock },
-              { label: "Jalur pendaftaran", value: sourceLabel(participant.registrationSource), icon: UserRound },
+              { label: "Jalur pendaftaran", value: participantSourceLabel(participant.registrationSource), icon: UserRound },
             ].map((item) => (
               <div key={item.label} className="min-w-0 bg-white p-4">
                 <dt className="flex items-center gap-2 text-xs font-black uppercase tracking-wide text-slate-500">

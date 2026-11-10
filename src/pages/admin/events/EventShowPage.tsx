@@ -427,9 +427,9 @@ export const EventShowPage: React.FC = () => {
                   { label: "Rincian & poster", href: `/admin/events/${id}/edit`, ready: Boolean(data.name && data.venueName && data.posterUrl) },
                   { label: "Jadwal & sesi", href: `/admin/events/${id}/schedule`, ready: data.days.length > 0 && data.sessions.length > 0 },
                   { label: "Panitia", href: `/admin/events/${id}/team`, ready: data.committee.length > 0 },
-                  ...(["INSTITUTION_INVITATION", "INDIVIDUAL_INVITATION", "MIXED"].includes(data.audienceMode) ? [{ label: "Undangan", href: `/admin/events/${id}/registrations?view=invitations`, ready: false }] : []),
-                  { label: "Peserta", href: `/admin/events/${id}/registrations?view=participants`, ready: false },
-                  { label: "Kehadiran & rapor", href: `/admin/events/${id}/attendance`, ready: false },
+                  ...(["INSTITUTION_INVITATION", "INDIVIDUAL_INVITATION", "MIXED"].includes(data.audienceMode) ? [{ label: "Undangan", href: `/admin/events/${id}/registrations?view=invitations` }] : []),
+                  { label: "Peserta", href: `/admin/events/${id}/registrations?view=participants` },
+                  { label: "Kehadiran & rapor", href: `/admin/events/${id}/attendance` },
                 ].map((item) => <Link key={item.label} to={item.href} className="flex min-h-12 items-center gap-2 py-2 text-sm font-bold text-slate-800 hover:text-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700">
                   <span className="min-w-0 flex-1">{item.label}</span>
                   {item.ready && <CheckCircle2 className="h-4 w-4 text-emerald-700" aria-label="Siap" />}

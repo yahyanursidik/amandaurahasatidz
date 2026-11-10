@@ -1841,7 +1841,8 @@
 
   .institution-contact-list article,
   .institution-affiliation-list a,
-  .institution-history-list a {
+  .institution-history-list a,
+  .institution-history-list > div {
     min-width: 0;
     border: var(--rule-institution) solid var(--color-institution-rule);
     border-radius: var(--radius-institution);
@@ -1850,7 +1851,8 @@
 
   .institution-contact-list article > div,
   .institution-affiliation-list a,
-  .institution-history-list a {
+  .institution-history-list a,
+  .institution-history-list > div {
     display: flex;
     align-items: center;
     justify-content: space-between;
@@ -7628,3 +7630,19 @@
 @media (max-width: 39.999rem) { .public-receipt__shortcuts svg { display: none; } .public-receipt__actions a { width: 100%; } }
 @media (hover: hover) and (pointer: fine) { .public-receipt__shortcuts a:hover, .participant-card-page__links a:first-child:hover { background: var(--color-public-success-paper); } .participant-card-page__links a:last-child:hover { background: var(--color-public-focus); } }
 @media (prefers-reduced-motion: reduce) { .public-receipt__shortcuts a:active, .participant-card-page__links a:active { transform: none; } }
+
+/* Admin Event: keep participant identity, route, and actions readable without sideways scrolling. */
+@media (max-width: 48rem) {
+  .event-participants-table { display: block; width: 100%; min-width: 0; }
+  .event-participants-table thead { display: none; }
+  .event-participants-table tbody { display: grid; gap: .75rem; padding: .75rem; }
+  .event-participants-table tr { display: block; width: 100%; border: 1px solid var(--color-event-rule); border-radius: var(--radius-event-control); overflow: hidden; background: var(--color-event-paper); }
+  .event-participants-table td { display: block; width: 100%; max-width: none; border-top: 1px solid var(--color-event-rule); overflow-wrap: anywhere; }
+  .event-participants-table td:first-child { border-top: 0; background: var(--color-event-paper-muted); }
+  .event-participants-table td.event-participants-table__unselectable { display: none; }
+  .event-participants-table td::before { content: attr(data-label); display: block; margin-bottom: .25rem; color: var(--color-event-muted); font-size: .875rem; font-weight: 700; }
+  .event-participants-table td:last-child > div { max-width: none; }
+}
+.institution-delegation__intro { margin: var(--space-institution-xs) 0 0; color: var(--color-institution-muted); font-size: var(--text-institution-small); line-height: 1.5; }
+.institution-delegation li > a { display: grid; gap: var(--space-institution-xs); min-width: 0; color: var(--color-institution-accent); font-weight: 750; }
+.institution-delegation li small { color: var(--color-institution-muted); font-size: var(--text-institution-small); font-weight: 600; }
