@@ -23,6 +23,7 @@ export async function getPublicParticipantCardService(token: string) {
     participantCode: eventParticipants.participantCode, qrTokenVersion: eventParticipants.qrTokenVersion,
     approvalStatus: eventParticipants.approvalStatus, confirmationStatus: eventParticipants.confirmationStatus,
     ustadzName: ustadzProfiles.fullName, eventName: events.name, eventSlug: events.slug,
+    attendanceConfirmationRequired: events.attendanceConfirmationRequired,
   }).from(eventParticipants)
     .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
     .innerJoin(events, eq(eventParticipants.eventId, events.id))

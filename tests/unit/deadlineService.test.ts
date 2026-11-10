@@ -43,6 +43,11 @@ describe("event confirmation deadlines", () => {
     expect(() => assertParticipantEligibleForCheckin(
       { confirmationStatus: "INVITED", approvalStatus: "PENDING_REVIEW" },
       { attendanceConfirmationRequired: true },
+    )).toThrow(/belum disetujui/i);
+
+    expect(() => assertParticipantEligibleForCheckin(
+      { confirmationStatus: "INVITED", approvalStatus: "APPROVED" },
+      { attendanceConfirmationRequired: true },
     )).toThrow(/belum mengonfirmasi/i);
 
     expect(() => assertParticipantEligibleForCheckin(

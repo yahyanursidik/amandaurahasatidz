@@ -10,14 +10,17 @@ export type ParticipantCardDetails = {
   whatsapp?: string | null;
 };
 
-export function ParticipantQrCard({ person, eventName, approvalStatus = "APPROVED", showShareActions = true }: { person: ParticipantCardDetails; eventName: string; approvalStatus?: string; showShareActions?: boolean }) {
+export function ParticipantQrCard({ person, eventName, approvalStatus = "APPROVED", confirmationStatus = "CONFIRMED", confirmationRequired = true, showShareActions = true }: {
+  person: ParticipantCardDetails; eventName: string; approvalStatus?: string; confirmationStatus?: string;
+  confirmationRequired?: boolean; showShareActions?: boolean;
+}) {
   const canvasId = useId();
   const [downloadError, setDownloadError] = useState("");
-  const approved = approvalStatus === "APPROVED";
+  const approved = approvalStatus === "APPROVED" && (!confirmationRequired || confirmationStatus === "CONFIRMED");
   const url = new URL(person.cardUrl, window.location.origin).toString();
   const message = approved
     ? `Kartu peserta ${person.fullName} untuk ${eventName} (kode ${person.participantCode}). Tunjukkan QR pribadi saat presensi.`
-    : `Bukti pendaftaran ${person.fullName} untuk ${eventName} (kode ${person.participantCode}). Menunggu persetujuan admin; QR belum berlaku untuk presensi.`;
+    : `Bukti pendaftaran ${person.fullName} untuk ${eventName} (kode ${person.participantCode}). Menunggu persetujuan admin atau konfirmasi pribadi; QR belum berlaku untuk presensi.`;
   const digits = person.whatsapp?.replace(/\D/g, "").replace(/^0/, "62") || "";
 
   const download = async () => {
@@ -59,7 +62,7 @@ export function ParticipantQrCard({ person, eventName, approvalStatus = "APPROVE
     URL.revokeObjectURL(blobUrl);
     ctx.fillStyle = "#475569";
     ctx.font = "18px sans-serif";
-    ctx.fillText(approved ? "Tunjukkan QR ini saat presensi" : "Menunggu persetujuan admin", approved ? 126 : 150, 686);
+    ctx.fillText(approved ? "Tunjukkan QR ini saat presensi" : "Menunggu persetujuan / konfirmasi", approved ? 126 : 100, 686);
     const link = document.createElement("a");
     link.download = `${approved ? "kartu" : "bukti-pendaftaran"}-${person.participantCode}.png`;
     try {
@@ -78,7 +81,7 @@ export function ParticipantQrCard({ person, eventName, approvalStatus = "APPROVE
     <div className="my-5 flex justify-center rounded-xl border-2 border-slate-300 bg-white p-3">
       {person.qrToken?.startsWith("pqr_") ? <QRCodeSVG id={canvasId} value={person.qrToken} size={320} marginSize={4} level="M" style={{ display: "block", width: "min(100%, 320px)", height: "auto", background: "white" }} aria-label={`QR peserta ${person.fullName}`} /> : <p role="alert" className="p-5 text-rose-800">QR belum tersedia. Buka Portal Asatidz atau hubungi panitia.</p>}
     </div>
-    <p className="text-center text-sm text-slate-600">{approved ? "Simpan kartu ini untuk presensi." : "Menunggu persetujuan admin. QR belum berlaku untuk presensi."} Bagikan hanya kepada peserta yang bersangkutan.</p>
+    <p className="text-center text-sm text-slate-600">{approved ? "Simpan kartu ini untuk presensi." : approvalStatus === "APPROVED" ? "Konfirmasi kehadiran pribadi terlebih dahulu. QR belum berlaku untuk presensi." : "Menunggu persetujuan admin. QR belum berlaku untuk presensi."} Bagikan hanya kepada peserta yang bersangkutan.</p>
     {downloadError && <p role="alert" className="mt-3 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{downloadError}</p>}
     <div className="mt-4 flex flex-wrap gap-2 text-sm font-bold">
       <button type="button" onClick={() => void download()} disabled={!person.qrToken?.startsWith("pqr_")} className="min-h-11 rounded-lg bg-emerald-800 px-3 py-2 text-white disabled:cursor-not-allowed disabled:opacity-50">{approved ? "Simpan kartu QR" : "Simpan bukti QR"}</button>

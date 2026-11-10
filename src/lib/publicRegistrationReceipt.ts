@@ -2,6 +2,7 @@ import type { ParticipantCardDetails } from "@/components/public/ParticipantQrCa
 import { buildEventWhatsAppUrl } from "@/lib/eventWhatsApp";
 
 export type ReceiptParticipant = ParticipantCardDetails & {
+  confirmationUrl?: string | null;
   passwordSetupRequired: boolean;
   temporaryPassword?: string | null;
   temporaryPasswordIssued?: boolean;
@@ -23,7 +24,7 @@ export function buildRegistrationAttendanceMessage(
     `Saya ingin mengabari panitia bahwa pendaftaran untuk ${eventName} telah tersimpan. Insya Allah ${attendance}:`,
     names,
     "",
-    "Kami menunggu persetujuan admin sebelum QR dapat digunakan untuk absensi.",
+    "Kami menunggu persetujuan admin. Bila diwajibkan, setiap asatidz akan mengonfirmasi lewat tautan pribadi sebelum QR dapat digunakan untuk absensi.",
     "Mohon kabari bila ada perubahan informasi kegiatan. Jazakumullahu khairan.",
   ].join("\n");
 }

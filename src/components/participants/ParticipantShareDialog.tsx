@@ -67,14 +67,14 @@ export function ParticipantShareDialog({ eventId, participantId, participantName
   };
 
   return <>
-    <button type="button" onClick={() => void open()} className={buttonClass} aria-label={`Bagikan QR dan kode ${participantName}`}>
-      <Share2 className="h-4 w-4" aria-hidden="true" /> Bagikan QR / kode
+    <button type="button" onClick={() => void open()} className={buttonClass} aria-label={`Bagikan akses peserta ${participantName}`}>
+      <Share2 className="h-4 w-4" aria-hidden="true" /> Bagikan akses
     </button>
     <dialog ref={dialogRef} aria-labelledby={`participant-share-${participantId}`}
       onClose={() => { requestRef.current?.abort(); setLoading(false); setDetails(null); }}
       className="m-auto max-h-[90dvh] w-[min(44rem,calc(100%-2rem))] overflow-y-auto rounded-2xl border border-slate-200 bg-white p-0 text-slate-900 shadow-2xl backdrop:bg-slate-950/60">
       <header className="flex items-start justify-between gap-4 border-b border-slate-200 bg-slate-50 p-5">
-        <div><h2 id={`participant-share-${participantId}`} className="text-lg font-black">Bagikan QR dan kode pendaftaran</h2><p className="mt-1 text-sm text-slate-600">{participantName}</p></div>
+        <div><h2 id={`participant-share-${participantId}`} className="text-lg font-black">Bagikan akses peserta</h2><p className="mt-1 text-sm text-slate-600">{participantName}</p></div>
         <button type="button" onClick={() => dialogRef.current?.close()} aria-label="Tutup berbagi peserta" className={buttonClass}><X className="h-4 w-4" /></button>
       </header>
       <div className="space-y-4 p-5">
@@ -86,6 +86,12 @@ export function ParticipantShareDialog({ eventId, participantId, participantName
             <p className="mt-1 break-all font-mono text-2xl font-black">{details.participantCode}</p>
             {!links.cardUrl && <p className="mt-2 text-sm">QR belum tersedia. Kode dapat dibagikan, tetapi belum berlaku untuk presensi hingga disetujui panitia.</p>}
           </div>
+          {links.confirmationUrl && <div className="rounded-lg border border-emerald-200 bg-white p-4">
+            <p className="font-black text-emerald-950">1. Tautan pribadi — {details.confirmationStatus === "CONFIRMED" ? "status & pengunduran diri" : "konfirmasi hadir"}</p>
+            <p className="mt-1 text-sm text-slate-700">Kirim hanya kepada {details.fullName}. Tautan ini untuk menjawab hadir, berhalangan, atau mengundurkan diri sebelum presensi; tidak perlu login.</p>
+            <a href={links.confirmationUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-11 items-center rounded-lg bg-emerald-800 px-4 py-2 font-bold text-white">Buka tautan pribadi</a>
+          </div>}
+          {links.cardUrl && <p className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700"><strong>{links.confirmationUrl ? "2. " : ""}Tautan kartu QR.</strong> {details.confirmationStatus === "CONFIRMED" ? "Aktif untuk presensi harian." : "Bukti pendaftaran; aktif setelah peserta mengonfirmasi hadir."} {links.confirmationUrl ? "Kedua tautan tercantum di draf pesan di bawah." : "Tautan tercantum di draf pesan di bawah."}</p>}
           <div className="flex flex-wrap gap-2">
             {links.whatsappUrl ? <a href={links.whatsappUrl} target="_blank" rel="noopener noreferrer" className={buttonClass}><MessageCircle className="h-4 w-4" /> WhatsApp</a> : <button disabled className={buttonClass}>WhatsApp tidak tersedia</button>}
             {links.emailUrl ? <a href={links.emailUrl} className={buttonClass}><Mail className="h-4 w-4" /> Email</a> : <button disabled className={buttonClass}>Email tidak tersedia</button>}
@@ -93,7 +99,7 @@ export function ParticipantShareDialog({ eventId, participantId, participantName
           </div>
           <p className="text-xs leading-5 text-slate-600">WhatsApp/email membuka pesan siap kirim di aplikasi Anda. Klik Kirim di aplikasi tujuan; tindakan ini tidak mengirim otomatis. QR dibagikan sebagai tautan kartu, bukan lampiran otomatis.</p>
           <label className="block text-sm font-bold">Pratinjau pesan<textarea readOnly value={links.message} rows={12} className="mt-2 w-full rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm font-normal leading-6" /></label>
-          {links.cardUrl && details.qrToken && <ParticipantQrCard showShareActions={false} eventName={details.eventName} person={{ fullName: details.fullName, participantCode: details.participantCode, qrToken: details.qrToken, cardUrl: links.cardUrl, email: details.email || undefined, whatsapp: details.whatsapp || details.phone }} />}
+          {links.cardUrl && details.qrToken && <ParticipantQrCard showShareActions={false} eventName={details.eventName} person={{ fullName: details.fullName, participantCode: details.participantCode, qrToken: details.qrToken, cardUrl: links.cardUrl, email: details.email || undefined, whatsapp: details.whatsapp || details.phone }} approvalStatus={details.approvalStatus} confirmationStatus={details.confirmationStatus} confirmationRequired={details.attendanceConfirmationRequired !== false} />}
         </>}
       </div>
     </dialog>

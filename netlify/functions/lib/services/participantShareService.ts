@@ -3,6 +3,7 @@ import { getDbClient } from "../db/client";
 import { eventParticipants, events, ustadzProfiles } from "../db/schema";
 import { NotFoundError, ValidationError } from "../utils/errors";
 import { cardPath, signCardForParticipant } from "./participantCardService";
+import { participantConfirmationPath, signConfirmationForParticipant } from "./participantConfirmationLink";
 
 export async function getParticipantShareService(eventId: string, participantId: string) {
   const db = getDbClient();
@@ -20,6 +21,7 @@ export async function getParticipantShareService(eventId: string, participantId:
     eventName: events.name,
     startDate: events.startDate,
     endDate: events.endDate,
+    attendanceConfirmationRequired: events.attendanceConfirmationRequired,
     venueName: events.venueName,
   }).from(eventParticipants)
     .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
@@ -49,7 +51,10 @@ export async function getParticipantShareService(eventId: string, participantId:
     venueName: participant.venueName,
     approvalStatus: participant.approvalStatus,
     confirmationStatus: participant.confirmationStatus,
+    attendanceConfirmationRequired: participant.attendanceConfirmationRequired,
     qrToken,
     cardUrl: qrToken ? cardPath(qrToken) : null,
+    confirmationUrl: participant.approvalStatus === "APPROVED" && participant.attendanceConfirmationRequired
+      ? participantConfirmationPath(signConfirmationForParticipant(participant, participant.endDate)) : null,
   };
 }

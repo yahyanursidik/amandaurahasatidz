@@ -1,5 +1,13 @@
 [
   {
+    "date": "2026-11-10",
+    "scope": "app/public participant confirmation and registration receipt",
+    "macrostructure": "Narrative Workflow",
+    "theme": "existing emerald-slate",
+    "enrichment": "none",
+    "brief": "A personal no-login response after admin approval, with large choices, a separate QR proof, rundown, and clear daily-attendance distinction"
+  },
+  {
     "date": "2026-11-08",
     "scope": "app/public registration receipt and participant card",
     "macrostructure": "Narrative Workflow",

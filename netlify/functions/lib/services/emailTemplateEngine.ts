@@ -15,6 +15,30 @@ export const TEMPLATE_WHITELISTS: Record<string, TemplateDefinition> = {
     bodyTemplate: "Assalamu'alaikum {{ustadzName}},\n\nAlhamdulillah, pendaftaran Anda untuk {{eventName}} telah disetujui panitia. Kode pribadi: {{participantCode}}.\nSimpan kartu QR pribadi: {{cardLink}}\nLihat rundown terbaru: {{rundownLink}}\n\nUsername Portal Asatidz: {{email}}\nMasuk dengan sandi yang sudah dimiliki atau buat sandi melalui email: {{portalLink}}. Jangan membagikan QR atau sandi kepada pihak lain.\n\nPanitia Aman Daurah Asatidz",
     allowedVariables: ["ustadzName", "eventName", "participantCode", "cardLink", "email", "portalLink", "rundownLink"],
   },
+  REGISTRATION_CONFIRMATION_REQUEST: {
+    code: "REGISTRATION_CONFIRMATION_REQUEST",
+    subjectTemplate: "Pendaftaran disetujui — mohon konfirmasi hadir untuk {{eventName}}",
+    bodyTemplate: "Assalamu’alaikum warahmatullahi wabarakatuh.\n\nYth. {{ustadzName}},\n\nAlhamdulillah, pendaftaran Ustadz untuk {{eventName}} telah disetujui admin. Mohon pilih kehadiran pribadi melalui tautan berikut; tidak perlu login:\n{{confirmationLink}}\n\nKode pendaftaran: {{participantCode}}. Setelah memilih ‘Insya Allah hadir’, kartu QR pribadi siap digunakan saat presensi di lokasi. Setiap hari acara tetap dipindai terpisah.\n\nRundown: {{rundownLink}}\nJangan bagikan tautan pribadi ini kepada orang lain.\n\nJazakumullahu khairan,\nPanitia Aman Daurah Asatidz",
+    allowedVariables: ["ustadzName", "eventName", "participantCode", "confirmationLink", "rundownLink"],
+  },
+  PARTICIPANT_ATTENDANCE_CONFIRMED: {
+    code: "PARTICIPANT_ATTENDANCE_CONFIRMED",
+    subjectTemplate: "Konfirmasi hadir tersimpan — {{eventName}}",
+    bodyTemplate: "Assalamu’alaikum warahmatullahi wabarakatuh.\n\nYth. {{ustadzName}},\n\nKonfirmasi ‘Insya Allah hadir’ untuk {{eventName}} telah tersimpan. Kode pribadi: {{participantCode}}.\n{{reviewNotice}}\n{{cardInstruction}}\nRundown acara: {{rundownLink}}\n\nJika rencana berubah sebelum presensi, Ustadz dapat mengundurkan diri tanpa login melalui tautan pribadi ini: {{confirmationLink}}\n\nTunjukkan QR atau kode pribadi saat presensi pada setiap hari acara. Konfirmasi ini bukan absensi.\n\nJazakumullahu khairan,\nPanitia Aman Daurah Asatidz",
+    allowedVariables: ["ustadzName", "eventName", "participantCode", "cardLink", "cardInstruction", "confirmationLink", "rundownLink", "reviewNotice"],
+  },
+  PARTICIPANT_ATTENDANCE_DECLINED: {
+    code: "PARTICIPANT_ATTENDANCE_DECLINED",
+    subjectTemplate: "Berhalangan hadir tercatat — {{eventName}}",
+    bodyTemplate: "Assalamu’alaikum warahmatullahi wabarakatuh.\n\nYth. {{ustadzName}},\n\nInformasi berhalangan hadir untuk {{eventName}} telah tersimpan. Kode pendaftaran: {{participantCode}}. QR sebelumnya tidak berlaku lagi dan tempat dapat diberikan kepada peserta lain.\n\nBila rencana berubah, hubungi panitia agar data ditinjau kembali.\n\nJazakumullahu khairan,\nPanitia Aman Daurah Asatidz",
+    allowedVariables: ["ustadzName", "eventName", "participantCode", "cardLink", "rundownLink", "reviewNotice"],
+  },
+  PARTICIPANT_WITHDRAWN: {
+    code: "PARTICIPANT_WITHDRAWN",
+    subjectTemplate: "Pengunduran diri tercatat — {{eventName}}",
+    bodyTemplate: "Assalamu’alaikum warahmatullahi wabarakatuh.\n\nYth. {{ustadzName}},\n\nPermintaan mengundurkan diri dari {{eventName}} telah tersimpan. Kode pendaftaran: {{participantCode}}. Tempat Ustadz dilepas dan QR sebelumnya tidak berlaku lagi.\n\nBila rencana berubah, hubungi panitia agar pendaftaran dapat ditinjau kembali.\n\nJazakumullahu khairan,\nPanitia Aman Daurah Asatidz",
+    allowedVariables: ["ustadzName", "eventName", "participantCode", "cardLink", "rundownLink", "reviewNotice"],
+  },
   REGISTRATION_AUTO_APPROVED: {
     code: "REGISTRATION_AUTO_APPROVED",
     subjectTemplate: "Kartu peserta dan QR — {{eventName}}",
@@ -24,8 +48,8 @@ export const TEMPLATE_WHITELISTS: Record<string, TemplateDefinition> = {
   REGISTRATION_RECEIVED: {
     code: "REGISTRATION_RECEIVED",
     subjectTemplate: "Pendaftaran diterima untuk ditinjau — {{eventName}}",
-    bodyTemplate: "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nYth. {{ustadzName}},\n\nPendaftaran Anda untuk {{eventName}} telah diterima dan sedang ditinjau panitia. Kode peserta pribadi: {{participantCode}}. Kode dan bukti QR ini belum berarti kursi disetujui dan belum dapat digunakan untuk absensi.\n\nSimpan bukti pendaftaran: {{cardLink}}\nLihat rundown: {{rundownLink}}\nAktivasi atau masuk akun pribadi di {{portalLink}} untuk memantau status. Jangan bagikan QR, kode masuk email, atau password kepada orang lain.\n\nJazakumullah khairan,\nPanitia Aman Daurah Asatidz",
-    allowedVariables: ["ustadzName", "eventName", "participantCode", "cardLink", "rundownLink", "portalLink"],
+    bodyTemplate: "Assalamu'alaikum Warahmatullah Wabarakatuh,\n\nYth. {{ustadzName}},\n\nPendaftaran Anda untuk {{eventName}} telah diterima dan sedang ditinjau panitia. Kode peserta pribadi: {{participantCode}}. Kode dan bukti QR ini belum berarti kursi disetujui dan belum dapat digunakan untuk absensi.\n\nSimpan bukti pendaftaran: {{cardLink}}\nLihat rundown: {{rundownLink}}\n{{confirmationInstruction}}\nAktivasi atau masuk akun pribadi di {{portalLink}} untuk memantau status. Jangan bagikan QR, tautan konfirmasi pribadi, kode masuk email, atau password kepada orang lain.\n\nJazakumullah khairan,\nPanitia Aman Daurah Asatidz",
+    allowedVariables: ["ustadzName", "eventName", "participantCode", "cardLink", "rundownLink", "portalLink", "confirmationInstruction"],
   },
   ANNOUNCEMENT: {
     code: "ANNOUNCEMENT",
@@ -154,9 +178,19 @@ export function renderHtmlEmailTemplate(
 
   const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] || character);
   const safeVariables = Object.fromEntries(Object.entries(variables).map(([key, value]) => [key, escapeHtml(String(value ?? ""))]));
-  const htmlBody = ["ANNOUNCEMENT", "REGISTRATION_RECEIVED", "EVENT_CONTINUATION_REMINDER", "REGISTRATION_AUTO_APPROVED", "REGISTRATION_APPROVED"].includes(templateCode)
-    ? renderBrandedTextEmailHtml(textBody, "Aman Daurah Asatidz", ["REGISTRATION_RECEIVED", "REGISTRATION_AUTO_APPROVED", "REGISTRATION_APPROVED"].includes(templateCode) ? String(variables.cardLink || "") : undefined,
-      templateCode === "REGISTRATION_RECEIVED" ? "Buka bukti pendaftaran" : "Buka kartu QR pribadi")
+  const confirmationLink = String(variables.confirmationLink || "");
+  const cardLink = String(variables.cardLink || "");
+  const primaryLink = templateCode === "REGISTRATION_CONFIRMATION_REQUEST" ? confirmationLink
+    : templateCode === "PARTICIPANT_ATTENDANCE_CONFIRMED" ? cardLink || confirmationLink
+      : ["REGISTRATION_RECEIVED", "REGISTRATION_AUTO_APPROVED", "REGISTRATION_APPROVED"].includes(templateCode) ? cardLink : undefined;
+  const primaryLabel = templateCode === "REGISTRATION_RECEIVED" ? "Buka bukti pendaftaran"
+    : templateCode === "REGISTRATION_CONFIRMATION_REQUEST" ? "Konfirmasi kehadiran"
+      : templateCode === "PARTICIPANT_ATTENDANCE_CONFIRMED" && !cardLink ? "Lihat status pribadi" : "Buka kartu QR pribadi";
+  const htmlBody = ["ANNOUNCEMENT", "REGISTRATION_RECEIVED", "EVENT_CONTINUATION_REMINDER", "REGISTRATION_AUTO_APPROVED", "REGISTRATION_APPROVED",
+    "REGISTRATION_CONFIRMATION_REQUEST", "PARTICIPANT_ATTENDANCE_CONFIRMED", "PARTICIPANT_ATTENDANCE_DECLINED", "PARTICIPANT_WITHDRAWN"].includes(templateCode)
+    ? renderBrandedTextEmailHtml(textBody, "Aman Daurah Asatidz", primaryLink, primaryLabel,
+      templateCode === "PARTICIPANT_ATTENDANCE_CONFIRMED" && cardLink ? confirmationLink : undefined,
+      "Status & pengunduran diri")
     : renderHtmlByTemplateCode(templateCode, safeVariables);
 
   return { subject, htmlBody, textBody };

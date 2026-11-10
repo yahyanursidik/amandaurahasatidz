@@ -61,7 +61,7 @@ function wrapHtmlLayout(title: string, bodyContent: string): string {
           <tr>
             <td style="background-color:#f8faf8;border-top:1px solid #e8f0e8;padding:24px 40px;text-align:center;">
               <p style="margin:0 0 6px 0;font-size:13px;color:#5a6b5c;font-weight:600;">Aman Daurah Asatidz</p>
-              <p style="margin:0 0 4px 0;font-size:12px;color:#8a9b8a;">no-reply@radiotarbiyahsunnah.com</p>
+              <p style="margin:0 0 4px 0;font-size:12px;color:#8a9b8a;">no-reply@yts.web.id</p>
               <p style="margin:12px 0 0 0;font-size:11px;color:#aaaaaa;line-height:1.5;">
                 Email ini dikirim secara otomatis oleh sistem. Mohon tidak membalas email ini.<br/>
                 &copy; ${new Date().getFullYear()} Yayasan Tarbiyah Sunnah. Hak Cipta Dilindungi.
@@ -79,15 +79,20 @@ function wrapHtmlLayout(title: string, bodyContent: string): string {
 </html>`;
 }
 
-export function renderBrandedTextEmailHtml(text: string, title = "Aman Daurah Asatidz", cardLink?: string, actionLabel = "Buka kartu QR pribadi") {
+export function renderBrandedTextEmailHtml(text: string, title = "Aman Daurah Asatidz", cardLink?: string,
+  actionLabel = "Buka kartu QR pribadi", secondaryLink?: string, secondaryLabel = "Buka tautan pribadi") {
   const safeText = text.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[character] || character);
   const safeActionLabel = actionLabel.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[character] || character);
+  const safeSecondaryLabel = secondaryLabel.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[character] || character);
   const url = cardLink && /^https?:\/\//.test(cardLink) ? cardLink.replace(/[&<>"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[character] || character) : null;
-  return wrapHtmlLayout(title, `<tr><td style="padding:28px 36px;color:${BRAND_TEXT};font-size:15px;line-height:1.7;"><div style="white-space:pre-wrap;overflow-wrap:break-word;">${safeText}</div>${url ? `<p><a href="${url}" style="display:inline-block;background:${BRAND_PRIMARY};color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">${safeActionLabel}</a></p>` : ""}</td></tr>`);
+  const secondaryUrl = secondaryLink && /^https?:\/\//.test(secondaryLink) ? secondaryLink.replace(/[&<>"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[character] || character) : null;
+  return wrapHtmlLayout(title, `<tr><td style="padding:28px 36px;color:${BRAND_TEXT};font-size:15px;line-height:1.7;"><div style="white-space:pre-wrap;overflow-wrap:break-word;">${safeText}</div>${url ? `<p><a href="${url}" style="display:inline-block;background:${BRAND_PRIMARY};color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">${safeActionLabel}</a></p>` : ""}${secondaryUrl ? `<p><a href="${secondaryUrl}" style="display:inline-block;border:1px solid ${BRAND_PRIMARY};color:${BRAND_PRIMARY};padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">${safeSecondaryLabel}</a></p>` : ""}</td></tr>`);
 }
 
 // ─── Utility: Info Badge ──────────────────────────────────────────────────────

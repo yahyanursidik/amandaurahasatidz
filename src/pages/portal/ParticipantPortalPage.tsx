@@ -325,7 +325,7 @@ const approvalLabel: Record<string, string> = {
 const confirmationLabel: Record<string, string> = {
   CONFIRMED: "Hadir",
   ACCEPTED: "Diterima",
-  INVITED: "Diundang",
+  INVITED: "Belum konfirmasi",
   PENDING: "Menunggu konfirmasi",
   CANCELLED: "Dibatalkan",
   REPLACED: "Diganti",
@@ -468,7 +468,7 @@ export const ParticipantPortalPage: React.FC = () => {
   const canSelfConfirm = Boolean(selectedParticipation && confirmationNeeded &&
     !["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus) &&
     !["CANCELLED", "ARCHIVED"].includes(selectedParticipation.eventStatus) &&
-    selectedParticipation.approvalStatus !== "DECLINED");
+    selectedParticipation.approvalStatus === "APPROVED");
   const participationUnavailable = Boolean(selectedParticipation &&
     (["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus) || selectedParticipation.approvalStatus === "DECLINED"));
   const unreadAnnouncements = announcements.filter((item) => !item.isRead).length;

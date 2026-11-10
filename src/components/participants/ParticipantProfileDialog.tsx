@@ -25,6 +25,7 @@ export type ParticipantProfileSummary = {
   address?: string | null;
   approvalStatus: string;
   confirmationStatus: string;
+  confirmationStatusReason?: string | null;
   registrationSource?: string | null;
   registeredAt?: string | null;
   eventName?: string | null;
@@ -95,10 +96,11 @@ export const ParticipantProfileDialog: React.FC<{
               variant={participant.approvalStatus === "APPROVED" ? "success" : "warning"}
             />
             <StatusBadge
-              label={participantConfirmationLabel(participant.confirmationStatus)}
+              label={participantConfirmationLabel(participant.confirmationStatus, participant.confirmationStatusReason)}
               variant={participant.confirmationStatus === "CONFIRMED" ? "success" : "neutral"}
             />
           </div>
+          {participant.confirmationStatus === "CANCELLED" && participant.confirmationStatusReason && <p className="rounded-lg bg-slate-50 p-3 text-sm text-slate-700">Riwayat: {participant.confirmationStatusReason}</p>}
 
           <dl className="grid gap-px overflow-hidden border border-slate-200 bg-slate-200 sm:grid-cols-2">
             {[

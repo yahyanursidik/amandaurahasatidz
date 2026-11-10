@@ -29,7 +29,8 @@ export async function countInstitutionParticipantsRepository(eventId: string, in
       and(
         eq(eventParticipants.eventId, eventId),
         eq(eventParticipants.institutionId, institutionId),
-        eq(eventParticipants.confirmationStatus, "CONFIRMED")
+        notInArray(eventParticipants.confirmationStatus, ["CANCELLED", "REPLACED"]),
+        notInArray(eventParticipants.approvalStatus, ["DECLINED", "REJECTED"])
       )
     );
 
@@ -62,6 +63,10 @@ const participantColumns = {
       isDelegationLead: eventParticipants.isDelegationLead,
       confirmationStatus: eventParticipants.confirmationStatus,
       approvalStatus: eventParticipants.approvalStatus,
+      confirmationStatusReason: sql<string | null>`(select h.reason from participant_status_histories h
+        where h.participant_id = ${eventParticipants.id} and h.status_type = 'CONFIRMATION_STATUS'
+          and h.to_status = ${eventParticipants.confirmationStatus}
+        order by h.changed_at desc, h.id desc limit 1)`,
       statusReason: sql<string | null>`(select h.reason from participant_status_histories h
         where h.participant_id = ${eventParticipants.id} and h.status_type = 'APPROVAL_STATUS'
           and h.to_status = ${eventParticipants.approvalStatus}
@@ -112,6 +117,7 @@ export async function findParticipantPageRepository(eventId: string, query: Part
         : query.source === "REGULAR" ? notInArray(eventParticipants.registrationSource, invitationSources) : undefined,
     query.institution && query.institution !== "ALL" ? query.institution === "INDIVIDUAL" ? isNull(institutions.name) : eq(institutions.name, query.institution) : undefined,
     query.status === "ALL" ? undefined : query.status === "NEEDS_ACTION" ? needsAction
+      : query.status === "AWAITING_CONFIRMATION" ? and(eq(eventParticipants.approvalStatus, "APPROVED"), eq(eventParticipants.confirmationStatus, "INVITED"))
       : query.status === "CANCELLED" ? eq(eventParticipants.confirmationStatus, "CANCELLED") : query.status === "DECLINED"
       ? inArray(eventParticipants.approvalStatus, ["DECLINED", "REJECTED"]) : eq(eventParticipants.approvalStatus, query.status),
     query.contact === "COMPLETE" ? completeContact : query.contact === "INCOMPLETE" ? sql`not ${completeContact}`

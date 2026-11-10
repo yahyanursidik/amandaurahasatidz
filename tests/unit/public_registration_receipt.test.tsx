@@ -31,7 +31,7 @@ describe("bukti pendaftaran publik", () => {
     vi.stubGlobal("window", { location: { origin: "https://contoh.test" } });
     const html = renderToStaticMarkup(<MemoryRouter><PublicRegistrationReceipt event={{ name: "Daurah Asatidz", slug: "daurah-asatidz" }} participants={participants} emailQueued={2} /></MemoryRouter>);
     expect(html).toContain("Pilih peserta");
-    expect(html).toContain("Menunggu persetujuan admin");
+    expect(html).toContain("Saat mendaftar: menunggu persetujuan admin");
     expect(html).toContain("QR belum dapat dipakai untuk absensi");
     expect(html).toContain("Ustadz Hasan · PAR-002");
     expect(html.match(/aria-label="QR peserta/g)).toHaveLength(1);
@@ -67,5 +67,28 @@ describe("bukti pendaftaran publik", () => {
     expect(html).toContain("https://wa.me/6281234567890?text=");
     expect(html).toContain("Kabari panitia");
     expect(html).toContain("kontak panitia event");
+  });
+
+  it("menyediakan tautan keputusan pribadi, terpisah dari QR yang dapat dibagikan", () => {
+    vi.stubGlobal("window", { location: { origin: "https://contoh.test" } });
+    const withConfirmation = { ...participants[0], confirmationUrl: "/confirm#pcf_private.signature" };
+    const html = renderToStaticMarkup(<MemoryRouter><PublicRegistrationReceipt event={{ name: "Daurah Asatidz", slug: "daurah-asatidz" }} participants={[withConfirmation]} emailQueued={1} /></MemoryRouter>);
+    expect(html).toContain('href="/confirm#pcf_private.signature"');
+    expect(html).toContain("Tidak perlu login");
+    expect(html).toContain("QR belum dapat dipakai untuk absensi");
+  });
+
+  it("membagikan tautan konfirmasi rombongan hanya ke nomor peserta yang dipilih", () => {
+    vi.stubGlobal("window", { location: { origin: "https://contoh.test" } });
+    const first = { ...participants[0], whatsapp: "081234567890", confirmationUrl: "/confirm#pcf_first.signature" };
+    const second = { ...participants[1], whatsapp: "081234567891", confirmationUrl: "/confirm#pcf_second.signature" };
+    const html = renderToStaticMarkup(<MemoryRouter><PublicRegistrationReceipt event={{ name: "Daurah Asatidz", slug: "daurah-asatidz" }} participants={[first, second]} emailQueued={2} /></MemoryRouter>);
+    expect(html).toContain("Salin tautan");
+    expect(html).toContain("Kirim ke WhatsApp peserta");
+    expect(html).toContain("https://wa.me/6281234567890?text=");
+    expect(html).toContain(encodeURIComponent("https://contoh.test/confirm#pcf_first.signature"));
+    expect(html).toContain(encodeURIComponent("https://contoh.test/card?token=pqr_first.secret"));
+    expect(html).not.toContain(encodeURIComponent("https://contoh.test/confirm#pcf_second.signature"));
+    expect(html).not.toContain(encodeURIComponent("https://contoh.test/card?token=pqr_second.secret"));
   });
 });

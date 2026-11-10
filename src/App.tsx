@@ -58,6 +58,7 @@ const PublicEventRegistrationPage = lazy(() => import("./pages/public/PublicEven
 const InvitationRegistrationPage = lazy(() => import("./pages/public/InvitationRegistrationPage").then((module) => ({ default: module.InvitationRegistrationPage })));
 const CheckInPublicPage = lazy(() => import("./pages/public/CheckInPublicPage").then((module) => ({ default: module.CheckInPublicPage })));
 const ParticipantCardPage = lazy(() => import("./pages/public/ParticipantCardPage").then((module) => ({ default: module.ParticipantCardPage })));
+const PublicParticipantConfirmationPage = lazy(() => import("./pages/public/PublicParticipantConfirmationPage").then((module) => ({ default: module.PublicParticipantConfirmationPage })));
 const NotFoundPage = lazy(() => import("./pages/NotFoundPage").then((module) => ({ default: module.NotFoundPage })));
 const CommitteeLayout = lazy(() => import("./components/layouts/CommitteeLayout").then((module) => ({ default: module.CommitteeLayout })));
 
@@ -115,6 +116,7 @@ export const App: React.FC = () => {
           <Route path="/check-in/:eventSlug" element={<CheckInPublicPage />} />
           <Route path="/check-in" element={<CheckInPublicPage />} />
           <Route path="/card" element={<ParticipantCardPage />} />
+          <Route path="/confirm" element={<PublicParticipantConfirmationPage />} />
           <Route path="/gate" element={<CheckInPublicPage />} />
           <Route path="/gate/:eventSlug" element={<CheckInPublicPage />} />
 
