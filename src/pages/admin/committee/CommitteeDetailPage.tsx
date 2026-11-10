@@ -33,7 +33,7 @@ export const CommitteeDetailPage: React.FC = () => {
     try {
       const [nextMember, nextEvents] = await Promise.all([
         committeeApi<CommitteeMember>(`/committee-members/${id}`),
-        committeeApi<EventItem[]>("/events"),
+        committeeApi<EventItem[]>("/events/options"),
       ]);
       setMember(nextMember);
       setEvents(nextEvents);

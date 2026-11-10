@@ -105,6 +105,7 @@ export const UstadzListPage: React.FC = () => {
 
   useEffect(() => {
     let active = true;
+    const controller = new AbortController();
     const params = new URLSearchParams({
       page: String(page),
       pageSize: String(PAGE_SIZE),
@@ -119,10 +120,13 @@ export const UstadzListPage: React.FC = () => {
 
     setLoading(true);
     setError("");
-    ustadzApi
-      .list(params)
+    void Promise.resolve().then(() => active ? ustadzApi.list(params, { signal: controller.signal }) : null)
       .then((response) => {
-        if (!active) return;
+        if (!active || !response) return;
+        if (response.meta?.pageCount && page > response.meta.pageCount) {
+          setSearchParams((previous) => updateUstadzDirectoryQuery(previous, "page", String(response.meta!.pageCount)), { replace: true });
+          return;
+        }
         setProfiles(response.data);
         setSummary(
           response.meta?.summary || {
@@ -177,6 +181,7 @@ export const UstadzListPage: React.FC = () => {
       .finally(() => active && setLoading(false));
     return () => {
       active = false;
+      controller.abort();
     };
   }, [page, profileStatus, incompleteOnly, duplicateOnly, attendedOnly, institutionId, committedSearch, reload]);
 

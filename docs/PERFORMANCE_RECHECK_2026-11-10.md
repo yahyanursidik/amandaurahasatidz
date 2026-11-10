@@ -2,6 +2,8 @@
 
 Tanggal: 10 November 2026. Baseline aplikasi: `30ffab9` (`main`).
 
+Tindak lanjut kode dan hasil validasi QA dicatat terpisah pada [PERFORMANCE_IMPLEMENTATION_2026-11-10.md](PERFORMANCE_IMPLEMENTATION_2026-11-10.md). Temuan/bukti baseline di bawah tetap dipertahankan.
+
 ## Kesimpulan
 
 - Ada waktu tunggu yang terasa pada akses publik: daftar program sekitar **1,38–3,13 detik** per request pada sampel ini; detail kegiatan lama **2,46–4,30 detik**. Ini pengukuran dari satu koneksi/lokasi, bukan SLA atau hasil load test.

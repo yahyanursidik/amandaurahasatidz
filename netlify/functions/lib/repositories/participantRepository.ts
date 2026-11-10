@@ -18,6 +18,7 @@ import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normaliz
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../utils/errors";
 import { lockRegistrationEvent, assertRegistrationCapacity } from "../services/registrationCapacity";
 import { randomUUID } from "node:crypto";
+import type { ParticipantPageQuery } from "../validations/participantValidation";
 
 export async function countInstitutionParticipantsRepository(eventId: string, institutionId: string): Promise<number> {
   const db = getDbClient();
@@ -35,10 +36,7 @@ export async function countInstitutionParticipantsRepository(eventId: string, in
   return res[0]?.total || 0;
 }
 
-export async function findParticipantsRepository(eventId: string) {
-  const db = getDbClient();
-  return await db
-    .select({
+const participantColumns = {
       id: eventParticipants.id,
       eventId: eventParticipants.eventId,
       ustadzId: eventParticipants.ustadzId,
@@ -67,20 +65,92 @@ export async function findParticipantsRepository(eventId: string) {
       statusReason: sql<string | null>`(select h.reason from participant_status_histories h
         where h.participant_id = ${eventParticipants.id} and h.status_type = 'APPROVAL_STATUS'
           and h.to_status = ${eventParticipants.approvalStatus}
-        order by h.changed_at desc limit 1)`,
+        order by h.changed_at desc, h.id desc limit 1)`,
       replacementForParticipantId: eventParticipants.replacementForParticipantId,
       registeredAt: eventParticipants.createdAt,
       portalUserId: ustadzProfiles.userId,
       portalAccountStatus: users.status,
       portalPasswordConfigured: sql<boolean>`${users.passwordHash} is not null`,
-    })
+};
+
+function participantReadQuery(db: ReturnType<typeof getDbClient>) {
+  return db.select(participantColumns)
     .from(eventParticipants)
     .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
     .innerJoin(events, eq(eventParticipants.eventId, events.id))
     .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
-    .leftJoin(users, eq(ustadzProfiles.userId, users.id))
-    .where(eq(eventParticipants.eventId, eventId))
-    .orderBy(desc(eventParticipants.createdAt));
+    .leftJoin(users, eq(ustadzProfiles.userId, users.id)).$dynamic();
+}
+
+/** Legacy complete list for explicit exports/older consumers; workspaces use the bounded page API. */
+export async function findParticipantsRepository(eventId: string) {
+  return participantReadQuery(getDbClient()).where(eq(eventParticipants.eventId, eventId))
+    .orderBy(desc(eventParticipants.createdAt), desc(eventParticipants.id));
+}
+
+export async function findParticipantPageRepository(eventId: string, query: ParticipantPageQuery) {
+  const db = getDbClient();
+  const searchPattern = `%${query.search.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+  const eligible = and(inArray(eventParticipants.approvalStatus, ["PENDING_REVIEW", "WAITLISTED"]),
+    inArray(eventParticipants.confirmationStatus, ["INVITED", "CONFIRMED"]))!;
+  const digits = sql`regexp_replace(regexp_replace(coalesce(nullif(${ustadzProfiles.whatsapp}, ''), ${ustadzProfiles.phone}, ''), '[^0-9]', '', 'g'), '^00', '')`;
+  const whatsappValid = sql`(case when ${digits} like '0%' then '62' || substring(${digits} from 2)
+    when ${digits} like '8%' then '62' || ${digits} else ${digits} end) ~ '^[1-9][0-9]{8,14}$'`;
+  const completeContact = sql`(${whatsappValid} and btrim(coalesce(${ustadzProfiles.email}, '')) <> '' and btrim(coalesce(${ustadzProfiles.address}, '')) <> '')`;
+  const needsAction = sql`(${eventParticipants.approvalStatus} = 'PENDING_REVIEW' or not ${completeContact} or ${users.passwordHash} is null)`;
+  const filter = and(
+    eq(eventParticipants.eventId, eventId),
+    query.search ? or(ilike(ustadzProfiles.fullName, searchPattern), ilike(eventParticipants.participantCode, searchPattern),
+      ilike(institutions.name, searchPattern), ilike(ustadzProfiles.email, searchPattern),
+      ilike(ustadzProfiles.phone, searchPattern), ilike(ustadzProfiles.whatsapp, searchPattern)) : undefined,
+    query.institutionId ? eq(eventParticipants.institutionId, query.institutionId) : undefined,
+    query.invitationId ? eq(eventParticipants.invitationId, query.invitationId) : undefined,
+    query.institution && query.institution !== "ALL" ? query.institution === "INDIVIDUAL" ? isNull(institutions.name) : eq(institutions.name, query.institution) : undefined,
+    query.status === "ALL" ? undefined : query.status === "NEEDS_ACTION" ? needsAction
+      : query.status === "CANCELLED" ? eq(eventParticipants.confirmationStatus, "CANCELLED") : query.status === "DECLINED"
+      ? inArray(eventParticipants.approvalStatus, ["DECLINED", "REJECTED"]) : eq(eventParticipants.approvalStatus, query.status),
+    query.contact === "COMPLETE" ? completeContact : query.contact === "INCOMPLETE" ? sql`not ${completeContact}`
+      : query.contact === "NO_WHATSAPP" ? sql`coalesce(nullif(${ustadzProfiles.whatsapp}, ''), ${ustadzProfiles.phone}, '') = ''`
+        : query.contact === "NO_PORTAL" ? isNull(users.passwordHash) : undefined,
+    query.eligible === "true" ? eligible : undefined,
+  )!;
+  const ordering = query.sort === "NAME" ? [asc(ustadzProfiles.fullName), asc(eventParticipants.id)]
+    : query.sort === "OLDEST" ? [asc(eventParticipants.createdAt), asc(eventParticipants.id)]
+      : query.sort === "PRIORITY" ? [sql`case ${eventParticipants.approvalStatus} when 'PENDING_REVIEW' then 0 when 'WAITLISTED' then 1 when 'APPROVED' then 2 when 'DECLINED' then 3 when 'CANCELLED' then 4 else 9 end`, desc(eventParticipants.createdAt), desc(eventParticipants.id)]
+        : [desc(eventParticipants.createdAt), desc(eventParticipants.id)];
+  const selectionQuery = db.select({ id: eventParticipants.id, ustadzName: ustadzProfiles.fullName,
+    participantCode: eventParticipants.participantCode, approvalStatus: eventParticipants.approvalStatus,
+    confirmationStatus: eventParticipants.confirmationStatus }).from(eventParticipants)
+    .innerJoin(ustadzProfiles, eq(ustadzProfiles.id, eventParticipants.ustadzId))
+    .leftJoin(institutions, eq(institutions.id, eventParticipants.institutionId))
+    .leftJoin(users, eq(users.id, ustadzProfiles.userId)).where(filter)
+    .orderBy(...ordering).limit(query.pageSize).offset((query.page - 1) * query.pageSize);
+  const [data, [counts]] = await Promise.all([
+    query.projection === "selection" ? selectionQuery : participantReadQuery(db).where(filter)
+      .orderBy(...ordering).limit(query.pageSize).offset((query.page - 1) * query.pageSize),
+    db.select({
+      filteredTotal: sql<number>`count(*) filter (where ${filter})::int`,
+      filteredEligible: sql<number>`count(*) filter (where ${filter} and ${eligible})::int`,
+      filteredPendingEligible: sql<number>`count(*) filter (where ${filter} and ${eligible} and ${eventParticipants.approvalStatus} = 'PENDING_REVIEW')::int`,
+      total: sql<number>`count(*)::int`,
+      approved: sql<number>`count(*) filter (where ${eventParticipants.approvalStatus} = 'APPROVED')::int`,
+      pending: sql<number>`count(*) filter (where ${eventParticipants.approvalStatus} = 'PENDING_REVIEW')::int`,
+      institution: sql<number>`count(*) filter (where ${institutions.name} is not null)::int`,
+      pendingEligible: sql<number>`count(*) filter (where ${eventParticipants.approvalStatus} = 'PENDING_REVIEW' and ${eligible})::int`,
+      completeContacts: sql<number>`count(*) filter (where ${completeContact})::int`,
+      portalReady: sql<number>`count(*) filter (where ${users.passwordHash} is not null)::int`,
+      ...(query.includeInstitutions === "true" ? { institutions: sql<string[]>`coalesce(jsonb_agg(distinct ${institutions.name}) filter (where ${institutions.name} is not null), '[]'::jsonb)` } : {}),
+    }).from(eventParticipants).innerJoin(ustadzProfiles, eq(ustadzProfiles.id, eventParticipants.ustadzId))
+      .leftJoin(institutions, eq(institutions.id, eventParticipants.institutionId))
+      .leftJoin(users, eq(users.id, ustadzProfiles.userId)).where(eq(eventParticipants.eventId, eventId)),
+  ]);
+  const total = counts?.filteredTotal || 0;
+  return { data, meta: { page: query.page, pageSize: query.pageSize, total,
+    pageCount: Math.max(1, Math.ceil(total / query.pageSize)), filteredEligible: counts?.filteredEligible || 0, filteredPendingEligible: counts?.filteredPendingEligible || 0,
+    summary: { total: counts?.total || 0, approved: counts?.approved || 0, pending: counts?.pending || 0,
+      institution: counts?.institution || 0, pendingEligible: counts?.pendingEligible || 0,
+      completeContacts: counts?.completeContacts || 0, portalReady: counts?.portalReady || 0 },
+    ...(query.includeInstitutions === "true" ? { institutions: (counts?.institutions || []).sort((a, b) => a.localeCompare(b, "id-ID")) } : {}) } };
 }
 
 export async function provisionParticipantPortalAccountRepository(

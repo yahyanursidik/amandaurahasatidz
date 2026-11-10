@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { ArrowLeft, CalendarDays, CheckCircle2, MapPin } from "lucide-react";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
@@ -31,6 +31,11 @@ export const InvitationRegistrationPage: React.FC = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(!data);
   const [saving, setSaving] = useState(false);
+  const [policyNotice, setPolicyNotice] = useState("");
+  const [policyBlocked, setPolicyBlocked] = useState(false);
+  const current = useRef({ data, submission, saving, proofKey, policyBlocked });
+  const submissionInFlight = useRef<string | null>(null);
+  current.current = { data, submission, saving, proofKey, policyBlocked };
   const receiptParticipants: ReceiptParticipant[] = submission?.participants?.map((person, index) => {
     const account = submission.portalAccounts?.find((item) => item.participantId === person.id);
     return {
@@ -50,9 +55,11 @@ export const InvitationRegistrationPage: React.FC = () => {
     const proof = readRegistrationProof<InvitationData, Submission>(proofKey);
     if (proof) { setData(proof.event); setSubmission(proof.result); setLoading(false); setError(""); return; }
     const controller = new AbortController();
-    setLoading(true); setError(""); setData(null); setSubmission(null); setDelegates([]);
-    void fetch(`${ENV.API_BASE_URL}/invitations/public/${invitationType}/${encodeURIComponent(token)}`, { signal: controller.signal })
+    setLoading(true); setError(""); setData(null); setSubmission(null); setDelegates([]); setPolicyNotice(""); setPolicyBlocked(false);
+    void Promise.resolve().then(() => controller.signal.aborted ? null
+      : fetch(`${ENV.API_BASE_URL}/invitations/public/${invitationType}/${encodeURIComponent(token)}`, { signal: controller.signal, cache: "no-store" }))
       .then(async (response) => {
+        if (!response) return;
         const result = await response.json();
         if (!response.ok) throw new Error(result.error?.message || "Undangan tidak dapat dibuka. Minta tautan baru dari panitia.");
         if (!controller.signal.aborted) setData(result.data);
@@ -62,8 +69,40 @@ export const InvitationRegistrationPage: React.FC = () => {
     return () => controller.abort();
   }, [token, invitationType, proofKey]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    let pending = false;
+    const refreshPolicy = async () => {
+      if (pending || document.visibilityState === "hidden" || !current.current.data || current.current.submission || current.current.saving) return;
+      pending = true;
+      try {
+        const response = await fetch(`${ENV.API_BASE_URL}/invitations/public/${invitationType}/${encodeURIComponent(token)}/policy`, { signal: controller.signal, cache: "no-store" });
+        const payload = await response.json();
+        if (controller.signal.aborted || current.current.proofKey !== proofKey || current.current.submission || current.current.saving) return;
+        if (!response.ok) {
+          if ([403, 404, 409].includes(response.status)) { setPolicyBlocked(true); setError(payload.error?.message || "Undangan tidak lagi menerima konfirmasi."); }
+          return;
+        }
+        const policy = payload.data as InvitationData["invitation"];
+        if (!policy || typeof policy.quota !== "number" || typeof policy.allowGroup !== "boolean") return;
+        const previous = current.current.data?.invitation;
+        if (previous && (previous.quota !== policy.quota || previous.allowGroup !== policy.allowGroup || previous.responseDeadline !== policy.responseDeadline)) {
+          setPolicyNotice(`Pengaturan undangan diperbarui oleh panitia. Maksimal ${policy.quota} peserta termasuk peserta utama. Anggota di luar batas baru dibersihkan; periksa data dan persetujuan kembali.`);
+        }
+        if (current.current.policyBlocked) setError("");
+        setPolicyBlocked(false);
+        setData((existing) => existing ? { ...existing, invitation: { ...existing.invitation, ...policy } } : existing);
+      } catch { /* Keep entered data during an offline policy check; POST still enforces current server limits. */ }
+      finally { pending = false; }
+    };
+    window.addEventListener("focus", refreshPolicy);
+    document.addEventListener("visibilitychange", refreshPolicy);
+    return () => { controller.abort(); window.removeEventListener("focus", refreshPolicy); document.removeEventListener("visibilitychange", refreshPolicy); };
+  }, [token, invitationType, proofKey]);
+
   const submit = async (payload: InvitationResponsePayload) => {
-    if (saving) return;
+    if (saving || policyBlocked || submissionInFlight.current === proofKey) return;
+    submissionInFlight.current = proofKey;
     setError("");
     setDelegates(payload.delegates);
     setSaving(true);
@@ -73,10 +112,13 @@ export const InvitationRegistrationPage: React.FC = () => {
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error?.message || "Konfirmasi undangan gagal disimpan.");
-      setSubmission(result.data);
       if (data) saveRegistrationProof(proofKey, { event: data, result: result.data });
-    } catch (reason) { setError(reason instanceof Error ? reason.message : "Konfirmasi gagal diproses."); }
-    finally { setSaving(false); }
+      if (current.current.proofKey === proofKey) setSubmission(result.data);
+    } catch (reason) { if (current.current.proofKey === proofKey) setError(reason instanceof Error ? reason.message : "Konfirmasi gagal diproses."); }
+    finally {
+      if (submissionInFlight.current === proofKey) submissionInFlight.current = null;
+      if (current.current.proofKey === proofKey) setSaving(false);
+    }
   };
 
   return <PublicLayout>
@@ -91,7 +133,7 @@ export const InvitationRegistrationPage: React.FC = () => {
             <p className="mt-2 flex items-start gap-2 text-sm text-emerald-100"><MapPin className="h-4 w-4 shrink-0" />{data.event.venueName || "Lokasi menyusul"}</p>
             {data.invitation.responseDeadline && !submission && <p className="mt-4 border-t border-emerald-800 pt-3 text-xs text-emerald-200">Konfirmasi sebelum {formatEventDateTime(data.invitation.responseDeadline, data.event.timezone || "Asia/Jakarta")} {eventTimezoneLabel(data.event.timezone || "Asia/Jakarta")}</p>}
           </header>
-           {submission ? receiptParticipants.length > 0 ? <PublicRegistrationReceipt event={data.event} participants={receiptParticipants} emailQueued={submission.emailQueued || 0} /> : <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-6" aria-live="polite"><CheckCircle2 className="h-8 w-8 text-emerald-700" /><h2 className="mt-3 text-xl font-black">Jawaban undangan tersimpan</h2><p className="mt-2 text-sm">{submission.message}</p><p className="mt-3 text-sm">Karena berhalangan hadir, tidak ada QR atau akses portal baru.</p></section> : <InvitationResponseForm key={`${invitationType}:${token}`} data={data} invitationType={invitationType} saving={saving} error={error} onSubmit={(payload) => void submit(payload)} />}
+           {submission ? receiptParticipants.length > 0 ? <PublicRegistrationReceipt event={data.event} participants={receiptParticipants} emailQueued={submission.emailQueued || 0} /> : <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-6" aria-live="polite"><CheckCircle2 className="h-8 w-8 text-emerald-700" /><h2 className="mt-3 text-xl font-black">Jawaban undangan tersimpan</h2><p className="mt-2 text-sm">{submission.message}</p><p className="mt-3 text-sm">Karena berhalangan hadir, tidak ada QR atau akses portal baru.</p></section> : <InvitationResponseForm key={`${invitationType}:${token}`} data={data} invitationType={invitationType} saving={saving} error={error} policyNotice={policyNotice} unavailable={policyBlocked} onSubmit={(payload) => void submit(payload)} />}
         </>}
     </div>
   </PublicLayout>;

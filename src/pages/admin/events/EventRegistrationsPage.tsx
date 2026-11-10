@@ -2,7 +2,7 @@
  * Hallmark · genre: editorial · tone: utilitarian · macrostructure: Workbench
  * audience: event administrators · use: manage institution invitations and individual attendance readiness
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
 import { useGetIdentity } from "@refinedev/core";
 import {
@@ -51,6 +51,8 @@ import { buildInstitutionInvitationPath } from "@/lib/invitationUrl";
 import { parseParticipantCsv } from "@/lib/participantImportCsv";
 import { eventTimezoneLabel, formatEventDateTime, fromEventIso, toEventIso } from "@/lib/eventDateTime";
 import { invitationAllowsGroup, invitationStatusLabel, isInvitationPending, type InstitutionInvitationValues, type InvitationInstitutionOption } from "@/lib/institutionInvitation";
+import { approvalSelectionCandidate, emptyParticipantSummary, type ParticipantPageMeta, type ApprovalSelectionCandidate } from "@/lib/participantCatalog";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 type Invitation = {
   id: string;
@@ -231,7 +233,7 @@ const demoParticipants: Participant[] = [
   },
 ];
 
-const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
+const apiEnvelope = async <T,>(path: string, options?: RequestInit): Promise<{ data: T; meta?: ParticipantPageMeta }> => {
   const token = localStorage.getItem("yts_auth_token") || "";
   const response = await fetch(`${ENV.API_BASE_URL}${path}`, {
     ...options,
@@ -244,13 +246,14 @@ const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   });
   const result = await response.json();
   if (!response.ok) throw new Error(result.error?.message || "Permintaan gagal diproses.");
-  return result.data as T;
+  return result;
 };
+const api = async <T,>(path: string, options?: RequestInit): Promise<T> => (await apiEnvelope<T>(path, options)).data;
 
-const loadActiveInstitutions = async (eventId: string) => {
+const loadActiveInstitutions = async (eventId: string, signal?: AbortSignal) => {
   const institutions: Institution[] = [];
   for (let page = 1; ; page += 1) {
-    const batch = await api<Institution[]>(`/events/${eventId}/invitations/institutions?pageSize=100&page=${page}`);
+    const batch = await api<Institution[]>(`/events/${eventId}/invitations/institutions?pageSize=100&page=${page}`, { signal });
     institutions.push(...batch);
     if (batch.length < 100) return institutions;
   }
@@ -324,9 +327,15 @@ const escapeCsvCell = (value: string) => `"${value.replaceAll('"', '""')}"`;
 export const EventRegistrationsPage: React.FC = () => {
   const { id = "" } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
-  const { data: identity } = useGetIdentity<AuthIdentity>();
+  const { data: identity, isLoading: identityLoading } = useGetIdentity<AuthIdentity>();
   const canOpenMasterData = identity?.assignments.some((assignment) => ROLE_PERMISSIONS[assignment.roleCode as RoleCode]?.includes("institutions.read")) || false;
   const staffPermissions = participantStaffPermissions(identity?.assignments, id);
+  const permissionsKey = staffPermissions.slice().sort().join(",");
+  const canReadParticipants = staffPermissions.includes("participants.read");
+  const canReadInvitations = staffPermissions.includes("invitations.read");
+  const canCreateInvitations = staffPermissions.includes("invitations.create");
+  const canCreateParticipants = staffPermissions.includes("participants.create");
+  const canApproveParticipants = staffPermissions.includes("participants.approve");
   const participantView = searchParams.get("view") === "participants";
   const requestedInstitutionId = searchParams.get("institutionId") || "";
   const requestedInvitationId = searchParams.get("invitationId") || "";
@@ -342,7 +351,14 @@ export const EventRegistrationsPage: React.FC = () => {
   const [search, setSearch] = useState(() => searchParams.get("search") || "");
   useEffect(() => { setSearch(searchParams.get("search") || ""); }, [searchParams]);
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") || "ALL");
-  const [participantPage, setParticipantPage] = useState(1);
+  const debouncedSearch = useDebouncedValue(search.trim());
+  const participantStatus = ["PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED"].includes(statusFilter) ? statusFilter : "ALL";
+  const participantFilterKey = JSON.stringify([debouncedSearch, participantStatus, requestedInstitutionId, requestedInvitationId, id]);
+  const [pagination, setPagination] = useState({ key: participantFilterKey, page: 1 });
+  const participantPage = pagination.key === participantFilterKey ? pagination.page : 1;
+  const setParticipantPage = (page: number) => setPagination({ key: participantFilterKey, page });
+  const [participantMeta, setParticipantMeta] = useState<ParticipantPageMeta>({ page: 1, pageSize: 25, total: 0, pageCount: 1, filteredEligible: 0, summary: emptyParticipantSummary() });
+  const [selectionCandidates, setSelectionCandidates] = useState<ApprovalSelectionCandidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [submitting, setSubmitting] = useState(false);
@@ -365,10 +381,14 @@ export const EventRegistrationsPage: React.FC = () => {
   const [linkBusy, setLinkBusy] = useState("");
   const [invitationActionBusy, setInvitationActionBusy] = useState("");
   const [editingInvitation, setEditingInvitation] = useState<Invitation | null>(null);
+  const [replacementSource, setReplacementSource] = useState("");
   const [invitationNotice, setInvitationNotice] = useState("");
   const [invitationFormError, setInvitationFormError] = useState("");
   const defaultsApplied = useRef("");
   const [eventDeadline, setEventDeadline] = useState<EventDeadline | null>(null);
+  const readController = useRef<AbortController | null>(null);
+  const settingsCache = useRef<{ id: string; at: number; data: EventDeadline } | null>(null);
+  const [pickerError, setPickerError] = useState("");
   const [form, setForm] = useState<InstitutionInvitationValues>({
     institutionId: requestedInstitutionId,
     invitationNumber: "",
@@ -377,10 +397,19 @@ export const EventRegistrationsPage: React.FC = () => {
     responseDeadline: "",
   });
 
-  const loadData = async () => {
-    if (!mounted.current || activeEventId.current !== id) return false;
+  const participantQuery = new URLSearchParams({ page: String(participantPage), pageSize: "25", search: debouncedSearch, status: participantStatus,
+    ...(requestedInstitutionId ? { institutionId: requestedInstitutionId } : {}), ...(requestedInvitationId ? { invitationId: requestedInvitationId } : {}) }).toString();
+  const readKey = `${id}:${participantView ? participantQuery : "invitations"}:${permissionsKey}`;
+  const currentReadKey = useRef(readKey);
+  currentReadKey.current = readKey;
+
+  const loadData = useCallback(async () => {
+    if (!mounted.current || activeEventId.current !== id || currentReadKey.current !== readKey || identityLoading || !identity) return false;
+    readController.current?.abort();
+    const controller = new AbortController();
+    readController.current = controller;
     const generation = ++loadGeneration.current;
-    const isCurrent = () => mounted.current && activeEventId.current === id && generation === loadGeneration.current;
+    const isCurrent = () => mounted.current && !controller.signal.aborted && activeEventId.current === id && currentReadKey.current === readKey && generation === loadGeneration.current;
     setLoading(true);
     setError("");
     if (demoMode) {
@@ -401,20 +430,49 @@ export const EventRegistrationsPage: React.FC = () => {
       setLoading(false);
       return true;
     }
+    if (participantView ? !canReadParticipants : !canReadInvitations) {
+      setParticipants([]); setInvitations([]); setLoading(false);
+      setError("Anda tidak memiliki izin membaca data pada tab ini.");
+      return false;
+    }
     try {
-      const [invitationData, participantData, institutionData, deadlineData] = await Promise.all([
-        api<Invitation[]>(`/events/${id}/invitations`),
-        api<Participant[]>(`/events/${id}/participants`),
-        loadActiveInstitutions(id),
-        api<EventDeadline>(`/events/${id}`),
+      const options = { signal: controller.signal };
+      const settings = settingsCache.current;
+      const reuseSettings = settings?.id === id && Date.now() - settings.at < 30_000;
+      const settingsRequest = reuseSettings ? Promise.resolve(settings.data)
+        : api<EventDeadline>(`/events/${id}/registration-settings`, options);
+      // The optional creation picker must not gate reading an invitation list.
+      if (!participantView && canCreateInvitations) {
+        setPickerError("");
+        void loadActiveInstitutions(id, controller.signal).then((items) => { if (isCurrent()) setInstitutions(items); })
+          .catch((cause) => { if (isCurrent()) setPickerError(cause instanceof Error ? cause.message : "Pilihan lembaga gagal dimuat."); });
+      }
+      const [deadlineData, result] = await Promise.all([settingsRequest,
+        participantView ? apiEnvelope<Participant[]>(`/events/${id}/participants?${participantQuery}`, options)
+          : apiEnvelope<Invitation[]>(`/events/${id}/invitations`, options),
       ]);
       if (!isCurrent()) return false;
-      setInvitations(invitationData || []);
-      setParticipants(participantData || []);
+      settingsCache.current = { id, at: reuseSettings ? settings.at : Date.now(), data: deadlineData };
+      if (participantView) {
+        const list = (result.data || []) as Participant[];
+        if (result.meta && participantPage > result.meta.pageCount) {
+          setPagination({ key: participantFilterKey, page: result.meta.pageCount });
+          return false; // Re-read the valid page instead of displaying an empty, clamped page.
+        }
+        setParticipants(list);
+        setParticipantMeta(result.meta || { page: participantPage, pageSize: 25, total: list.length, pageCount: 1,
+          filteredEligible: eligibleApprovalIds(list).length, summary: { total: list.length,
+            approved: list.filter((item) => item.approvalStatus === "APPROVED").length,
+            pending: list.filter((item) => item.approvalStatus === "PENDING_REVIEW").length,
+            institution: list.filter((item) => item.institutionName).length, pendingEligible: eligibleApprovalIds(list, true).length } });
+      } else {
+        setInvitations(result.data as Invitation[] || []);
+        if (canReadParticipants) {
+          void apiEnvelope<ApprovalSelectionCandidate[]>(`/events/${id}/participants?page=1&pageSize=1&projection=selection`, options)
+            .then((summary) => { if (isCurrent() && summary.meta) setParticipantMeta(summary.meta); }).catch(() => {});
+        }
+      }
       setApprovalRequiresRefresh(false);
-      const listedInstitutions = institutionData;
-      if (!isCurrent()) return false;
-      setInstitutions(listedInstitutions);
       setEventDeadline(deadlineData);
       if (defaultsApplied.current !== id) {
         defaultsApplied.current = id;
@@ -424,35 +482,43 @@ export const EventRegistrationsPage: React.FC = () => {
       }
       return true;
     } catch (loadError) {
-      if (isCurrent()) setError(loadError instanceof Error ? loadError.message : "Data registrasi gagal dimuat.");
+      if (isCurrent()) {
+        if (participantView) { setParticipants([]); setApprovalRequiresRefresh(true); }
+        else setInvitations([]);
+        setError(loadError instanceof Error ? loadError.message : "Data registrasi gagal dimuat.");
+      }
       return false;
     } finally {
       if (isCurrent()) setLoading(false);
     }
-  };
+  }, [id, readKey, participantView ? participantQuery : "", participantView, permissionsKey, identityLoading, Boolean(identity), demoMode]);
 
   useEffect(() => {
     mounted.current = true;
     setSelectedParticipants([]);
+    setSelectionCandidates([]);
     setParticipantBusy("");
     approvalBusyRef.current = false;
     setApprovalMessage("");
     setApprovalRequiresRefresh(false);
     setParticipants([]);
+    setParticipantMeta({ page: 1, pageSize: 25, total: 0, pageCount: 1, filteredEligible: 0, summary: emptyParticipantSummary() });
     setInvitations([]);
     setInstitutions([]);
     setCreatedLink(""); setCreatedInvitation(null); setInvitationLinks({});
-    setEditingInvitation(null); setInvitationNotice(""); setInvitationFormError(""); setEventDeadline(null);
+    setEditingInvitation(null); setReplacementSource(""); setInvitationNotice(""); setInvitationFormError(""); setEventDeadline(null);
     setLinkBusy(""); setInvitationActionBusy(""); setSubmitting(false);
     setForm({ institutionId: requestedInstitutionId, invitationNumber: "", quota: 1, allowGroup: false, responseDeadline: "" });
-    void loadData();
-    return () => { mounted.current = false; loadGeneration.current += 1; };
+    settingsCache.current = null;
+    return () => { mounted.current = false; loadGeneration.current += 1; readController.current?.abort(); };
   }, [id]);
 
   useEffect(() => {
-    // Returning to the tab reconciles a request that completed while the panel was unmounted.
-    if (participantView) void loadData();
-  }, [participantView]);
+    // Deferring to a microtask avoids starting the discarded StrictMode effect.
+    let active = true;
+    queueMicrotask(() => { if (active) void loadData(); });
+    return () => { active = false; readController.current?.abort(); };
+  }, [loadData]);
 
   useEffect(() => {
     setStatusFilter((participantView ? ["PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED"] : ["DRAFT", "SENT", "OPENED", "ACCEPTED", "DECLINED", "REVOKED"]).includes(requestedStatus)
@@ -461,14 +527,14 @@ export const EventRegistrationsPage: React.FC = () => {
   }, [participantView, requestedStatus]);
   useEffect(() => { if (requestedInstitutionId) setForm((current) => ({ ...current, institutionId: requestedInstitutionId })); }, [requestedInstitutionId]);
   useEffect(() => {
-    if (demoMode) return;
+    if (demoMode || participantView || !canCreateInvitations) return;
     const refreshInstitutions = () => {
       void loadActiveInstitutions(id).then((items) => { if (mounted.current && activeEventId.current === id) setInstitutions(items); })
         .catch(() => { /* Keep the last loaded picker available when returning from a profile tab offline. */ });
     };
     window.addEventListener("focus", refreshInstitutions);
     return () => window.removeEventListener("focus", refreshInstitutions);
-  }, [id, demoMode]);
+  }, [id, demoMode, participantView, canCreateInvitations]);
 
   const filtered = useMemo(
     () =>
@@ -483,26 +549,52 @@ export const EventRegistrationsPage: React.FC = () => {
   const filteredParticipants = useMemo(
     () =>
       participants.filter((participant) => {
+        if (!demoMode) return true; // Production search/filter/pagination happens in SQL.
         const matchesSearch = `${participant.ustadzName} ${participant.participantCode} ${participant.institutionName || ""}`
           .toLowerCase()
           .includes(search.toLowerCase());
         return matchesSearch && (!requestedInstitutionId || participant.institutionId === requestedInstitutionId) && (!requestedInvitationId || participant.invitationId === requestedInvitationId) && (statusFilter === "ALL" || participant.approvalStatus === statusFilter || statusFilter === "DECLINED" && participant.approvalStatus === "REJECTED");
       }),
-    [participants, search, statusFilter, requestedInstitutionId, requestedInvitationId]
+    [participants, search, statusFilter, requestedInstitutionId, requestedInvitationId, demoMode]
   );
-  const participantPageCount = Math.max(1, Math.ceil(filteredParticipants.length / 25));
+  const participantPageCount = demoMode ? Math.max(1, Math.ceil(filteredParticipants.length / 25)) : participantMeta.pageCount;
   const visibleParticipantPage = Math.min(participantPage, participantPageCount);
-  const pagedParticipants = filteredParticipants.slice((visibleParticipantPage - 1) * 25, visibleParticipantPage * 25);
+  const pagedParticipants = demoMode ? filteredParticipants.slice((visibleParticipantPage - 1) * 25, visibleParticipantPage * 25) : participants;
+  const participantTotal = demoMode ? filteredParticipants.length : participantMeta.total;
+  const participantSummary = demoMode ? { total: participants.length, approved: participants.filter((item) => item.approvalStatus === "APPROVED").length,
+    pending: participants.filter((item) => item.approvalStatus === "PENDING_REVIEW").length, institution: participants.filter((item) => item.institutionName).length,
+    pendingEligible: eligibleApprovalIds(participants, true).length } : participantMeta.summary;
 
-  useEffect(() => { setParticipantPage(1); }, [id, search, statusFilter, requestedInstitutionId, requestedInvitationId]);
   useEffect(() => {
-    const eligible = eligibleApprovalIds(participants);
-    setSelectedParticipants((current) => current.filter((participantId) => eligible.includes(participantId)));
+    // Preserve selections from other pages; prune only rows whose new status we know.
+    const ineligible = new Set(participants.filter((person) => !canApproveParticipant(person)).map((person) => person.id));
+    setSelectedParticipants((current) => current.filter((participantId) => !ineligible.has(participantId)));
+    setSelectionCandidates((current) => [...current.filter((person) => selectedParticipants.includes(person.id) && !participants.some((row) => row.id === person.id)), ...participants.map(approvalSelectionCandidate)]);
   }, [participants]);
+
+  const loadApprovalScope = async (scope: "filter" | "pending") => {
+    const controller = new AbortController();
+    const context = currentReadKey.current;
+    const result: ApprovalSelectionCandidate[] = [];
+    for (let page = 1; ; page += 1) {
+      if (!mounted.current || activeEventId.current !== id || currentReadKey.current !== context) { controller.abort(); throw new Error("Filter atau event berubah. Pilih ulang peserta."); }
+      const params = scope === "pending" ? new URLSearchParams({ status: "PENDING_REVIEW" }) : new URLSearchParams(participantQuery);
+      params.set("page", String(page)); params.set("pageSize", "100"); params.set("projection", "selection"); params.set("eligible", "true");
+      const response = await apiEnvelope<ApprovalSelectionCandidate[]>(`/events/${id}/participants?${params}`, { signal: controller.signal });
+      result.push(...response.data);
+      if (page >= (response.meta?.pageCount || 1)) break;
+    }
+    if (currentReadKey.current !== context || !mounted.current) throw new Error("Filter atau event berubah. Pilih ulang peserta.");
+    setSelectionCandidates((current) => [...new Map([...current, ...result].map((person) => [person.id, person])).values()]);
+    return result;
+  };
 
   const acceptedCount = invitations.filter((item) => item.status === "ACCEPTED").length;
   const awaitingCount = invitations.filter((item) => ["DRAFT", "SENT", "OPENED"].includes(item.status)).length;
-  const approvedCount = participants.filter((item) => item.approvalStatus === "APPROVED").length;
+  const approvedCount = participantSummary.approved;
+  const invitationEventLocked = Boolean(eventDeadline?.audienceMode && !["MIXED", "INSTITUTION_INVITATION"].includes(eventDeadline.audienceMode))
+    || Boolean(eventDeadline?.status && ["CANCELLED", "COMPLETED", "ARCHIVED"].includes(eventDeadline.status));
+  const invitationEditorDisabled = loading || Boolean(invitationActionBusy) || invitationEventLocked;
   const editorInstitutions = editingInvitation?.institutionId && !institutions.some((institution) => institution.id === editingInvitation.institutionId)
     ? [...institutions, { id: editingInvitation.institutionId, code: editingInvitation.institutionCode || "Arsip",
       name: editingInvitation.institutionName || "Lembaga penerima", email: editingInvitation.institutionEmail,
@@ -529,21 +621,37 @@ export const EventRegistrationsPage: React.FC = () => {
 
   const resetInvitationForm = () => {
     setEditingInvitation(null);
+    setReplacementSource("");
     setInvitationFormError("");
     setForm({ institutionId: requestedInstitutionId, invitationNumber: "", quota: eventDeadline?.defaultInstitutionQuota || 1,
       allowGroup: (eventDeadline?.defaultInstitutionQuota || 1) > 1,
       responseDeadline: fromEventIso(eventDeadline?.invitationResponseDeadline, eventDeadline?.timezone || "Asia/Jakarta") });
   };
   const startEditingInvitation = (invitation: Invitation) => {
-    setEditingInvitation(invitation); setError(""); setInvitationNotice(""); setInvitationFormError("");
+    setEditingInvitation(invitation); setReplacementSource(""); setError(""); setInvitationNotice(""); setInvitationFormError("");
     setForm({ institutionId: invitation.institutionId || "", invitationNumber: invitation.invitationNumber,
       quota: invitation.quota || 1, allowGroup: invitationAllowsGroup(invitation),
       responseDeadline: fromEventIso(invitation.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta") });
     window.requestAnimationFrame(() => document.getElementById("institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" }));
   };
+  const startReplacementInvitation = (invitation: Invitation) => {
+    if (!invitation.institutionId) return;
+    const timezone = eventDeadline?.timezone || "Asia/Jakarta";
+    const usableDeadline = [invitation.responseDeadline, eventDeadline?.invitationResponseDeadline]
+      .find((deadline) => deadline && new Date(deadline).getTime() > Date.now());
+    setEditingInvitation(null); setReplacementSource(invitation.invitationNumber);
+    setError(""); setInvitationNotice(""); setInvitationFormError("");
+    setForm({ institutionId: invitation.institutionId, invitationNumber: "", quota: invitation.quota || 1,
+      allowGroup: invitationAllowsGroup(invitation), responseDeadline: fromEventIso(usableDeadline, timezone) });
+    window.requestAnimationFrame(() => {
+      document.getElementById("institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" });
+      document.getElementById("institution-invitation-number")?.focus({ preventScroll: true });
+    });
+  };
   const createInvitation = async () => {
     if (submitting) return;
     const editing = editingInvitation;
+    const replacing = replacementSource;
     if (editing && form.institutionId !== editing.institutionId && !window.confirm("Ganti lembaga penerima? Tautan lama akan dicabut dan tautan baru perlu dibagikan kembali.")) return;
     setSubmitting(true);
     setError("");
@@ -588,7 +696,9 @@ export const EventRegistrationsPage: React.FC = () => {
         setCreatedInvitation(created.invitation);
       }
       resetInvitationForm();
-      setInvitationNotice(editing ? created.publicUrl ? "Perubahan tersimpan. Bagikan tautan baru; tautan lama sudah dicabut." : "Undangan berhasil diperbarui. Tautan yang sudah dibagikan tetap berlaku." : "Undangan berhasil dibuat. Tautan siap dibagikan.");
+      setInvitationNotice(editing ? created.publicUrl ? "Perubahan tersimpan. Bagikan tautan baru; tautan lama sudah dicabut." : "Undangan berhasil diperbarui. Tautan yang sudah dibagikan tetap berlaku."
+        : replacing ? `Undangan pengganti untuk ${replacing} berhasil dibuat. Undangan lama tetap dicabut; bagikan tautan dan kode baru.`
+          : "Undangan berhasil dibuat. Tautan siap dibagikan.");
     } catch (submitError) {
       if (mounted.current && activeEventId.current === id) setInvitationFormError(submitError instanceof Error ? submitError.message : "Undangan gagal disimpan.");
     } finally {
@@ -864,10 +974,10 @@ export const EventRegistrationsPage: React.FC = () => {
         {error && <div role="alert" className="mb-5 border-t-2 border-rose-500 bg-rose-50 p-3 text-xs text-rose-900">{error}</div>}
         <section className="grid grid-cols-2 border-y border-slate-200 bg-white sm:grid-cols-4">
           {[
-            ["Total peserta", participants.length],
+             ["Total peserta", participantSummary.total],
             ["Disetujui", approvedCount],
-            ["Menunggu tinjauan", participants.filter((item) => item.approvalStatus === "PENDING_REVIEW").length],
-            ["Delegasi lembaga", participants.filter((item) => item.institutionName).length],
+             ["Menunggu tinjauan", participantSummary.pending],
+             ["Delegasi lembaga", participantSummary.institution],
           ].map(([label, value]) => (
             <div key={String(label)} className="border-b border-r border-slate-200 p-4">
               <p className="text-2xl font-black tabular-nums text-slate-950">{loading ? "—" : value}</p>
@@ -875,7 +985,7 @@ export const EventRegistrationsPage: React.FC = () => {
             </div>
           ))}
         </section>
-        <section className="mt-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
+        {canCreateParticipants && <section className="mt-5 rounded-xl border border-slate-200 bg-white p-4 shadow-sm">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -996,22 +1106,24 @@ export const EventRegistrationsPage: React.FC = () => {
               </aside>
             </div>
           )}
-        </section>
+        </section>}
         <div className="mt-5 grid gap-3 sm:grid-cols-[minmax(0,1fr)_13rem]">
           <label className="relative block"><span className="sr-only">Cari peserta</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama, kode peserta, atau lembaga" className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-xs" /></label>
           <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-bold"><option value="ALL">Semua status</option><option value="PENDING_REVIEW">Menunggu tinjauan</option><option value="APPROVED">Disetujui</option><option value="WAITLISTED">Daftar tunggu</option><option value="DECLINED">Ditolak</option></select>
         </div>
-        <BulkParticipantApprovalPanel key={id} eventId={id} eventName={eventDeadline?.name}
-          participants={participants} filteredParticipants={filteredParticipants} pageParticipants={pagedParticipants}
+        {canApproveParticipants && <BulkParticipantApprovalPanel key={id} eventId={id} eventName={eventDeadline?.name}
+          participants={selectionCandidates} filteredParticipants={filteredParticipants} pageParticipants={pagedParticipants}
+          loadScope={demoMode ? undefined : loadApprovalScope} scopeKey={participantFilterKey}
+          scopeCounts={demoMode ? undefined : { filtered: participantMeta.filteredEligible, pending: participantMeta.summary.pendingEligible }}
           selectedIds={selectedParticipants} onSelectionChange={setSelectedParticipants}
-          onBusyChange={(busy) => {
+          onBusyChange={(busy, mutation) => {
             if (!mounted.current || activeEventId.current !== id) return;
-            if (busy) setApprovalRequiresRefresh(true);
+            if (busy && mutation) setApprovalRequiresRefresh(true);
             approvalBusyRef.current = busy; setParticipantBusy(busy ? "bulk" : ""); setApprovalMessage("");
           }}
           requiresRefresh={approvalRequiresRefresh}
           onRefreshRequiredChange={(required) => { if (mounted.current && activeEventId.current === id) setApprovalRequiresRefresh(required); }}
-          onCompleted={loadData} disabled={loading || Boolean(participantBusy) || Boolean(participantImportBusy)} demoMode={demoMode} />
+          onCompleted={loadData} disabled={loading || Boolean(participantBusy) || Boolean(participantImportBusy)} demoMode={demoMode} />}
         {approvalMessage && <p role="status" className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm text-emerald-950">{approvalMessage}</p>}
         <div className="mt-4 max-w-full overflow-x-auto rounded-lg border border-slate-200 bg-white">
           {loading ? <div className="h-64 animate-pulse bg-slate-100" /> : filteredParticipants.length ? (
@@ -1028,7 +1140,7 @@ export const EventRegistrationsPage: React.FC = () => {
                     aria-label={`Pilih ${participant.ustadzName}`}
                     checked={selectedParticipants.includes(participant.id)}
                     onChange={(event) => setSelectedParticipants((current) => event.target.checked ? [...current, participant.id] : current.filter((item) => item !== participant.id))}
-                    disabled={!canApproveParticipant(participant) || Boolean(participantBusy) || loading || approvalRequiresRefresh}
+                    disabled={!canApproveParticipants || !canApproveParticipant(participant) || Boolean(participantBusy) || loading || approvalRequiresRefresh}
                     className="h-4 w-4 accent-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                    />
                   </td>
@@ -1101,7 +1213,7 @@ export const EventRegistrationsPage: React.FC = () => {
                            : "Perubahan tersimpan, tetapi daftar belum diperbarui. Muat ulang sebelum melakukan aksi berikutnya.");
                          return refreshed;
                        }} />
-                    <ParticipantPortalAccessAction
+                     {staffPermissions.includes("participants.manage_portal_access") && <ParticipantPortalAccessAction
                       eventId={id}
                       participant={{
                         id: participant.id,
@@ -1111,8 +1223,8 @@ export const EventRegistrationsPage: React.FC = () => {
                       }}
                       previewMode={demoMode}
                       onCompleted={() => setParticipants((current) => current.map((item) => item.id === participant.id ? { ...item, portalPasswordConfigured: true, portalAccountStatus: "ACTIVE" } : item))}
-                    />
-                    {canApproveParticipant(participant) && (
+                     />}
+                     {canApproveParticipants && canApproveParticipant(participant) && (
                       <button
                         type="button"
                         onClick={() => void approveParticipants([participant.id])}
@@ -1130,7 +1242,7 @@ export const EventRegistrationsPage: React.FC = () => {
             </table>
            ) : <div className="p-10 text-center text-xs text-slate-500">Tidak ada peserta yang cocok.</div>}
          </div>
-         {filteredParticipants.length > 0 && <nav aria-label="Halaman peserta event" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm"><span>Menampilkan {(visibleParticipantPage - 1) * 25 + 1}–{Math.min(visibleParticipantPage * 25, filteredParticipants.length)} dari {filteredParticipants.length} peserta</span><div className="flex items-center gap-2"><button type="button" disabled={visibleParticipantPage <= 1} onClick={() => setParticipantPage(visibleParticipantPage - 1)} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Sebelumnya</button><span>Halaman {visibleParticipantPage}/{participantPageCount}</span><button type="button" disabled={visibleParticipantPage >= participantPageCount} onClick={() => setParticipantPage(visibleParticipantPage + 1)} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Berikutnya</button></div></nav>}
+          {participantTotal > 0 && <nav aria-label="Halaman peserta event" className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm"><span>Menampilkan {(visibleParticipantPage - 1) * 25 + 1}–{Math.min(visibleParticipantPage * 25, participantTotal)} dari {participantTotal} peserta</span><div className="flex items-center gap-2"><button type="button" disabled={loading || visibleParticipantPage <= 1} onClick={() => setParticipantPage(visibleParticipantPage - 1)} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Sebelumnya</button><span>Halaman {visibleParticipantPage}/{participantPageCount}</span><button type="button" disabled={loading || visibleParticipantPage >= participantPageCount} onClick={() => setParticipantPage(visibleParticipantPage + 1)} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Berikutnya</button></div></nav>}
       </AdminLayout>
     );
   }
@@ -1271,7 +1383,7 @@ export const EventRegistrationsPage: React.FC = () => {
                         {invitation.responseDeadline && <p className="mt-2 text-xs text-slate-500">Batas respons: {formatEventDateTime(invitation.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta")} {eventTimezoneLabel(eventDeadline?.timezone || "Asia/Jakarta")}</p>}
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {invitation.institutionId && invitation.status !== "REVOKED" && (
+                        {canCreateInvitations && invitation.institutionId && invitation.status !== "REVOKED" && (
                           <button
                             type="button"
                             onClick={() => startEditingInvitation(invitation)}
@@ -1315,6 +1427,19 @@ export const EventRegistrationsPage: React.FC = () => {
                       </div>
                     </div>
 
+                    {invitation.status === "REVOKED" && <div className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
+                      <p>Undangan ini sudah dicabut. Tautan lama tidak dapat digunakan atau diaktifkan lewat edit.</p>
+                      {canCreateInvitations && invitation.institutionId && <>
+                        <button type="button" onClick={() => startReplacementInvitation(invitation)}
+                          disabled={submitting || invitationEditorDisabled || !institutions.some((institution) => institution.id === invitation.institutionId)}
+                          className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-lg border border-amber-700 bg-white px-3 text-sm font-bold text-amber-950 hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800 disabled:cursor-not-allowed disabled:opacity-50">
+                          <Plus className="h-4 w-4" /> Buat undangan pengganti
+                        </button>
+                        {!institutions.some((institution) => institution.id === invitation.institutionId) && <p className="mt-2">Lembaga ini tidak aktif. Aktifkan kembali di data lembaga sebelum membuat undangan pengganti.</p>}
+                        {invitationEventLocked && <p className="mt-2">Jalur undangan event ini sedang dikunci. Periksa pengaturan event sebelum membuat pengganti.</p>}
+                      </>}
+                    </div>}
+
                     {invitationLinks[invitation.id] && isInvitationPending(invitation.status) && (
                       <div className="border-t border-emerald-200 bg-emerald-50 px-4 py-3">
                         <p className="text-sm font-bold text-emerald-950">Tautan formulir khusus lembaga</p>
@@ -1344,9 +1469,9 @@ export const EventRegistrationsPage: React.FC = () => {
 
                     {invitation.responseNotes && <p className="border-t border-slate-100 px-4 py-3 text-sm text-slate-600"><span className="font-bold">Catatan lembaga: </span>{invitation.responseNotes}</p>}
 
-                    {delegates.length > 0 && (
+                    {(invitation.registeredCount || delegates.length) > 0 && (
                       <div className="border-t border-slate-200 bg-slate-50 px-4 py-3">
-                        <Link to={`/admin/events/${id}/registrations?view=participants&invitationId=${invitation.id}`} className="mb-3 inline-flex min-h-11 items-center gap-2 text-sm font-bold text-emerald-800"><Users className="h-4 w-4" /> Kelola {delegates.length} peserta →</Link>
+                        <Link to={`/admin/events/${id}/registrations?view=participants&invitationId=${invitation.id}`} className="mb-3 inline-flex min-h-11 items-center gap-2 text-sm font-bold text-emerald-800"><Users className="h-4 w-4" /> Kelola {invitation.registeredCount || delegates.length} peserta →</Link>
                         <div className="grid gap-2 sm:grid-cols-2">
                           {delegates.map((delegate) => (
                             <div key={delegate.id} className="flex min-w-0 items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3">
@@ -1379,14 +1504,14 @@ export const EventRegistrationsPage: React.FC = () => {
 
         <aside className="min-w-0 space-y-4 self-start xl:sticky xl:top-36">
           {invitationNotice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">{invitationNotice}</p>}
-          <InstitutionInvitationForm key={`${id}:${editingInvitation?.id || "new"}`} institutions={editorInstitutions}
+          {canCreateInvitations && <InstitutionInvitationForm key={`${id}:${editingInvitation?.id || (replacementSource ? `replacement:${replacementSource}` : "new")}`} institutions={editorInstitutions}
             canOpenMasterData={canOpenMasterData}
-            error={invitationFormError}
+            error={invitationFormError || pickerError}
             value={form} onChange={setForm} onSubmit={() => void createInvitation()} onCancel={resetInvitationForm}
-            editing={Boolean(editingInvitation)} registeredCount={editingRegisteredCount}
+            editing={Boolean(editingInvitation)} replacementNumber={replacementSource} registeredCount={editingRegisteredCount}
             recipientLocked={Boolean(editingInvitation && (editingInvitation.respondedAt || editingRegisteredCount > 0 || !isInvitationPending(editingInvitation.status)))}
             timezone={eventDeadline?.timezone || "Asia/Jakarta"} busy={submitting}
-            disabled={loading || Boolean(invitationActionBusy) || Boolean(eventDeadline?.audienceMode && !["MIXED", "INSTITUTION_INVITATION"].includes(eventDeadline.audienceMode)) || Boolean(eventDeadline?.status && ["CANCELLED", "COMPLETED", "ARCHIVED"].includes(eventDeadline.status))} />
+            disabled={invitationEditorDisabled} />}
 
           {createdLink && createdInvitation && isInvitationPending(invitations.find((invitation) => invitation.id === createdInvitation.id)?.status || createdInvitation.status) && (
             <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3">

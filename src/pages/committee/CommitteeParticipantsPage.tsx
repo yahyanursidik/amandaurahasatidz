@@ -3,7 +3,8 @@
  * Hallmark · responsive fallback: stacked controls followed by participant stream
  * privacy: contact data is shown only inside the protected committee portal
  */
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useGetIdentity } from "@refinedev/core";
 import {
   AlertCircle,
   ArrowDownAZ,
@@ -32,7 +33,11 @@ import { StatusBadge, type StatusVariant } from "@/components/common/StatusBadge
 import { ParticipantCommunicationPanel } from "@/components/communications/ParticipantCommunicationPanel";
 import { ParticipantProfileDialog } from "@/components/participants/ParticipantProfileDialog";
 import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
-import { eventApi } from "@/lib/eventApi";
+import { eventApi, eventApiEnvelope } from "@/lib/eventApi";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
+import { approvalSelectionCandidate, emptyParticipantSummary, type ParticipantPageMeta, type ApprovalSelectionCandidate } from "@/lib/participantCatalog";
+import { availableParticipantCommands, participantStaffPermissions } from "@/lib/participantManagement";
+import type { AuthIdentity } from "@/lib/refine/authProvider";
 import { canApproveParticipant, runParticipantBulkApproval, selectionAfterBulkApproval, type BulkApprovalResponse } from "@/lib/participantBulkApproval";
 import { getMissingParticipantContactFields } from "@/lib/participantCommunication";
 
@@ -243,7 +248,27 @@ export const CommitteeParticipantsPage: React.FC = () => {
   const [contactFilter, setContactFilter] = useState<ContactFilter>("ALL");
   const [institutionFilter, setInstitutionFilter] = useState("ALL");
   const [sort, setSort] = useState<SortOption>("PRIORITY");
+  const { data: identity, isLoading: identityLoading } = useGetIdentity<AuthIdentity>();
+  const permissions = participantStaffPermissions(identity?.assignments, selectedEventId);
+  const permissionsKey = permissions.slice().sort().join(",");
+  const canRead = permissions.includes("participants.read");
+  const canApprove = permissions.includes("participants.approve");
+  const canExport = permissions.includes("participants.export");
+  const debouncedSearch = useDebouncedValue(search.trim());
+  const filterKey = JSON.stringify([selectedEventId, debouncedSearch, statusFilter, contactFilter, institutionFilter, sort]);
+  const [pagination, setPagination] = useState({ key: filterKey, page: 1 });
+  const page = pagination.key === filterKey ? pagination.page : 1;
+  const [pageMeta, setPageMeta] = useState<ParticipantPageMeta>({ page: 1, pageSize: 25, total: 0, pageCount: 1, filteredEligible: 0, summary: emptyParticipantSummary() });
+  const [selectionRegistry, setSelectionRegistry] = useState<ApprovalSelectionCandidate[]>([]);
+  const [loadedPendingScope, setLoadedPendingScope] = useState<{ key: string; ids: string[] } | null>(null);
+  const readController = useRef<AbortController | null>(null);
+  const currentFilterKey = useRef(filterKey);
+  currentFilterKey.current = filterKey;
+  const participantQuery = new URLSearchParams({ page: String(page), pageSize: "25", search: debouncedSearch,
+    status: statusFilter, contact: contactFilter, institution: institutionFilter, sort, includeInstitutions: "true" }).toString();
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const selectedIdsRef = useRef(selectedIds);
+  selectedIdsRef.current = selectedIds;
   const [decisionRequest, setDecisionRequest] = useState<DecisionRequest>(null);
   const [busy, setBusy] = useState("");
   const [loading, setLoading] = useState(true);
@@ -256,6 +281,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
   const eventGeneration = useRef(0);
   const loadGeneration = useRef(0);
   const actionBusy = useRef(false);
+  const auxiliaryGeneration = useRef(0);
   if (activeEvent.current !== selectedEventId) {
     activeEvent.current = selectedEventId;
     eventGeneration.current += 1;
@@ -263,17 +289,19 @@ export const CommitteeParticipantsPage: React.FC = () => {
 
   const selectedEvent = events.find((item) => item.id === selectedEventId) || events[0];
 
-  const loadEvents = async () => {
+  const loadEvents = async (signal?: AbortSignal) => {
     setLoading(true);
     setError("");
     try {
-      const data = await eventApi<EventSummary[]>("/events");
+      const data = await eventApi<EventSummary[]>("/events/options", { signal });
+      if (!mounted.current || signal?.aborted) return;
       const eventItems = Array.isArray(data) ? data : [];
       setEvents(eventItems);
       setSelectedEventId((current) => current || eventItems[0]?.id || "");
       setPreviewMode(false);
       if (eventItems.length === 0) setParticipants([]);
     } catch (loadError) {
+      if (!mounted.current || signal?.aborted) return;
       if (import.meta.env.DEV) {
         setEvents([previewEvent]);
         setSelectedEventId(previewEvent.id);
@@ -283,49 +311,76 @@ export const CommitteeParticipantsPage: React.FC = () => {
         setError(loadError instanceof Error ? loadError.message : "Daftar event tidak dapat dimuat.");
       }
     } finally {
-      setLoading(false);
+      if (mounted.current && !signal?.aborted) setLoading(false);
     }
   };
 
-  useEffect(() => { mounted.current = true; void loadEvents(); return () => { mounted.current = false; eventGeneration.current += 1; }; }, []);
+  useEffect(() => {
+    mounted.current = true;
+    const controller = new AbortController();
+    queueMicrotask(() => { if (!controller.signal.aborted) void loadEvents(controller.signal); });
+    return () => { mounted.current = false; eventGeneration.current += 1; auxiliaryGeneration.current += 1; controller.abort(); };
+  }, []);
 
-  const reloadParticipants = async () => {
+  const reloadParticipants = useCallback(async () => {
     const generation = ++loadGeneration.current;
     const eventVersion = eventGeneration.current;
     const isCurrent = () => mounted.current && activeEvent.current === selectedEventId
       && eventGeneration.current === eventVersion && loadGeneration.current === generation;
-    if (!selectedEventId || !isCurrent()) return false;
+    if (!selectedEventId || !isCurrent() || currentFilterKey.current !== filterKey || identityLoading || !identity) return false;
+    if (!canRead) {
+      setParticipants([]); setLoading(false);
+      setError("Anda tidak memiliki izin membaca peserta pada event ini.");
+      return false;
+    }
     if (previewMode) { setRequiresRefresh(false); return true; }
     setLoading(true);
+    setError("");
+    readController.current?.abort();
+    const controller = new AbortController(); readController.current = controller;
     try {
-      const data = await eventApi<CommitteeParticipant[]>(`/events/${selectedEventId}/participants`);
-      if (!isCurrent()) return false;
-      const list = Array.isArray(data) ? data : [];
+      const response = await eventApiEnvelope<CommitteeParticipant[], ParticipantPageMeta>(`/events/${selectedEventId}/participants?${participantQuery}`, { signal: controller.signal });
+      if (!isCurrent() || controller.signal.aborted || currentFilterKey.current !== filterKey) return false;
+      const list = Array.isArray(response.data) ? response.data : [];
+      if (response.meta && page > response.meta.pageCount) { setPagination({ key: filterKey, page: response.meta.pageCount }); return false; }
       setParticipants(list);
-      setSelectedIds((current) => current.filter((id) => list.some((item) => item.id === id && canApproveParticipant(item))));
+      if (response.meta) setPageMeta(response.meta);
+      const knownIneligible = new Set(list.filter((item) => !canApproveParticipant(item)).map((item) => item.id));
+      setSelectedIds((current) => current.filter((id) => !knownIneligible.has(id)));
+      setSelectionRegistry((current) => [...new Map([...current.filter((item) => selectedIdsRef.current.includes(item.id)), ...list.map(approvalSelectionCandidate)].map((item) => [item.id, item])).values()]);
       setRequiresRefresh(false);
       return true;
     } catch (loadError) {
-      if (isCurrent()) {
+      if (isCurrent() && !controller.signal.aborted) {
+        setParticipants([]);
         setRequiresRefresh(true);
         setError(loadError instanceof Error ? loadError.message : "Data peserta tidak dapat dimuat.");
       }
       return false;
     } finally {
-      if (isCurrent()) setLoading(false);
+      if (isCurrent() && !controller.signal.aborted) setLoading(false);
     }
-  };
+  }, [selectedEventId, previewMode, participantQuery, filterKey, page, permissionsKey, identityLoading, Boolean(identity)]);
 
   useEffect(() => {
     setSelectedIds([]);
+    setSelectionRegistry([]);
+    setLoadedPendingScope(null);
+    setPageMeta({ page: 1, pageSize: 25, total: 0, pageCount: 1, filteredEligible: 0, summary: emptyParticipantSummary() });
+    auxiliaryGeneration.current += 1;
     setDecisionRequest(null);
     setBusy("");
     actionBusy.current = false;
     setRequiresRefresh(false);
     if (!selectedEventId || previewMode) return;
     setParticipants([]);
-    void reloadParticipants();
   }, [previewMode, selectedEventId]);
+
+  useEffect(() => {
+    let active = true;
+    queueMicrotask(() => { if (active) void reloadParticipants(); });
+    return () => { active = false; readController.current?.abort(); };
+  }, [reloadParticipants]);
 
   const participantWithContact = (participant: CommitteeParticipant) => ({
     id: participant.id,
@@ -340,11 +395,12 @@ export const CommitteeParticipantsPage: React.FC = () => {
     confirmationStatus: participant.confirmationStatus,
   });
 
-  const institutions = useMemo(() => Array.from(new Set(participants.map((item) => item.institutionName).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b, "id-ID")), [participants]);
+  const institutions = useMemo(() => previewMode ? Array.from(new Set(participants.map((item) => item.institutionName).filter((value): value is string => Boolean(value)))).sort((a, b) => a.localeCompare(b, "id-ID")) : pageMeta.institutions || [], [participants, previewMode, pageMeta.institutions]);
 
   const filteredParticipants = useMemo(() => {
     const keyword = search.trim().toLocaleLowerCase("id-ID");
     const priority: Record<string, number> = { PENDING_REVIEW: 0, WAITLISTED: 1, APPROVED: 2, DECLINED: 3, CANCELLED: 4 };
+    if (!previewMode) return participants;
     return participants
       .filter((participant) => {
         const missing = getMissingParticipantContactFields(participantWithContact(participant));
@@ -363,12 +419,20 @@ export const CommitteeParticipantsPage: React.FC = () => {
         if (sort === "OLDEST") return aTime - bTime;
         return (priority[a.approvalStatus] ?? 9) - (priority[b.approvalStatus] ?? 9) || bTime - aTime;
       });
-  }, [contactFilter, institutionFilter, participants, search, sort, statusFilter]);
+  }, [contactFilter, institutionFilter, participants, search, sort, statusFilter, previewMode]);
 
   const pendingIds = filteredParticipants.filter((item) => item.approvalStatus === "PENDING_REVIEW" && canApproveParticipant(item)).map((item) => item.id);
-  const completeContacts = participants.filter((participant) => getMissingParticipantContactFields(participantWithContact(participant)).length === 0).length;
-  const pendingCount = participants.filter((participant) => participant.approvalStatus === "PENDING_REVIEW").length;
-  const portalReady = participants.filter((participant) => participant.portalPasswordConfigured).length;
+  const pendingTotal = previewMode ? pendingIds.length : pageMeta.filteredPendingEligible || 0;
+  // Counts alone cannot establish membership after changing filters. A complete
+  // scope comes from an explicit read, or a single page containing every match.
+  const pendingScopeIds = previewMode ? pendingIds : loadedPendingScope?.key === filterKey ? loadedPendingScope.ids
+    : pendingIds.length === pendingTotal ? pendingIds : [];
+  const allPendingSelected = pendingTotal > 0 && pendingScopeIds.length === pendingTotal && pendingScopeIds.every((id) => selectedIds.includes(id));
+  const completeContacts = previewMode ? participants.filter((participant) => getMissingParticipantContactFields(participantWithContact(participant)).length === 0).length : pageMeta.summary.completeContacts || 0;
+  const pendingCount = previewMode ? participants.filter((participant) => participant.approvalStatus === "PENDING_REVIEW").length : pageMeta.summary.pending;
+  const portalReady = previewMode ? participants.filter((participant) => participant.portalPasswordConfigured).length : pageMeta.summary.portalReady || 0;
+  const totalParticipants = previewMode ? participants.length : pageMeta.summary.total;
+  const filteredTotal = previewMode ? filteredParticipants.length : pageMeta.total;
 
   const resetFilters = () => {
     setSearch("");
@@ -380,10 +444,14 @@ export const CommitteeParticipantsPage: React.FC = () => {
 
   const updateLocalStatus = (ids: string[], status: string) => {
     setParticipants((current) => current.map((item) => ids.includes(item.id) ? { ...item, approvalStatus: status } : item));
+    setSelectionRegistry((current) => current.map((item) => ids.includes(item.id) ? { ...item, approvalStatus: status } : item));
   };
 
   const submitDecision = async (reason: string) => {
     if (!decisionRequest || actionBusy.current || loading || requiresRefresh) return;
+    const target = { ...decisionRequest.participant, name: decisionRequest.participant.ustadzName };
+    if (decisionRequest.decision === "approve" ? !canApprove || !canApproveParticipant(target)
+      : !availableParticipantCommands(target, permissions).includes(decisionRequest.decision)) return;
     const eventVersion = eventGeneration.current;
     const isCurrent = () => mounted.current && eventGeneration.current === eventVersion;
     actionBusy.current = true;
@@ -400,10 +468,14 @@ export const CommitteeParticipantsPage: React.FC = () => {
         });
       }
       if (!isCurrent()) return;
-      updateLocalStatus([participant.id], settings.nextStatus);
+      if (decision === "cancel") {
+        setParticipants((current) => current.map((item) => item.id === participant.id ? { ...item, confirmationStatus: "CANCELLED" } : item));
+        setSelectionRegistry((current) => current.map((item) => item.id === participant.id ? { ...item, confirmationStatus: "CANCELLED" } : item));
+      } else updateLocalStatus([participant.id], settings.nextStatus);
       setSelectedIds((current) => current.filter((id) => id !== participant.id));
       setSuccess(`${participant.ustadzName} berhasil diperbarui: ${approvalLabels[settings.nextStatus].toLocaleLowerCase("id-ID")}.`);
       setDecisionRequest(null);
+      if (!previewMode) await reloadParticipants();
     } catch (actionError) {
       if (isCurrent()) {
         setRequiresRefresh(true);
@@ -415,8 +487,8 @@ export const CommitteeParticipantsPage: React.FC = () => {
   };
 
   const bulkApprove = async () => {
-    const eligibleIds = selectedIds.filter((id) => participants.some((item) => item.id === id && item.approvalStatus === "PENDING_REVIEW" && canApproveParticipant(item)));
-    if (eligibleIds.length === 0 || actionBusy.current || loading || requiresRefresh) return;
+    const eligibleIds = selectedIds.filter((id) => (previewMode ? participants : selectionRegistry).some((item) => item.id === id && item.approvalStatus === "PENDING_REVIEW" && canApproveParticipant(item)));
+    if (!canApprove || eligibleIds.length === 0 || actionBusy.current || loading || requiresRefresh) return;
     const eventVersion = eventGeneration.current;
     const isCurrent = () => mounted.current && eventGeneration.current === eventVersion;
     actionBusy.current = true;
@@ -435,8 +507,8 @@ export const CommitteeParticipantsPage: React.FC = () => {
         setSelectedIds((current) => selectionAfterBulkApproval(current, eligibleIds, result));
         setSuccess(`${succeeded.length} peserta berhasil disetujui; ${result.length - succeeded.length} perlu diperiksa.`);
         const failures = result.filter((item) => item.status !== "SUCCESS");
-        if (failures.length) setError(failures.map((item) => `${participants.find((participant) => participant.id === item.participantId)?.ustadzName || item.participantId}: ${item.message}`).join("; "));
         await reloadParticipants();
+        if (isCurrent() && failures.length) setError(failures.map((item) => `${selectionRegistry.find((participant) => participant.id === item.participantId)?.ustadzName || item.participantId}: ${item.message}`).join("; "));
         return;
       }
       updateLocalStatus(eligibleIds, "APPROVED");
@@ -452,9 +524,58 @@ export const CommitteeParticipantsPage: React.FC = () => {
     }
   };
 
-  const exportCsv = () => {
+  const selectFilteredPending = async (checked: boolean) => {
+    if (!canApprove || requiresRefresh) return;
+    if (previewMode) { setSelectedIds((current) => checked ? [...new Set([...current, ...pendingIds])] : current.filter((id) => !pendingIds.includes(id))); return; }
+    if (busy || loading || actionBusy.current) return;
+    const key = filterKey;
+    const operation = ++auxiliaryGeneration.current;
+    const isCurrent = () => mounted.current && activeEvent.current === selectedEventId && auxiliaryGeneration.current === operation;
+    actionBusy.current = true;
+    setBusy("selection"); setError("");
+    try {
+      const people: ApprovalSelectionCandidate[] = [];
+      for (let selectedPage = 1; ; selectedPage++) {
+        if (currentFilterKey.current !== key || !isCurrent()) throw new Error("Filter berubah. Pilih ulang peserta.");
+        const params = new URLSearchParams(participantQuery);
+        params.set("page", String(selectedPage)); params.set("pageSize", "100"); params.set("projection", "selection");
+        params.set("status", "PENDING_REVIEW"); params.set("eligible", "true"); params.delete("includeInstitutions");
+        const response = await eventApiEnvelope<ApprovalSelectionCandidate[], ParticipantPageMeta>(`/events/${selectedEventId}/participants?${params}`);
+        people.push(...response.data);
+        if (selectedPage >= (response.meta?.pageCount || 1)) break;
+      }
+      if (currentFilterKey.current !== key || !isCurrent()) return;
+      const ids = people.map((item) => item.id);
+      setLoadedPendingScope({ key, ids });
+      setSelectionRegistry((current) => [...new Map([...current, ...people].map((item) => [item.id, item])).values()]);
+      setSelectedIds((current) => checked ? [...new Set([...current, ...ids])] : current.filter((id) => !ids.includes(id)));
+    } catch (cause) { if (isCurrent()) setError(cause instanceof Error ? cause.message : "Pilihan gagal dimuat."); }
+    finally { if (isCurrent()) { actionBusy.current = false; setBusy(""); } }
+  };
+
+  const exportCsv = async () => {
+    if (busy || loading || !canExport || actionBusy.current || requiresRefresh) return;
+    const key = filterKey;
+    const operation = ++auxiliaryGeneration.current;
+    const isCurrent = () => mounted.current && activeEvent.current === selectedEventId && auxiliaryGeneration.current === operation;
+    actionBusy.current = true;
+    setBusy("export"); setError("");
+    try {
+    let records = filteredParticipants;
+    if (!previewMode) {
+      records = [];
+      for (let exportPage = 1; ; exportPage++) {
+        if (currentFilterKey.current !== key || !isCurrent()) throw new Error("Filter berubah. Ulangi ekspor dengan filter terbaru.");
+        const params = new URLSearchParams(participantQuery); params.set("page", String(exportPage)); params.set("pageSize", "100"); params.delete("includeInstitutions");
+        const response = await eventApiEnvelope<CommitteeParticipant[], ParticipantPageMeta>(`/events/${selectedEventId}/participants?${params}`);
+        records.push(...response.data);
+        if (exportPage >= (response.meta?.pageCount || 1)) break;
+      }
+      records = [...new Map(records.map((item) => [item.id, item])).values()];
+      if (currentFilterKey.current !== key || !isCurrent()) throw new Error("Filter berubah. Ulangi ekspor dengan filter terbaru.");
+    }
     const columns = ["Kode peserta", "Nama", "Lembaga", "WhatsApp", "Email", "Alamat", "Persetujuan", "Konfirmasi", "Waktu daftar"];
-    const rows = filteredParticipants.map((item) => [item.participantCode, item.ustadzName, item.institutionName || "Individu", item.ustadzWhatsapp || item.ustadzPhone || "", item.ustadzEmail || "", item.ustadzAddress || "", approvalLabels[item.approvalStatus] || item.approvalStatus, item.confirmationStatus, formatRegisteredAt(item.registeredAt)]);
+    const rows = records.map((item) => [item.participantCode, item.ustadzName, item.institutionName || "Individu", item.ustadzWhatsapp || item.ustadzPhone || "", item.ustadzEmail || "", item.ustadzAddress || "", approvalLabels[item.approvalStatus] || item.approvalStatus, item.confirmationStatus, formatRegisteredAt(item.registeredAt)]);
     const csv = `\uFEFF${[columns, ...rows].map((row) => row.map(escapeCsv).join(",")).join("\r\n")}`;
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
     const anchor = document.createElement("a");
@@ -463,6 +584,8 @@ export const CommitteeParticipantsPage: React.FC = () => {
     anchor.click();
     URL.revokeObjectURL(url);
     setSuccess(`${rows.length} data peserta diekspor sesuai filter aktif.`);
+    } catch (cause) { if (isCurrent()) setError(cause instanceof Error ? cause.message : "Ekspor gagal diproses."); }
+    finally { if (isCurrent()) { actionBusy.current = false; setBusy(""); } }
   };
 
   return (
@@ -475,7 +598,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
 
       <section className="grid grid-cols-2 border-y border-slate-200 bg-white lg:grid-cols-4" aria-label="Ringkasan peserta">
         {[
-          { label: "Total peserta", value: participants.length, icon: Users },
+          { label: "Total peserta", value: totalParticipants, icon: Users },
           { label: "Perlu ditinjau", value: pendingCount, icon: ClipboardCheck },
           { label: "Kontak lengkap", value: completeContacts, icon: Contact },
           { label: "Akses portal siap", value: portalReady, icon: ShieldCheck },
@@ -496,21 +619,22 @@ export const CommitteeParticipantsPage: React.FC = () => {
             </div>
             <button type="button" onClick={resetFilters} className="mt-5 inline-flex min-h-[44px] w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900"><FilterX className="h-4 w-4" />Reset filter</button>
           </div>
-          <div className="mt-3 border-l-2 border-teal-700 px-4 py-2 text-sm leading-6 text-slate-600"><strong className="text-slate-900">{filteredParticipants.length}</strong> dari {participants.length} peserta tampil sesuai filter.</div>
+          <div className="mt-3 border-l-2 border-teal-700 px-4 py-2 text-sm leading-6 text-slate-600"><strong className="text-slate-900">{filteredTotal}</strong> dari {totalParticipants} peserta sesuai filter; halaman ini memuat {filteredParticipants.length} peserta.</div>
         </aside>
 
         <section className="min-w-0" aria-label="Daftar peserta">
           <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div><p className="text-xs font-black uppercase tracking-[0.16em] text-teal-800">Antrean peserta</p><h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950">Tinjau lalu tindak lanjuti</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">Peserta yang menunggu keputusan ditempatkan lebih dahulu. Pilih beberapa baris untuk persetujuan massal.</p></div>
-            <button type="button" onClick={exportCsv} disabled={filteredParticipants.length === 0} className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-4 w-4" />Ekspor CSV</button>
+            {canExport && <button type="button" onClick={() => void exportCsv()} disabled={loading || Boolean(busy) || requiresRefresh || filteredTotal === 0} className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-4 w-4" />{busy === "export" ? "Menyiapkan ekspor…" : "Ekspor CSV"}</button>}
           </div>
 
-          {pendingIds.length > 0 && <div className="mt-4 flex flex-col gap-3 border-l-4 border-teal-700 bg-teal-50 p-4 sm:flex-row sm:items-center sm:justify-between"><label className="flex min-h-[44px] cursor-pointer items-center gap-3 text-sm font-bold text-teal-950"><input type="checkbox" disabled={Boolean(busy) || loading || requiresRefresh} checked={pendingIds.every((id) => selectedIds.includes(id))} onChange={(event) => setSelectedIds(event.target.checked ? Array.from(new Set([...selectedIds, ...pendingIds])) : selectedIds.filter((id) => !pendingIds.includes(id)))} className="h-5 w-5 accent-teal-800" />Pilih semua yang menunggu ({pendingIds.length})</label>{selectedIds.length > 0 && <button type="button" onClick={() => void bulkApprove()} disabled={Boolean(busy) || loading || requiresRefresh} className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-teal-800 px-4 text-sm font-bold text-white hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:opacity-50"><ListChecks className="h-4 w-4" />{busy === "bulk" ? "Memproses…" : `Setujui ${selectedIds.length} peserta`}</button>}</div>}
+          {canApprove && (pendingTotal > 0 || selectedIds.length > 0) && <div className="mt-4 flex flex-col gap-3 border-l-4 border-teal-700 bg-teal-50 p-4 sm:flex-row sm:items-center sm:justify-between"><label className="flex min-h-[44px] cursor-pointer items-center gap-3 text-sm font-bold text-teal-950"><input type="checkbox" disabled={Boolean(busy) || loading || requiresRefresh || pendingTotal === 0} checked={allPendingSelected} onChange={(event) => void selectFilteredPending(event.target.checked)} className="h-5 w-5 accent-teal-800" />Pilih semua yang menunggu sesuai filter ({pendingTotal})</label>{selectedIds.length > 0 && <button type="button" onClick={() => void bulkApprove()} disabled={Boolean(busy) || loading || requiresRefresh} className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-teal-800 px-4 text-sm font-bold text-white hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:opacity-50"><ListChecks className="h-4 w-4" />{busy === "bulk" ? "Memproses…" : `Setujui ${selectedIds.length} peserta`}</button>}</div>}
 
           {loading ? <div className="mt-4 space-y-3" aria-label="Memuat peserta">{[1, 2, 3].map((item) => <div key={item} className="h-44 animate-pulse bg-slate-100" />)}</div> : filteredParticipants.length === 0 ? <div className="mt-4 border border-dashed border-slate-300 bg-slate-50 p-10 text-center"><Users className="mx-auto h-8 w-8 text-slate-400" /><h3 className="mt-3 text-lg font-black text-slate-950">Belum ada peserta yang cocok</h3><p className="mx-auto mt-1 max-w-md text-sm leading-6 text-slate-600">Ubah filter atau kata pencarian. Jika event baru dibuat, peserta akan muncul setelah formulir pendaftaran dikirim.</p><button type="button" onClick={resetFilters} className="mt-4 min-h-[44px] whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-100">Tampilkan semua</button></div> : <ul className="mt-4 divide-y divide-slate-200 border-y border-slate-200 bg-white">{filteredParticipants.map((participant) => {
             const contact = participantWithContact(participant);
             const missing = getMissingParticipantContactFields(contact);
-            const canSelect = participant.approvalStatus === "PENDING_REVIEW" && canApproveParticipant(participant);
+            const canSelect = canApprove && participant.approvalStatus === "PENDING_REVIEW" && canApproveParticipant(participant);
+            const commands = availableParticipantCommands({ ...participant, name: participant.ustadzName }, permissions);
             return <li key={participant.id} className={`min-w-0 py-5 ${selectedIds.includes(participant.id) ? "bg-teal-50/70" : ""}`}>
               <div className="grid min-w-0 gap-4 px-4 md:grid-cols-[2rem_minmax(0,1fr)]">
                 <div>{canSelect ? <input type="checkbox" disabled={Boolean(busy) || loading || requiresRefresh} checked={selectedIds.includes(participant.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, participant.id] : current.filter((id) => id !== participant.id))} aria-label={`Pilih ${participant.ustadzName}`} className="mt-1 h-5 w-5 accent-teal-800" /> : <UserRoundCheck className="mt-1 h-5 w-5 text-slate-400" aria-hidden="true" />}</div>
@@ -529,13 +653,20 @@ export const CommitteeParticipantsPage: React.FC = () => {
 
                   <div className="mt-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
                     <div className="flex flex-wrap gap-2">
-                      {participant.approvalStatus === "PENDING_REVIEW" && <><button type="button" onClick={() => setDecisionRequest({ participant, decision: "approve" })} disabled={Boolean(busy) || loading || requiresRefresh} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-teal-800 px-4 text-sm font-bold text-white hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:opacity-50"><Check className="h-4 w-4" />Setujui</button><button type="button" onClick={() => setDecisionRequest({ participant, decision: "waitlist" })} disabled={Boolean(busy) || loading || requiresRefresh} className="min-h-[44px] whitespace-nowrap rounded-lg border border-amber-400 bg-amber-50 px-4 text-sm font-bold text-amber-950 hover:bg-amber-100 disabled:opacity-50">Daftar tunggu</button><button type="button" onClick={() => setDecisionRequest({ participant, decision: "decline" })} disabled={Boolean(busy) || loading || requiresRefresh} className="min-h-[44px] whitespace-nowrap rounded-lg border border-rose-300 bg-white px-4 text-sm font-bold text-rose-800 hover:bg-rose-50 disabled:opacity-50">Tolak</button></>}
-                      {(participant.approvalStatus === "APPROVED" || participant.approvalStatus === "WAITLISTED") && <button type="button" onClick={() => setDecisionRequest({ participant, decision: "cancel" })} disabled={Boolean(busy) || loading || requiresRefresh} className="min-h-[44px] whitespace-nowrap rounded-lg border border-rose-300 bg-white px-4 text-sm font-bold text-rose-800 hover:bg-rose-50 disabled:opacity-50">Batalkan</button>}
+                      {canApprove && canApproveParticipant(participant) && <button type="button" onClick={() => setDecisionRequest({ participant, decision: "approve" })} disabled={Boolean(busy) || loading || requiresRefresh} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-teal-800 px-4 text-sm font-bold text-white hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:opacity-50"><Check className="h-4 w-4" />Setujui</button>}
+                      {participant.approvalStatus === "PENDING_REVIEW" && commands.includes("waitlist") && <button type="button" onClick={() => setDecisionRequest({ participant, decision: "waitlist" })} disabled={Boolean(busy) || loading || requiresRefresh} className="min-h-[44px] whitespace-nowrap rounded-lg border border-amber-400 bg-amber-50 px-4 text-sm font-bold text-amber-950 hover:bg-amber-100 disabled:opacity-50">Daftar tunggu</button>}
+                      {participant.approvalStatus === "PENDING_REVIEW" && commands.includes("decline") && <button type="button" onClick={() => setDecisionRequest({ participant, decision: "decline" })} disabled={Boolean(busy) || loading || requiresRefresh} className="min-h-[44px] whitespace-nowrap rounded-lg border border-rose-300 bg-white px-4 text-sm font-bold text-rose-800 hover:bg-rose-50 disabled:opacity-50">Tolak</button>}
+                      {commands.includes("cancel") && <button type="button" onClick={() => setDecisionRequest({ participant, decision: "cancel" })} disabled={Boolean(busy) || loading || requiresRefresh} className="min-h-[44px] whitespace-nowrap rounded-lg border border-rose-300 bg-white px-4 text-sm font-bold text-rose-800 hover:bg-rose-50 disabled:opacity-50">Batalkan</button>}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 xl:border-0 xl:pt-0">
                       <ParticipantProfileDialog participant={{ id: participant.id, ustadzId: participant.ustadzId, name: participant.ustadzName, participantCode: participant.participantCode, institutionName: participant.institutionName, email: participant.ustadzEmail, phone: participant.ustadzPhone, whatsapp: participant.ustadzWhatsapp, address: participant.ustadzAddress, approvalStatus: participant.approvalStatus, confirmationStatus: participant.confirmationStatus, registrationSource: participant.registrationSource, registeredAt: participant.registeredAt, eventName: participant.eventName || selectedEvent?.name }} />
                       <ParticipantCommunicationPanel disabled={previewMode} participant={contact} senderRole="committee" initialTemplate={participant.registrationSource === "PUBLIC_REGULAR" ? "REGULAR_REGISTRATION" : "EVENT_INVITATION"} event={{ name: participant.eventName || selectedEvent?.name, startDate: participant.eventStartDate || selectedEvent?.startDate, endDate: participant.eventEndDate || selectedEvent?.endDate, venueName: participant.eventVenueName || selectedEvent?.venueName, venueAddress: participant.eventVenueAddress || selectedEvent?.venueAddress }} />
-                      <ParticipantPortalAccessAction eventId={selectedEventId} participant={{ id: participant.id, name: participant.ustadzName, email: participant.ustadzEmail, portalPasswordConfigured: participant.portalPasswordConfigured }} previewMode={previewMode} onCompleted={() => setParticipants((current) => current.map((item) => item.id === participant.id ? { ...item, portalPasswordConfigured: true, portalAccountStatus: "ACTIVE" } : item))} />
+                      {permissions.includes("participants.manage_portal_access") && <ParticipantPortalAccessAction eventId={selectedEventId} participant={{ id: participant.id, name: participant.ustadzName, email: participant.ustadzEmail, portalPasswordConfigured: participant.portalPasswordConfigured }} previewMode={previewMode} onCompleted={() => {
+                        // Keep the row mounted: the one-time credential dialog must not disappear on refresh.
+                        if (activeEvent.current !== selectedEventId || !mounted.current) return;
+                        setParticipants((current) => current.map((item) => item.id === participant.id ? { ...item, portalPasswordConfigured: true, portalAccountStatus: "ACTIVE" } : item));
+                        if (!participant.portalPasswordConfigured) setPageMeta((current) => ({ ...current, summary: { ...current.summary, portalReady: (current.summary.portalReady || 0) + 1 } }));
+                      }} />}
                       <ChevronRight className="hidden h-4 w-4 text-slate-300 xl:block" />
                     </div>
                   </div>
@@ -543,6 +674,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
               </div>
             </li>;
           })}</ul>}
+          {!previewMode && pageMeta.pageCount > 1 && <nav aria-label="Halaman peserta panitia" className="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm"><button type="button" disabled={loading || Boolean(busy) || page <= 1} onClick={() => setPagination({ key: filterKey, page: page - 1 })} className="min-h-11 rounded-lg border px-4 disabled:opacity-50">Sebelumnya</button><span>Halaman {page}/{pageMeta.pageCount}</span><button type="button" disabled={loading || Boolean(busy) || page >= pageMeta.pageCount} onClick={() => setPagination({ key: filterKey, page: page + 1 })} className="min-h-11 rounded-lg border px-4 disabled:opacity-50">Berikutnya</button></nav>}
         </section>
       </div>
 

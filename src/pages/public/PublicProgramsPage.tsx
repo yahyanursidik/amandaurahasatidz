@@ -3,7 +3,8 @@ import { Link, useLocation } from "react-router-dom";
 import { ArrowRight, CalendarDays, ExternalLink, MapPin, QrCode, RefreshCw, Search, Users } from "lucide-react";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { ENV } from "@/config/env";
-import { DEFAULT_EVENT_POSTER } from "@/lib/eventPoster";
+import { DEFAULT_EVENT_POSTER, DEFAULT_EVENT_POSTER_SRCSET } from "@/lib/eventPoster";
+import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
 export type Program = {
   slug: string;
@@ -101,29 +102,67 @@ export const PublicProgramsPage: React.FC = () => {
   const [error, setError] = useState("");
   const [refresh, setRefresh] = useState(0);
   const [query, setQuery] = useState("");
+  const committedQuery = useDebouncedValue(query.trim());
+  const filterKey = `${isCatalog}:${committedQuery}`;
+  const [pagination, setPagination] = useState({ key: filterKey, page: 1, agendaPage: 1 });
+  const page = pagination.key === filterKey ? pagination.page : 1;
+  const agendaPage = pagination.key === filterKey ? pagination.agendaPage : 1;
+  const [meta, setMeta] = useState({ total: 0, pageCount: 1 });
+  const [agenda, setAgenda] = useState<Program[]>([]);
+  const [agendaMeta, setAgendaMeta] = useState({ total: 0, pageCount: 1 });
+  const [agendaLoading, setAgendaLoading] = useState(false);
+  const [agendaError, setAgendaError] = useState("");
+
+  const readPage = async (response: Response) => {
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) throw new Error(response.status >= 500
+      ? "Daftar program sedang tidak tersedia. Coba lagi sebentar atau hubungi panitia."
+      : payload?.error?.message || "Daftar program tidak dapat dimuat.");
+    if (!Array.isArray(payload?.data) || !payload.data.every((program: Program) =>
+      typeof program?.slug === "string" && typeof program?.name === "string" && typeof program?.startDate === "string" && typeof program?.endDate === "string")) {
+      throw new Error("Format daftar program tidak sesuai. Muat ulang halaman.");
+    }
+    return { data: payload.data as Program[], meta: payload.meta as { total: number; pageCount: number } | undefined };
+  };
 
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
     setError("");
-    fetch(`${ENV.API_BASE_URL}/events/public`, { signal: controller.signal })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => null);
-        if (!response.ok) throw new Error(response.status >= 500
-          ? "Daftar program sedang tidak tersedia. Coba lagi sebentar atau hubungi panitia."
-          : payload?.error?.message || "Daftar program tidak dapat dimuat.");
-        if (!Array.isArray(payload?.data) || !payload.data.every((program: Program) =>
-          typeof program?.slug === "string" && typeof program?.name === "string" && typeof program?.startDate === "string" && typeof program?.endDate === "string")) {
-          throw new Error("Format daftar program tidak sesuai. Muat ulang halaman.");
-        }
-        setPrograms(payload.data);
-      })
+    const params = new URLSearchParams({ view: isCatalog ? "history" : "featured", page: String(page), pageSize: isCatalog ? "12" : "3", search: isCatalog ? committedQuery : "" });
+    void Promise.resolve().then(() => {
+      if (controller.signal.aborted) return null;
+      return fetch(`${ENV.API_BASE_URL}/events/public?${params}`, { signal: controller.signal }).then(readPage);
+    }).then((result) => {
+      if (!result || controller.signal.aborted) return;
+      setPrograms(result.data);
+      setMeta(result.meta || { total: result.data.filter((item) => !isCatalog || item.status === "COMPLETED").length, pageCount: 1 });
+    })
       .catch((loadError) => {
-        if (!controller.signal.aborted) setError(loadError instanceof Error ? loadError.message : "Daftar program tidak dapat dimuat.");
+        if (!controller.signal.aborted) { setPrograms([]); setError(loadError instanceof Error ? loadError.message : "Daftar program tidak dapat dimuat."); }
       })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
-  }, [refresh]);
+  }, [refresh, isCatalog, isCatalog ? committedQuery : "", page]);
+
+  useEffect(() => {
+    if (!isCatalog) { setAgenda([]); return; }
+    const controller = new AbortController();
+    setAgendaLoading(true); setAgendaError("");
+    if (agendaPage === 1) setAgenda([]);
+    const params = new URLSearchParams({ view: "agenda", page: String(agendaPage), pageSize: "6", search: committedQuery });
+    void Promise.resolve().then(() => {
+      if (controller.signal.aborted) return null;
+      return fetch(`${ENV.API_BASE_URL}/events/public?${params}`, { signal: controller.signal }).then(readPage);
+    }).then((result) => {
+      if (!result || controller.signal.aborted) return;
+      const items = result.data.filter((item) => item.status !== "COMPLETED");
+      setAgenda((current) => agendaPage === 1 ? items : [...new Map([...current, ...items].map((item) => [item.slug, item])).values()]);
+      setAgendaMeta(result.meta || { total: items.length, pageCount: 1 });
+    }).catch((cause) => { if (!controller.signal.aborted) setAgendaError(cause instanceof Error ? cause.message : "Agenda gagal dimuat."); })
+      .finally(() => { if (!controller.signal.aborted) setAgendaLoading(false); });
+    return () => controller.abort();
+  }, [isCatalog, committedQuery, agendaPage, refresh]);
 
   useEffect(() => {
     if (!location.hash) {
@@ -139,7 +178,7 @@ export const PublicProgramsPage: React.FC = () => {
 
   const ordered = useMemo(() => sortPublicPrograms(programs), [programs]);
   const featured = useMemo(() => ordered.slice(0, 3), [ordered]);
-  const grouped = useMemo(() => groupPublicPrograms(programs, query), [programs, query]);
+  const grouped = useMemo(() => groupPublicPrograms(programs), [programs]);
 
   const renderCards = (items: Program[]) => <div className="public-home__program-grid">{items.map((program) => {
     const action = getPublicProgramAction(program);
@@ -181,7 +220,7 @@ export const PublicProgramsPage: React.FC = () => {
           </div>
           <Link to="/login/ustadz" className="public-home__hero-login">Sudah punya akun? Masuk portal</Link>
         </div>
-        <div className="public-home__hero-image"><img src={DEFAULT_EVENT_POSTER} alt="" width="1600" height="900" loading="eager" /></div>
+        <div className="public-home__hero-image"><img src={DEFAULT_EVENT_POSTER} srcSet={DEFAULT_EVENT_POSTER_SRCSET} sizes="(max-width: 800px) 100vw, 60vw" alt="" width="1600" height="900" loading="eager" {...{ fetchpriority: "high" }} decoding="async" /></div>
       </header>
 
       <section id="tentang-yts" className="public-home__about" aria-labelledby="about-yts-title">
@@ -203,9 +242,9 @@ export const PublicProgramsPage: React.FC = () => {
       <section id="program-terbaru" aria-labelledby="program-list-title" className="public-home__programs">
         <div className="public-home__section-head">
           <div><h2 id="program-list-title">{isCatalog ? "Telah dilaksanakan" : "Kegiatan daurah"}</h2><p>{isCatalog ? "Riwayat kegiatan yang telah ditandai selesai oleh panitia, terbaru lebih dahulu." : "Informasi daurah terbaru dari yayasan."}</p></div>
-          {isCatalog ? !loading && !error && <span className="public-home__result-count" aria-live="polite">{grouped.history.length} kegiatan selesai</span> : <Link to="/programs" className="public-home__text-link">Lihat riwayat <ArrowRight aria-hidden="true" /></Link>}
+          {isCatalog ? !loading && !error && <span className="public-home__result-count" aria-live="polite">{meta.total} kegiatan selesai</span> : <Link to="/programs" className="public-home__text-link">Lihat riwayat <ArrowRight aria-hidden="true" /></Link>}
         </div>
-        {isCatalog && !loading && !error && programs.length > 0 && <div className="public-home__tools">
+        {isCatalog && <div className="public-home__tools">
           <label className="public-home__search" htmlFor="program-search"><span>Cari kegiatan</span><span className="public-home__search-field"><Search aria-hidden="true" /><input id="program-search" type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Nama, lokasi, atau tahun" /></span></label>
         </div>}
         {loading ? <div role="status" className="public-home__loading"><span className="sr-only">Memuat daftar program…</span><div /><div /></div>
@@ -216,9 +255,15 @@ export const PublicProgramsPage: React.FC = () => {
                 : <div className="public-home__empty"><CalendarDays aria-hidden="true" /><strong>Belum ada kegiatan yang diterbitkan.</strong><p>Informasi daurah akan tampil di sini setelah diterbitkan panitia.</p></div>}
       </section>
 
-      {isCatalog && !loading && !error && grouped.agenda.length > 0 && <section id="agenda-daurah" className="public-home__programs public-home__agenda" aria-labelledby="agenda-title">
-        <div className="public-home__section-head"><div><h2 id="agenda-title">Agenda dan pendaftaran</h2><p>Kegiatan lain yang diterbitkan panitia. Formulir hanya tersedia bila pendaftaran dibuka.</p></div><span className="public-home__result-count">{grouped.agenda.length} kegiatan</span></div>
-        {renderCards(grouped.agenda)}
+      {isCatalog && !error && meta.pageCount > 1 && <nav aria-label="Halaman riwayat daurah" className="flex flex-wrap items-center justify-between gap-3 py-4 text-sm"><button type="button" disabled={loading || page <= 1} onClick={() => setPagination({ key: filterKey, page: page - 1, agendaPage })} className="min-h-11 rounded-lg border px-4 disabled:opacity-50">Sebelumnya</button><span>Halaman {page}/{meta.pageCount}</span><button type="button" disabled={loading || page >= meta.pageCount} onClick={() => setPagination({ key: filterKey, page: page + 1, agendaPage })} className="min-h-11 rounded-lg border px-4 disabled:opacity-50">Berikutnya</button></nav>}
+
+      {isCatalog && (agenda.length > 0 || agendaLoading || agendaError) && <section id="agenda-daurah" className="public-home__programs public-home__agenda" aria-labelledby="agenda-title">
+        <div className="public-home__section-head"><div><h2 id="agenda-title">Agenda dan pendaftaran</h2><p>Kegiatan lain yang diterbitkan panitia. Formulir hanya tersedia bila pendaftaran dibuka.</p></div><span className="public-home__result-count">{agendaMeta.total} kegiatan</span></div>
+        {renderCards(agenda)}
+        {agendaLoading && <p role="status">Memuat agenda…</p>}
+        {agendaError && <p role="alert">{agendaError}</p>}
+        {agendaPage < agendaMeta.pageCount && <button type="button" disabled={agendaLoading} onClick={() => setPagination({ key: filterKey, page, agendaPage: agendaPage + 1 })} className="mt-4 min-h-11 rounded-lg border px-4 disabled:opacity-50">Lihat agenda berikutnya</button>}
+        {agendaError && <button type="button" onClick={() => setRefresh((value) => value + 1)} className="min-h-11 rounded-lg border px-4">Muat ulang agenda</button>}
       </section>}
 
       {!isCatalog && <section className="public-home__journey" aria-labelledby="journey-title">

@@ -12,7 +12,7 @@ vi.mock("../../netlify/functions/lib/repositories/invitationRepository", () => (
   rotateInvitationLinkRepository: mocks.rotate, saveInstitutionDelegationRepository: mocks.save,
   markInvitationOpenedRepository: mocks.opened,
 }));
-vi.mock("../../netlify/functions/lib/repositories/eventRepository", () => ({ findEventByIdRepository: mocks.event }));
+vi.mock("../../netlify/functions/lib/repositories/eventRepository", () => ({ findEventByIdRepository: mocks.event, findRegistrationEventRepository: mocks.event }));
 vi.mock("../../netlify/functions/lib/repositories/institutionRepository", () => ({
   findInstitutionByIdRepository: mocks.institution, findInvitationInstitutionOptionsRepository: mocks.options,
 }));

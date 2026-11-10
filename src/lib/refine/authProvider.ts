@@ -1,5 +1,6 @@
 import { AuthProvider } from "@refinedev/core";
 import { ENV } from "@/config/env";
+import { invalidateAuthRequests, readAuthResource } from "./authRequestCache";
 
 const destinationForPortal = (portal: string) =>
   portal === "committee" ? "/committee" : portal === "ustadz" ? "/portal" : "/admin";
@@ -8,7 +9,7 @@ export interface AuthIdentity {
   id?: string;
   name: string;
   email: string;
-  assignments: Array<{ roleCode: string; eventId?: string | null; institutionId?: string | null }>;
+  assignments: Array<{ roleCode: string; eventId?: string | null; institutionId?: string | null; startsAt?: string | null; endsAt?: string | null }>;
 }
 
 export async function verifyPersistedSession(
@@ -25,6 +26,7 @@ export async function verifyPersistedSession(
 
 export const authProvider: AuthProvider = {
   login: async ({ email, password, portal }) => {
+    invalidateAuthRequests();
     try {
       const response = await fetch(`${ENV.API_BASE_URL}/auth/password/login`, {
         method: "POST",
@@ -71,6 +73,7 @@ export const authProvider: AuthProvider = {
   },
 
   logout: async () => {
+    invalidateAuthRequests();
     localStorage.removeItem("yts_auth_token");
     localStorage.removeItem("yts_dev_session");
     try {
@@ -80,6 +83,8 @@ export const authProvider: AuthProvider = {
       });
     } catch (_err) {
       // Ignore network failure on logout
+    } finally {
+      invalidateAuthRequests();
     }
     return {
       success: true,
@@ -89,13 +94,8 @@ export const authProvider: AuthProvider = {
 
   check: async () => {
     try {
-      const response = await fetch(`${ENV.API_BASE_URL}/auth/session`, {
-        method: "GET",
-        credentials: "include",
-      });
-      if (response.ok) {
-        return { authenticated: true };
-      }
+      await readAuthResource("/auth/session");
+      return { authenticated: true };
     } catch (_err) {
       // Fail check on network error
     }
@@ -107,6 +107,7 @@ export const authProvider: AuthProvider = {
 
   onError: async (error) => {
     if (error?.status === 401) {
+      invalidateAuthRequests();
       return { logout: true, redirectTo: "/login" };
     }
     return { error };
@@ -114,19 +115,13 @@ export const authProvider: AuthProvider = {
 
   getIdentity: async () => {
     try {
-      const response = await fetch(`${ENV.API_BASE_URL}/auth/session`, {
-        method: "GET",
-        credentials: "include",
-      });
-      if (response.ok) {
-        const res = await response.json();
+        const data = await readAuthResource<{ userId: string; name?: string; email: string; assignments: AuthIdentity["assignments"] }>("/auth/session");
         return {
-          id: res.data?.userId,
-          name: res.data?.name || "Pengguna Daurah",
-          email: res.data?.email || "",
-          assignments: res.data?.assignments || [],
+          id: data.userId,
+          name: data.name || "Pengguna Daurah",
+          email: data.email || "",
+          assignments: data.assignments || [],
         } satisfies AuthIdentity;
-      }
     } catch (_err) {
       // Fallback identity
     }
@@ -135,14 +130,8 @@ export const authProvider: AuthProvider = {
 
   getPermissions: async () => {
     try {
-      const response = await fetch(`${ENV.API_BASE_URL}/me/permissions`, {
-        method: "GET",
-        credentials: "include",
-      });
-      if (response.ok) {
-        const res = await response.json();
-        return res.data?.assignments || [];
-      }
+      const data = await readAuthResource<{ assignments: AuthIdentity["assignments"] }>("/me/permissions");
+      return data.assignments || [];
     } catch (_err) {
       return [];
     }

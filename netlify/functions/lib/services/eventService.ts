@@ -1,9 +1,12 @@
 import {
   findEventsRepository,
+  findEventOptionsRepository,
   findEventCatalogRepository,
   findPublicEventsRepository,
   findEventByIdRepository,
   findEventBySlugRepository,
+  findPublicProgramPageRepository,
+  findRegistrationEventRepository,
   createEventRepository,
   updateEventRepository,
   updateEventStatusRepository,
@@ -21,6 +24,7 @@ import { getDbClient } from "../db/client";
 import { eventDays, eventSessions, events } from "../db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { normalizePhone } from "../utils/normalization";
+import type { PublicProgramQuery } from "../validations/eventValidation";
 
 export async function getEventsService(search?: string, status?: string) {
   return await findEventsRepository(search, status);
@@ -104,8 +108,18 @@ export async function getPublicGateEventService(slug: string) {
   return { id: event.id, slug: event.slug, code: event.code, name: event.name };
 }
 
-export async function getPublicEventsService() {
-  return findPublicEventsRepository();
+export async function getPublicEventsService(query: PublicProgramQuery) {
+  return findPublicProgramPageRepository(query);
+}
+
+export async function getEventOptionsService() {
+  return findEventOptionsRepository();
+}
+
+export async function getRegistrationEventService(id: string) {
+  const event = await findRegistrationEventRepository(id);
+  if (!event) throw new NotFoundError("Event tidak ditemukan.");
+  return event;
 }
 
 export async function createEventService(data: any, actorUserId: string, requestId: string) {

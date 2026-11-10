@@ -15,17 +15,20 @@ type Props = {
   pageParticipants: Candidate[];
   selectedIds: string[];
   onSelectionChange: (ids: string[]) => void;
-  onBusyChange: (busy: boolean) => void;
+  onBusyChange: (busy: boolean, mutation?: boolean) => void;
   onCompleted: () => Promise<boolean>;
   disabled?: boolean;
   demoMode?: boolean;
   requiresRefresh?: boolean;
   onRefreshRequiredChange?: (required: boolean) => void;
+  loadScope?: (scope: "filter" | "pending") => Promise<Candidate[]>;
+  scopeCounts?: { filtered: number; pending: number };
+  scopeKey?: string;
 };
 
 export function BulkParticipantApprovalPanel({ eventId, eventName, participants, filteredParticipants,
   pageParticipants, selectedIds, onSelectionChange, onBusyChange, onCompleted, disabled = false, demoMode = false,
-  requiresRefresh = false, onRefreshRequiredChange }: Props) {
+  requiresRefresh = false, onRefreshRequiredChange, loadScope, scopeCounts, scopeKey }: Props) {
   const id = useId();
   const dialogRef = useRef<HTMLDialogElement>(null);
   const pageCheckbox = useRef<HTMLInputElement>(null);
@@ -40,17 +43,28 @@ export function BulkParticipantApprovalPanel({ eventId, eventName, participants,
   const [refreshWarning, setRefreshWarning] = useState("");
   const [refreshBusy, setRefreshBusy] = useState(false);
   const [error, setError] = useState("");
-  const eligibleIds = eligibleApprovalIds(participants);
+  const [scopeCandidates, setScopeCandidates] = useState<Candidate[]>([]);
+  const [scopeBusy, setScopeBusy] = useState(false);
+  const [loadedFilter, setLoadedFilter] = useState<{ key?: string; candidates: Candidate[] } | null>(null);
+  const allCandidates = [...new Map([...scopeCandidates, ...participants].map((person) => [person.id, person])).values()];
+  const eligibleIds = eligibleApprovalIds(allCandidates);
   const pageIds = eligibleApprovalIds(pageParticipants);
-  const filterIds = eligibleApprovalIds(filteredParticipants);
-  const pendingIds = eligibleApprovalIds(participants, true);
+  const filterIds = eligibleApprovalIds(loadScope && loadedFilter && loadedFilter.key === scopeKey
+    ? loadedFilter.candidates.map((person) => allCandidates.find((current) => current.id === person.id) || person) : filteredParticipants);
+  const pendingIds = eligibleApprovalIds(allCandidates, true);
+  const filterTotal = scopeCounts?.filtered ?? filterIds.length;
+  const pendingTotal = scopeCounts?.pending ?? pendingIds.length;
   const chosen = selectedIds.filter((pid) => eligibleIds.includes(pid));
-  const locked = disabled || busy || refreshBusy || requiresRefresh || Boolean(refreshWarning);
+  const locked = disabled || busy || scopeBusy || refreshBusy || requiresRefresh || Boolean(refreshWarning);
   const pageSelected = pageIds.filter((pid) => chosen.includes(pid)).length;
   const filterSelected = filterIds.filter((pid) => chosen.includes(pid)).length;
   const hiddenCount = chosen.filter((pid) => !filteredParticipants.some((item) => item.id === pid)).length;
 
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    // The parent may recover automatically by re-reading a lower valid page.
+    if (onRefreshRequiredChange && !requiresRefresh && !busy && !disabled) setRefreshWarning("");
+  }, [requiresRefresh, busy, disabled, Boolean(onRefreshRequiredChange)]);
   useEffect(() => {
     if (pageCheckbox.current) pageCheckbox.current.indeterminate = pageSelected > 0 && pageSelected < pageIds.length;
     if (filterCheckbox.current) filterCheckbox.current.indeterminate = filterSelected > 0 && filterSelected < filterIds.length;
@@ -64,6 +78,30 @@ export function BulkParticipantApprovalPanel({ eventId, eventName, participants,
     dialogRef.current?.showModal();
   };
 
+  const prepareScope = async (scope: "filter" | "pending", checked = true) => {
+    if (!loadScope || locked || busyRef.current) return;
+    busyRef.current = true; setScopeBusy(true); setError(""); onBusyChange(true, false);
+    try {
+      const candidates = await loadScope(scope);
+      if (!mounted.current) return;
+      setScopeCandidates((current) => [...new Map([...current, ...candidates].map((person) => [person.id, person])).values()]);
+      const ids = eligibleApprovalIds(candidates, scope === "pending");
+      if (scope === "filter") {
+        setLoadedFilter({ key: scopeKey, candidates });
+        onSelectionChange(toggleApprovalSelection(chosen, ids, checked));
+      } else if (ids.length) {
+        setConfirmationIds(ids); setScope("Semua peserta menunggu tinjauan di event ini, termasuk di luar filter dan halaman saat ini");
+        dialogRef.current?.showModal();
+      }
+    } catch (cause) {
+      if (mounted.current) setError(cause instanceof Error ? cause.message : "Daftar pilihan gagal dimuat. Coba kembali.");
+    } finally {
+      busyRef.current = false;
+      onBusyChange(false);
+      if (mounted.current) setScopeBusy(false);
+    }
+  };
+
   const submit = async () => {
     if (busyRef.current || locked || demoMode || confirmationIds.length === 0) return;
     const validIds = confirmationIds.filter((pid) => eligibleIds.includes(pid));
@@ -73,7 +111,7 @@ export function BulkParticipantApprovalPanel({ eventId, eventName, participants,
     }
     busyRef.current = true;
     setBusy(true);
-    onBusyChange(true);
+    onBusyChange(true, true);
     setResults(null);
     setRefreshWarning("");
     setProgress({ processed: 0, total: validIds.length });
@@ -87,6 +125,8 @@ export function BulkParticipantApprovalPanel({ eventId, eventName, participants,
       if (mounted.current) {
         setResults(outcome);
         onSelectionChange(selectionAfterBulkApproval(selectedIds, validIds, outcome));
+        const approved = new Set(outcome.filter((item) => item.status === "SUCCESS").map((item) => item.participantId));
+        setScopeCandidates((current) => current.map((person) => approved.has(person.id) ? { ...person, approvalStatus: "APPROVED" } : person));
       }
       // Preserve the outcome even when reloading fails. Never present partial success as all-success.
       try {
@@ -138,25 +178,27 @@ export function BulkParticipantApprovalPanel({ eventId, eventName, participants,
       <div><h2 className="flex items-center gap-2 text-sm font-black text-emerald-950"><ListChecks className="h-5 w-5" />Persetujuan massal peserta</h2>
         <p className="mt-1 text-xs leading-5 text-emerald-950">Pilih peserta menunggu tinjauan atau daftar tunggu yang masih aktif. Kapasitas dan kuota tetap diperiksa. Presensi tidak berubah.</p>
       </div>
-      <button type="button" disabled={locked || pendingIds.length === 0} onClick={() => confirm(pendingIds, "Semua peserta menunggu tinjauan di event ini, termasuk di luar filter dan halaman saat ini")}
-        className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-800 px-3 text-sm font-bold text-white disabled:opacity-50"><Check className="h-4 w-4" />Setujui semua menunggu ({pendingIds.length})</button>
+      <button type="button" disabled={locked || pendingTotal === 0} onClick={() => loadScope ? void prepareScope("pending") : confirm(pendingIds, "Semua peserta menunggu tinjauan di event ini, termasuk di luar filter dan halaman saat ini")}
+        className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-800 px-3 text-sm font-bold text-white disabled:opacity-50"><Check className="h-4 w-4" />Setujui semua menunggu ({pendingTotal})</button>
     </div>
     <div className="mt-3 flex flex-wrap items-center gap-x-5 gap-y-2">
       <label className="flex min-h-11 items-center gap-2 text-sm font-bold"><input ref={pageCheckbox} type="checkbox" checked={pageIds.length > 0 && pageSelected === pageIds.length} disabled={locked || pageIds.length === 0}
         onChange={(event) => onSelectionChange(toggleApprovalSelection(chosen, pageIds, event.target.checked))} className="h-4 w-4 accent-emerald-800" />Pilih semua di halaman ({pageIds.length})</label>
-      <label className="flex min-h-11 items-center gap-2 text-sm font-bold"><input ref={filterCheckbox} type="checkbox" checked={filterIds.length > 0 && filterSelected === filterIds.length} disabled={locked || filterIds.length === 0}
-        onChange={(event) => onSelectionChange(toggleApprovalSelection(chosen, filterIds, event.target.checked))} className="h-4 w-4 accent-emerald-800" />Pilih semua hasil filter ({filterIds.length})</label>
-      <span className="text-sm font-bold">{chosen.length} peserta dipilih{hiddenCount > 0 ? ` (${hiddenCount} di luar filter)` : ""}</span>
+      <label className="flex min-h-11 items-center gap-2 text-sm font-bold"><input ref={filterCheckbox} type="checkbox" checked={filterTotal > 0 && filterIds.length === filterTotal && filterSelected === filterTotal} disabled={locked || filterTotal === 0}
+        onChange={(event) => loadScope ? void prepareScope("filter", event.target.checked) : onSelectionChange(toggleApprovalSelection(chosen, filterIds, event.target.checked))} className="h-4 w-4 accent-emerald-800" />Pilih semua hasil filter ({filterTotal})</label>
+      <span className="text-sm font-bold">{chosen.length} peserta dipilih{hiddenCount > 0 ? ` (${hiddenCount} di luar ${loadScope ? "halaman ini" : "filter"})` : ""}</span>
       <button type="button" disabled={locked || chosen.length === 0} onClick={() => onSelectionChange([])} className="min-h-11 rounded-lg border border-emerald-300 bg-white px-3 text-sm font-bold disabled:opacity-50">Batalkan pilihan</button>
       <button type="button" disabled={locked || chosen.length === 0} onClick={() => confirm(chosen, "Peserta yang dipilih, termasuk pilihan di halaman/filter lain")}
         className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-800 px-3 text-sm font-bold text-white disabled:opacity-50"><Check className="h-4 w-4" />Setujui terpilih ({chosen.length})</button>
     </div>
     {demoMode && <p className="mt-2 text-xs">Mode pratinjau: penyimpanan persetujuan massal dinonaktifkan.</p>}
+    {scopeBusy && <p role="status" className="mt-2 text-sm">Memuat pilihan peserta dari seluruh halaman…</p>}
+    {error && !dialogRef.current?.open && <p role="alert" className="mt-2 text-sm text-rose-900">{error}</p>}
     {busy && <div role="status" className="mt-3"><p className="flex items-center gap-2 text-sm font-bold"><Loader2 className="h-4 w-4 animate-spin" />Memproses {progress.processed} / {progress.total} peserta…</p><progress aria-label="Progres persetujuan massal" value={progress.processed} max={progress.total || 1} className="mt-2 w-full" /></div>}
     {results && <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
       <p role="status" className="text-sm font-bold">Hasil persetujuan: {successCount} berhasil, {results.filter((item) => item.status === "FAILED").length} gagal, {results.filter((item) => item.status === "UNKNOWN").length} belum pasti, {results.filter((item) => item.status === "NOT_PROCESSED").length} belum diproses.</p>
       {failed.length > 0 && <details className="mt-2 text-sm" open><summary className="cursor-pointer font-bold">Rincian peserta yang perlu diperiksa ({failed.length})</summary><ul className="mt-2 max-h-64 space-y-2 overflow-y-auto">{failed.map((item) => {
-        const participant = participants.find((person) => person.id === item.participantId);
+        const participant = allCandidates.find((person) => person.id === item.participantId);
         return <li key={item.participantId} className="rounded border border-amber-200 bg-amber-50 p-2"><span className="font-bold">{participant?.ustadzName || item.participantId} · {participant?.participantCode || ""}</span><p className="mt-1 text-xs">{item.message}</p></li>;
       })}</ul></details>}
     </div>}
@@ -167,7 +209,7 @@ export function BulkParticipantApprovalPanel({ eventId, eventName, participants,
       <header className="flex items-start justify-between gap-3"><h2 id={`${id}-title`} className="text-lg font-black">Setujui {confirmationIds.length} peserta?</h2><button type="button" disabled={busy} onClick={() => dialogRef.current?.close()} aria-label="Tutup konfirmasi persetujuan" className="grid min-h-11 min-w-11 place-items-center rounded border border-slate-300 disabled:opacity-50"><X className="h-4 w-4" /></button></header>
       <div id={`${id}-description`} className="mt-3 space-y-2 text-sm leading-6"><p className="font-bold">{eventName || "Event yang dipilih"}</p><p>{scope}.</p><p>Status peserta akan menjadi APPROVED jika lolos kapasitas dan kuota. Konfirmasi kehadiran dan presensi tidak diubah. Sebagian peserta dapat gagal dan hasilnya akan ditampilkan.</p></div>
       <ul className="mt-3 max-h-48 overflow-y-auto rounded-lg border border-slate-200 p-3 text-sm">{confirmationIds.map((pid) => {
-        const participant = participants.find((person) => person.id === pid);
+        const participant = allCandidates.find((person) => person.id === pid);
         return <li key={pid} className="py-1">{participant?.ustadzName || pid} · {participant?.participantCode}</li>;
       })}</ul>
       {demoMode && <p role="status" className="mt-3 text-sm">Pratinjau saja. Tidak ada perubahan database.</p>}

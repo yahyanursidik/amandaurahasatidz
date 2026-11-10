@@ -37,6 +37,8 @@ export const eventParticipants = pgTable(
     index("idx_participants_approval").on(table.eventId, table.approvalStatus),
     index("idx_participants_inst").on(table.eventId, table.institutionId),
     index("idx_participants_public_group").on(table.eventId, table.publicGroupId),
+    index("idx_participants_ustadz").on(table.ustadzId),
+    index("idx_participants_event_created").on(table.eventId, table.createdAt.desc(), table.id.desc()),
   ]
 );
 
@@ -52,5 +54,6 @@ export const participantStatusHistories = pgTable(
     reason: text("reason"),
     changedBy: uuid("changed_by").references(() => users.id),
     changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
-  }
+  },
+  (table) => [index("idx_participant_history_latest").on(table.participantId, table.statusType, table.toStatus, table.changedAt.desc(), table.id.desc())]
 );

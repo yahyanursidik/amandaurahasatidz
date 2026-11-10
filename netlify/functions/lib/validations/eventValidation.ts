@@ -1,6 +1,14 @@
 import { z } from "zod";
 import { normalizePhone } from "../utils/normalization";
 
+export const publicProgramQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(100000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(50).default(12),
+  search: z.string().trim().max(100).default(""),
+  view: z.enum(["all", "featured", "history", "agenda"]).default("all"),
+});
+export type PublicProgramQuery = z.infer<typeof publicProgramQuerySchema>;
+
 export const eventCatalogQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(100000).default(1),
   pageSize: z.coerce.number().int().min(1).max(50).default(20),

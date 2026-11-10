@@ -19,6 +19,8 @@
     "test:communications:browser": "node scripts/check-event-communications-browser.mjs",
     "test:event-registration:browser": "node scripts/check-public-event-registration-browser.mjs",
     "test:institution-invitations:browser": "node scripts/check-institution-invitations-browser.mjs",
+    "test:performance:browser": "node scripts/check-performance-browser.mjs",
+    "test:performance:reads": "node scripts/check-performance-reads.mjs",
     "test:kiosk:browser": "node scripts/check-kiosk-browser.mjs",
     "preview": "vite preview",
     "db:generate": "drizzle-kit generate",
@@ -32,6 +34,7 @@
     "db:migrate:ustadz-notes": "node scripts/apply-ustadz-notes-migration.mjs",
     "db:migrate:public-contact": "node scripts/apply-public-contact-migration.mjs",
     "db:migrate:event-kiosk": "node scripts/apply-event-kiosk-migration.mjs",
+    "db:migrate:performance": "node scripts/apply-performance-indexes.mjs",
     "db:seed": "node scripts/run-seed.mjs"
   },
   "dependencies": {

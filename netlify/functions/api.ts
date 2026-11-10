@@ -75,6 +75,7 @@ import {
 import {
   createEventSchema,
   eventCatalogQuerySchema,
+  publicProgramQuerySchema,
   updateEventSchema,
   transitionEventSchema,
   createEventDaySchema,
@@ -86,10 +87,12 @@ import {
 } from "./lib/validations/eventValidation";
 import {
   getEventsService,
+  getEventOptionsService,
   getEventCatalogService,
   removeEventFromCatalogService,
   getPublicEventsService,
   getEventByIdService,
+  getRegistrationEventService,
   getEventBySlugPublicService,
   getPublicGateEventService,
   createEventService,
@@ -100,6 +103,7 @@ import {
   addEventSessionService,
   updateEventSessionService,
 } from "./lib/services/eventService";
+import { getPublicEventPosterService } from "./lib/services/eventPosterService";
 import {
   createCommitteeMemberSchema,
   queryCommitteeSchema,
@@ -135,6 +139,7 @@ import {
   revokeInvitationService,
   regenerateInvitationLinkService,
   getPublicInstitutionInvitationService,
+  getPublicInvitationPolicyService,
   getPublicIndividualInvitationService,
   submitInstitutionResponseService,
   submitIndividualResponseService,
@@ -148,6 +153,7 @@ import {
   updateParticipantStatusSchema,
   replaceParticipantSchema,
   replacementCandidateQuerySchema,
+  participantPageQuerySchema,
   approveParticipantSchema,
   waitlistParticipantSchema,
   declineParticipantSchema,
@@ -166,6 +172,7 @@ import {
 } from "./lib/services/accountPasswordService";
 import {
   getParticipantsService,
+  getParticipantPageService,
   searchExistingUstadzProfilesService,
   updateParticipantStatusService,
   replaceParticipantService,
@@ -293,7 +300,13 @@ export const handler: Handler = async (event, _context) => {
 
     // 3. Public Event Landing Page Endpoint
     if (path === "/events/public" && method === "GET") {
-      return buildSuccessResponse(await getPublicEventsService(), requestId);
+      const query = validateRequestData(publicProgramQuerySchema, event.queryStringParameters || {});
+      const result = await getPublicEventsService(query);
+      return buildSuccessResponse(result.data, requestId, result.meta);
+    }
+    const publicPosterMatch = path.match(/^\/events\/public\/([a-z0-9-]+)\/poster$/i);
+    if (publicPosterMatch && method === "GET") {
+      return await getPublicEventPosterService(publicPosterMatch[1], event.headers["if-none-match"], event.queryStringParameters?.v);
     }
     const pubEventMatch = path.match(/^\/events\/public\/([a-z0-9-]+)$/i);
     if (pubEventMatch && method === "GET") {
@@ -307,7 +320,8 @@ export const handler: Handler = async (event, _context) => {
     if (pubIndivMatch && method === "GET") {
       const rawToken = pubIndivMatch[1];
       const invData = await getPublicIndividualInvitationService(rawToken, requestId);
-      return buildSuccessResponse(invData, requestId);
+      const response = buildSuccessResponse(invData, requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
     }
 
     const pubIndivRespMatch = path.match(/^\/invitations\/public\/individual\/([a-z0-9_]+)\/response$/i);
@@ -333,7 +347,17 @@ export const handler: Handler = async (event, _context) => {
       }
 
       const invData = await getPublicInstitutionInvitationService(rawToken, requestId);
-      return buildSuccessResponse(invData, requestId);
+      const response = buildSuccessResponse(invData, requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
+    }
+
+    const invitationPolicyMatch = path.match(/^\/invitations\/public\/(institution|individual)\/([a-z0-9_]+)\/policy$/i);
+    if (invitationPolicyMatch && method === "GET") {
+      const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
+      const limit = checkRateLimit(`invitation_policy_${clientIp}_${invitationPolicyMatch[2].slice(-12)}`, 30, 60000);
+      if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak pemeriksaan undangan. Coba kembali sebentar.", requestId, 429);
+      const response = buildSuccessResponse(await getPublicInvitationPolicyService(invitationPolicyMatch[2], invitationPolicyMatch[1].toLowerCase() as "institution" | "individual"), requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
     }
 
     const pubInvOtpRequestMatch = path.match(
@@ -666,6 +690,10 @@ export const handler: Handler = async (event, _context) => {
     }
 
     // Event workspace CRUD and command endpoints
+    if (path === "/events/options" && method === "GET") {
+      requirePermission(userSession, "events.read");
+      return buildSuccessResponse(await getEventOptionsService(), requestId);
+    }
     if (path === "/events/catalog" && method === "GET") {
       requirePermission(userSession, "events.read");
       const input = validateRequestData(eventCatalogQuerySchema, event.queryStringParameters || {});
@@ -851,12 +879,23 @@ export const handler: Handler = async (event, _context) => {
       return buildSuccessResponse(await endCommitteeAssignmentService(eventCommitteeAssignmentMatch[2], eventId, session.userId, requestId), requestId);
     }
 
+    const registrationSettingsMatch = path.match(/^\/events\/([a-f0-9-]+)\/registration-settings$/i);
+    if (registrationSettingsMatch && method === "GET") {
+      requirePermission(userSession, "events.read", registrationSettingsMatch[1]);
+      return buildSuccessResponse(await getRegistrationEventService(registrationSettingsMatch[1]), requestId);
+    }
+
     // 6. Participants Management Endpoints
     const partListMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants$/i);
     if (partListMatch && method === "GET") {
       const eventId = partListMatch[1];
       requirePermission(userSession ? { ...userSession, assignments: userSession.assignments.filter((assignment) =>
         !["USTADZ", "INSTITUTION_REPRESENTATIVE"].includes(assignment.roleCode)) } : null, "participants.read", eventId);
+      if (Object.keys(event.queryStringParameters || {}).length) {
+        const query = validateRequestData(participantPageQuerySchema, event.queryStringParameters || {});
+        const result = await getParticipantPageService(eventId, query);
+        return buildSuccessResponse(result.data, requestId, result.meta);
+      }
       const data = await getParticipantsService(eventId);
       return buildSuccessResponse(data, requestId);
     }

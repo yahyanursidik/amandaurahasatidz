@@ -3,6 +3,7 @@ import {
   findInvitationByIdRepository,
   findInvitationByEventAndNumberRepository,
   findInvitationByTokenHashRepository,
+  findInvitationPolicyByTokenHashRepository,
   createInvitationRepository,
   updateInvitationStatusRepository,
   saveInvitationResponseRepository,
@@ -16,7 +17,7 @@ import { generateSecureToken, hashToken } from "../utils/token";
 import { NotFoundError, ValidationError, ForbiddenError, ConflictError } from "../utils/errors";
 import { verifyCaptcha } from "../utils/captcha";
 import { createAuditLog } from "./auditService";
-import { findEventByIdRepository } from "../repositories/eventRepository";
+import { findEventByIdRepository, findRegistrationEventRepository } from "../repositories/eventRepository";
 import { findInstitutionByIdRepository, findInvitationInstitutionOptionsRepository } from "../repositories/institutionRepository";
 import { enqueueEmailJob } from "./emailQueueService";
 import {
@@ -72,7 +73,7 @@ async function scopedInvitation(eventId: string, id: string) {
 }
 
 export async function getInvitationInstitutionsService(eventId: string, page: number, pageSize: number) {
-  if (!await findEventByIdRepository(eventId)) throw new NotFoundError("Event tidak ditemukan.");
+  if (!await findRegistrationEventRepository(eventId)) throw new NotFoundError("Event tidak ditemukan.");
   return findInvitationInstitutionOptionsRepository(page, pageSize);
 }
 
@@ -383,6 +384,16 @@ export async function getPublicInstitutionInvitationService(rawToken: string, re
         }
       : null,
   };
+}
+
+export async function getPublicInvitationPolicyService(rawToken: string, type: "institution" | "individual") {
+  const result = await findInvitationPolicyByTokenHashRepository(hashToken(rawToken));
+  if (!result || result.invitation.invitationType !== type.toUpperCase()) throw new NotFoundError("Undangan tidak ditemukan.");
+  assertInvitationResponseOpen(result);
+  return { invitationNumber: result.invitation.invitationNumber, quota: invitationParticipantLimit(result.invitation),
+    allowGroup: invitationAllowsGroup(result.invitation), status: result.invitation.status,
+    responseDeadline: result.invitation.responseDeadline || result.event.invitationResponseDeadline,
+    updatedAt: result.invitation.updatedAt };
 }
 
 export async function verifyInstitutionInvitationAccessCodeService(

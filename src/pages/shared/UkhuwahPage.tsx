@@ -12,7 +12,7 @@ import { button, card, field, Label, Notice, primary, ResourceState, TextBody, u
 import { UKHUWAH_REGIONS, UKHUWAH_SUMEDANG_DISTRICTS, canManageUkhuwah, categoryLabels, locationTypeLabels, publicationLabels, regionLabel, ukhuwahPhoneUrl, workStatusLabels, type UkhuwahLocation, type UkhuwahPageResult, type UkhuwahReport } from "@/lib/ukhuwah";
 import type { AuthIdentity } from "@/lib/refine/authProvider";
 
-type Assignment = AuthIdentity["assignments"][number] & { isActive?: boolean; status?: string; startsAt?: string; endsAt?: string };
+type Assignment = AuthIdentity["assignments"][number] & { isActive?: boolean; status?: string };
 export function canAccessUkhuwah(assignments: Assignment[], admin: boolean, now = new Date()) {
   const active = assignments.filter(a => a.isActive !== false && (!a.status || a.status === "ACTIVE") && (!a.startsAt || new Date(a.startsAt) <= now) && (!a.endsAt || new Date(a.endsAt) >= now));
   return admin ? canManageUkhuwah(active, now) : active.some(a => a.roleCode === "USTADZ");

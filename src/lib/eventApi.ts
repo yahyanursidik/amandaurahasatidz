@@ -1,6 +1,6 @@
 import { ENV } from "@/config/env";
 
-export async function eventApi<T>(path: string, options?: RequestInit): Promise<T> {
+export async function eventApiEnvelope<T, TMeta = unknown>(path: string, options?: RequestInit): Promise<{ data: T; meta?: TMeta }> {
   const response = await fetch(`${ENV.API_BASE_URL}${path}`, {
     ...options,
     credentials: "include",
@@ -19,5 +19,9 @@ export async function eventApi<T>(path: string, options?: RequestInit): Promise<
   if (!response.ok) {
     throw new Error(result.error?.message || "Permintaan tidak dapat diproses.");
   }
-  return result.data as T;
+  return result;
+}
+
+export async function eventApi<T>(path: string, options?: RequestInit): Promise<T> {
+  return (await eventApiEnvelope<T>(path, options)).data;
 }

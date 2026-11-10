@@ -1,6 +1,22 @@
 import { z } from "zod";
 import { normalizeName, normalizePhone } from "../utils/normalization";
 
+export const participantPageQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).max(100000).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(25),
+  search: z.string().trim().max(100).default(""),
+  status: z.enum(["ALL", "NEEDS_ACTION", "PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED", "REJECTED", "CANCELLED"]).default("ALL"),
+  contact: z.enum(["ALL", "COMPLETE", "INCOMPLETE", "NO_WHATSAPP", "NO_PORTAL"]).default("ALL"),
+  institution: z.string().trim().max(180).optional(),
+  sort: z.enum(["PRIORITY", "NAME", "NEWEST", "OLDEST"]).default("NEWEST"),
+  includeInstitutions: z.enum(["true", "false"]).optional(),
+  institutionId: z.string().uuid().optional(),
+  invitationId: z.string().uuid().optional(),
+  eligible: z.enum(["true", "false"]).optional(),
+  projection: z.enum(["full", "selection"]).default("full"),
+});
+export type ParticipantPageQuery = z.infer<typeof participantPageQuerySchema>;
+
 // Local to manual entry: accept Indonesian mobile numbers beginning with 8,
 // 08, 62 or +62 without changing the shared normalization helper.
 const manualPhoneSchema = z.string().trim().max(30)

@@ -72,13 +72,16 @@ const fixture = {
         commandParticipant = { ...commandParticipant, ...(action === 'waitlist' ? { approvalStatus: 'WAITLISTED' } : action === 'decline' ? { approvalStatus: 'DECLINED' } : { confirmationStatus: action === 'cancel' ? 'CANCELLED' : 'REPLACED' }) };
         data = commandParticipant;
       }
-      else if (route === `/events/${eventId}`) data = event;
+      else if (route === `/events/${eventId}` || route === `/events/${eventId}/registration-settings`) data = event;
       else if (route === `/events/${eventId}/invitations` && method === 'GET') data = invitations;
       else if (route === `/events/${eventId}/invitations/${id}` && method === 'PATCH') {
         invitations[0] = { ...invitations[0], ...body }; data = { invitation: invitations[0] };
       } else if (route === `/events/${eventId}/invitations` && method === 'POST') {
-        const invitation = { ...body, id: '44444444-4444-4444-8444-444444444444', institutionName: institution.name, status: 'DRAFT', sentAt: null, respondedAt: null };
+        const invitation = { ...body, id: crypto.randomUUID(), institutionName: institution.name, status: 'DRAFT', sentAt: null, respondedAt: null };
         invitations.push(invitation); data = { invitation, publicUrl: '/invitation/institution/created' };
+      } else if (/^\/invitations\/public\/institution\/\w+\/policy$/.test(route)) {
+        const token = route.split('/').at(-2);
+        data = token === 'managed' ? invitations[0] : { ...invitations[0], quota: 3, allowGroup: true };
       } else if (/^\/invitations\/public\/institution\/\w+$/.test(route)) {
         const token = route.split('/').at(-1);
         data = { invitation: token === 'managed' ? invitations[0] : { ...invitations[0], quota: 3, allowGroup: true }, institution, event };
@@ -267,8 +270,29 @@ try {
   await click('Simpan perubahan');
   await until(`document.querySelector('#command-state')?.textContent==='APPROVED/REPLACED'`, 'replacement saved');
   assert.equal(requests.find((item) => item.method === 'POST' && item.route.endsWith(`/${commandId}/replace`)).body.newUstadzId, replacementId);
+
+  const revokedId = '77777777-7777-4777-8777-777777777777';
+  invitations.push({ ...invitations[0], id: revokedId, invitationNumber: 'UND-OLD', status: 'REVOKED', quota: 5,
+    allowGroup: true, responseDeadline: '2000-01-01T00:00:00.000Z' });
+  await navigate('mode=admin');
+  await until(`document.body.textContent.includes('UND-OLD')`, 'revoked institution invitation');
+  assert.equal(await evaluate(`Array.from(document.querySelectorAll('article')).find(el=>el.textContent.includes('UND-OLD'))?.textContent.includes('Undangan ini sudah dicabut')`), true);
+  await click('Buat undangan pengganti');
+  await until(`document.querySelector('form[aria-label="Buat undangan pengganti"]')`, 'replacement invitation form');
+  assert.equal(await evaluate(`document.querySelector('#institution-invitation-number').value`), '', 'replacement requires a new invitation number');
+  assert.equal(await evaluate(`document.querySelector('#institution-invitation-editor select').value`), institutionId, 'institution is preselected');
+  assert.equal(await evaluate(`document.querySelector('#institution-invitation-editor input[type="number"]').value`), '5', 'quota is prefilled');
+  assert.equal(await evaluate(`document.querySelector('#institution-invitation-editor input[type="datetime-local"]').value`), '2099-01-20T16:25', 'expired deadline is not reused');
+  await fill('#institution-invitation-number', 'UND-NEW');
+  await click('Buat tautan pengganti');
+  await until(`document.querySelector('[role="status"]')?.textContent.includes('Undangan pengganti untuk UND-OLD berhasil dibuat')`, 'replacement invitation saved');
+  const replacementRequest = requests.filter((item) => item.route === `/events/${eventId}/invitations` && item.method === 'POST').at(-1);
+  assert.equal(replacementRequest.body.invitationNumber, 'UND-NEW');
+  assert.equal(replacementRequest.body.quota, 5);
+  assert.equal(invitations.find((invitation) => invitation.id === revokedId).status, 'REVOKED', 'revoked invitation stays revoked');
+  await checkWidths('revoked invitation replacement');
   assert.deepEqual(failures, [], 'no browser exceptions or unexpected API requests');
-  console.log(JSON.stringify({ result: 'PASS', widths: [320, 390, 768, 1280], checks: ['master institution picker', 'edit persists group policy', 'quota two from admin to same public invitation', 'unchecked group hides add button and clears members', 'admin disables public group controls', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection'], screenshots }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', widths: [320, 390, 768, 1280], checks: ['master institution picker', 'edit persists group policy', 'quota two from admin to same public invitation', 'unchecked group hides add button and clears members', 'admin disables public group controls', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection', 'revoked invitation replacement keeps old link disabled'], screenshots }, null, 2));
 } finally {
   socket?.close(); browser?.kill(); await server.close();
   await new Promise((resolve) => setTimeout(resolve, 400));

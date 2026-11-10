@@ -12,7 +12,7 @@ import {
   eventSessions,
   participantStatusHistories,
 } from "../db/schema";
-import { eq, ilike, and, or, isNull, isNotNull, count, countDistinct, desc, inArray } from "drizzle-orm";
+import { eq, ilike, and, or, isNull, isNotNull, count, countDistinct, desc, inArray, sql, getTableColumns } from "drizzle-orm";
 import { normalizeName, normalizeEmail, normalizePhone } from "../utils/normalization";
 import {
   AttendanceMode,
@@ -42,48 +42,34 @@ export function getUstadzCompletenessPercent(profile: CompletenessProfile) {
   return Math.round(fields.filter((value) => Boolean(String(value || "").trim())).length / fields.length * 100);
 }
 
+// Preserve the JS completeness/duplicate rules without transferring every profile
+// to the function for each search and page. Blank values are not duplicate keys.
+export const ustadzCompletenessFieldsSql = sql<number>`(
+  case when btrim(coalesce(${ustadzProfiles.email}, '')) <> '' then 1 else 0 end +
+  case when btrim(coalesce(nullif(${ustadzProfiles.whatsapp}, ''), ${ustadzProfiles.phone}, '')) <> '' then 1 else 0 end +
+  case when btrim(coalesce(${ustadzProfiles.address}, '')) <> '' then 1 else 0 end +
+  case when btrim(coalesce(${ustadzProfiles.cityCode}, '')) <> '' then 1 else 0 end +
+  case when btrim(coalesce(${ustadzProfiles.provinceCode}, '')) <> '' then 1 else 0 end +
+  case when btrim(coalesce(${ustadzProfiles.educationSummary}, '')) <> '' then 1 else 0 end +
+  case when btrim(coalesce(${ustadzProfiles.expertiseSummary}, '')) <> '' then 1 else 0 end
+)`;
+
+export const ustadzHasDuplicateSql = sql<boolean>`exists (
+  select 1 from ustadz_profiles duplicate_profile
+  where duplicate_profile.deleted_at is null and duplicate_profile.profile_status = 'ACTIVE'
+    and duplicate_profile.id <> ${ustadzProfiles.id}
+    and (
+      (${ustadzProfiles.normalizedName} <> '' and duplicate_profile.normalized_name = ${ustadzProfiles.normalizedName}) or
+      (${ustadzProfiles.email} <> '' and duplicate_profile.email = ${ustadzProfiles.email}) or
+      (${ustadzProfiles.phone} <> '' and duplicate_profile.phone = ${ustadzProfiles.phone})
+    )
+)`;
+
 export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
   const db = getDbClient();
   const page = params.page || 1;
   const pageSize = params.pageSize || 25;
   const offset = (page - 1) * pageSize;
-
-  const [activeProfiles, [archivedRow], [attendedRow]] = await Promise.all([
-    db.select({
-      id: ustadzProfiles.id,
-      normalizedName: ustadzProfiles.normalizedName,
-      email: ustadzProfiles.email,
-      phone: ustadzProfiles.phone,
-      whatsapp: ustadzProfiles.whatsapp,
-      address: ustadzProfiles.address,
-      cityCode: ustadzProfiles.cityCode,
-      provinceCode: ustadzProfiles.provinceCode,
-      educationSummary: ustadzProfiles.educationSummary,
-      expertiseSummary: ustadzProfiles.expertiseSummary,
-      profileStatus: ustadzProfiles.profileStatus,
-    }).from(ustadzProfiles).where(isNull(ustadzProfiles.deletedAt)),
-    db.select({ total: count() }).from(ustadzProfiles).where(isNotNull(ustadzProfiles.deletedAt)),
-    db.select({ total: countDistinct(eventParticipants.ustadzId) })
-      .from(eventParticipants)
-      .innerJoin(attendanceRecords, eq(attendanceRecords.participantId, eventParticipants.id))
-      .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
-      .where(and(isNull(ustadzProfiles.deletedAt), inArray(attendanceRecords.attendanceStatus, ["PRESENT", "LATE"]))),
-  ]);
-  const duplicateKeys = new Map<string, Set<string>>();
-  for (const profile of activeProfiles) {
-    if (profile.profileStatus !== "ACTIVE") continue;
-    for (const key of [profile.normalizedName && `name:${profile.normalizedName}`,
-      profile.email && `email:${profile.email}`, profile.phone && `phone:${profile.phone}`]) {
-      if (!key) continue;
-      const ids = duplicateKeys.get(key) || new Set<string>();
-      ids.add(profile.id);
-      duplicateKeys.set(key, ids);
-    }
-  }
-  const hasDuplicate = (profile: Pick<typeof activeProfiles[number], "id" | "normalizedName" | "email" | "phone">) =>
-    [profile.normalizedName && `name:${profile.normalizedName}`,
-      profile.email && `email:${profile.email}`, profile.phone && `phone:${profile.phone}`]
-      .some((key) => key && [...(duplicateKeys.get(key) || [])].some((id) => id !== profile.id));
 
   const conditions = [params.profileStatus === "ARCHIVED"
     ? isNotNull(ustadzProfiles.deletedAt) : isNull(ustadzProfiles.deletedAt)];
@@ -120,12 +106,8 @@ export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
         eq(ustadzInstitutionAffiliations.status, "ACTIVE")))));
   }
 
-  if (params.quality || params.duplicate) {
-    const matchingIds = activeProfiles.filter((profile) =>
-      (!params.quality || getUstadzCompletenessPercent(profile) < 70) &&
-      (!params.duplicate || hasDuplicate(profile))).map((profile) => profile.id);
-    conditions.push(inArray(ustadzProfiles.id, matchingIds));
-  }
+  if (params.quality) conditions.push(and(isNull(ustadzProfiles.deletedAt), sql`${ustadzCompletenessFieldsSql} < 5`)!);
+  if (params.duplicate) conditions.push(and(isNull(ustadzProfiles.deletedAt), ustadzHasDuplicateSql)!);
 
   if (params.participation === "attended") {
     conditions.push(inArray(ustadzProfiles.id, db.select({ id: eventParticipants.ustadzId })
@@ -136,18 +118,31 @@ export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
 
   const whereClause = and(...conditions);
 
-  const [dataResult, countResult] = await Promise.all([
+  const [dataResult, countResult, [summaryRow]] = await Promise.all([
     db
-      .select()
+      .select({ ...getTableColumns(ustadzProfiles), hasDuplicateAlert: ustadzHasDuplicateSql })
       .from(ustadzProfiles)
       .where(whereClause)
-      .orderBy(desc(ustadzProfiles.createdAt))
+      .orderBy(desc(ustadzProfiles.createdAt), desc(ustadzProfiles.id))
       .limit(pageSize)
       .offset(offset),
     db
       .select({ total: count() })
       .from(ustadzProfiles)
       .where(whereClause),
+    db.select({
+      total: sql<number>`count(*) filter (where ${ustadzProfiles.deletedAt} is null)::int`,
+      active: sql<number>`count(*) filter (where ${ustadzProfiles.deletedAt} is null and ${ustadzProfiles.profileStatus} = 'ACTIVE')::int`,
+      inactive: sql<number>`count(*) filter (where ${ustadzProfiles.deletedAt} is null and ${ustadzProfiles.profileStatus} = 'INACTIVE')::int`,
+      merged: sql<number>`count(*) filter (where ${ustadzProfiles.deletedAt} is null and ${ustadzProfiles.profileStatus} = 'MERGED')::int`,
+      incomplete: sql<number>`count(*) filter (where ${ustadzProfiles.deletedAt} is null and ${ustadzCompletenessFieldsSql} < 5)::int`,
+      duplicateCandidates: sql<number>`count(*) filter (where ${ustadzProfiles.deletedAt} is null and ${ustadzProfiles.profileStatus} = 'ACTIVE' and ${ustadzHasDuplicateSql})::int`,
+      archived: sql<number>`count(*) filter (where ${ustadzProfiles.deletedAt} is not null)::int`,
+      attended: sql<number>`(select count(distinct p.ustadz_id)::int from event_participants p
+        join attendance_records a on a.participant_id = p.id
+        join ustadz_profiles u on u.id = p.ustadz_id
+        where u.deleted_at is null and a.attendance_status in ('PRESENT', 'LATE'))`,
+    }).from(ustadzProfiles),
   ]);
 
   const total = countResult[0]?.total || 0;
@@ -179,25 +174,24 @@ export async function findUstadzProfilesRepository(params: UstadzQueryParams) {
   const data = dataResult.map((profile) => {
     const affiliations = affiliationRows.filter((row) => row.ustadzId === profile.id);
     const primaryInstitution = affiliations.find((row) => row.isPrimary) || affiliations[0] || null;
-    const hasDuplicateAlert = hasDuplicate(profile);
     return {
       ...profile,
       primaryInstitution,
       affiliationCount: affiliations.length,
-      hasDuplicateAlert,
+      hasDuplicateAlert: Boolean(profile.hasDuplicateAlert),
       completenessPercent: getUstadzCompletenessPercent(profile),
     };
   });
 
   const summary = {
-    total: activeProfiles.length,
-    active: activeProfiles.filter((profile) => profile.profileStatus === "ACTIVE").length,
-    inactive: activeProfiles.filter((profile) => profile.profileStatus === "INACTIVE").length,
-    merged: activeProfiles.filter((profile) => profile.profileStatus === "MERGED").length,
-    incomplete: activeProfiles.filter((profile) => getUstadzCompletenessPercent(profile) < 70).length,
-    duplicateCandidates: activeProfiles.filter((profile) => profile.profileStatus === "ACTIVE" && hasDuplicate(profile)).length,
-    archived: archivedRow?.total || 0,
-    attended: attendedRow?.total || 0,
+    total: summaryRow?.total || 0,
+    active: summaryRow?.active || 0,
+    inactive: summaryRow?.inactive || 0,
+    merged: summaryRow?.merged || 0,
+    incomplete: summaryRow?.incomplete || 0,
+    duplicateCandidates: summaryRow?.duplicateCandidates || 0,
+    archived: summaryRow?.archived || 0,
+    attended: summaryRow?.attended || 0,
   };
 
   return {
@@ -222,7 +216,7 @@ export async function findUstadzByIdRepository(id: string) {
 
   if (profile.length === 0) return null;
 
-  const affiliations = await db
+  const [affiliations, eventHistory] = await Promise.all([db
     .select({
       id: ustadzInstitutionAffiliations.id,
       institutionId: ustadzInstitutionAffiliations.institutionId,
@@ -236,9 +230,8 @@ export async function findUstadzByIdRepository(id: string) {
     })
     .from(ustadzInstitutionAffiliations)
     .innerJoin(institutions, eq(ustadzInstitutionAffiliations.institutionId, institutions.id))
-    .where(eq(ustadzInstitutionAffiliations.ustadzId, id));
-
-  const eventHistory = await db
+    .where(eq(ustadzInstitutionAffiliations.ustadzId, id)),
+  db
     .select({
       participantId: eventParticipants.id,
       participantCode: eventParticipants.participantCode,
@@ -261,7 +254,7 @@ export async function findUstadzByIdRepository(id: string) {
     .innerJoin(events, eq(eventParticipants.eventId, events.id))
     .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
     .where(eq(eventParticipants.ustadzId, id))
-    .orderBy(desc(events.startDate));
+    .orderBy(desc(events.startDate), desc(eventParticipants.id))]);
 
   const eventIds = [...new Set(eventHistory.map((item) => item.eventId))];
   const [attendanceRows, eventDayRows, eventSessionRows, statusRows] = eventHistory.length
@@ -287,7 +280,7 @@ export async function findUstadzByIdRepository(id: string) {
           toStatus: participantStatusHistories.toStatus, reason: participantStatusHistories.reason,
           changedAt: participantStatusHistories.changedAt }).from(participantStatusHistories)
           .where(inArray(participantStatusHistories.participantId, eventHistory.map((item) => item.participantId)))
-          .orderBy(desc(participantStatusHistories.changedAt)),
+           .orderBy(desc(participantStatusHistories.changedAt), desc(participantStatusHistories.id)),
       ])
     : [[], [], [], []];
 

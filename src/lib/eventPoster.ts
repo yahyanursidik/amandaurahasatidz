@@ -1,4 +1,5 @@
-export const DEFAULT_EVENT_POSTER = "/images/event-poster-library-interior.png";
+export const DEFAULT_EVENT_POSTER = "/images/event-poster-library-interior.webp";
+export const DEFAULT_EVENT_POSTER_SRCSET = "/images/event-poster-library-interior-800.webp 800w, /images/event-poster-library-interior.webp 1600w";
 export const EVENT_POSTER_MAX_INPUT_BYTES = 5 * 1024 * 1024;
 
 const loadImage = (file: File) =>
