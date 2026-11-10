@@ -42,7 +42,7 @@ export const InvitationShareActions: React.FC<InvitationShareActionsProps> = ({
         {isLoading ? <Loader2 aria-hidden="true" className="invitation-share__spinner" /> : <CheckCircle2 aria-hidden="true" />}
         <div>
           <strong>{isLoading ? "Menyiapkan tautan…" : "Tautan siap dibagikan"}</strong>
-          <span>Pilih jalur komunikasi lembaga. Pengiriman tetap dilakukan dari aplikasi Anda.</span>
+          <span>Pilih jalur komunikasi {context.recipientType === "INDIVIDUAL" ? "asatidz penerima" : "lembaga"}. Pengiriman tetap dilakukan dari aplikasi Anda.</span>
         </div>
       </div>
 

@@ -27,6 +27,7 @@ const event = { id: eventId, name: 'Daurah Uji Undangan Lembaga', slug: 'daurah-
   invitationResponseDeadline: '2099-01-20T08:25:59.000Z', attendanceConfirmationDeadline: null,
   startDate: '2099-02-01', endDate: '2099-02-03', venueName: 'Aula Daurah', attendanceConfirmationRequired: true, lateConfirmationPolicy: 'REVIEW' };
 const institution = { id: institutionId, code: 'MU-01', name: "Ma'had Ilmu dan Dakwah Nusantara", contactName: 'PIC Lembaga', email: 'kontak@example.invalid', whatsapp: '081234567890' };
+const ustadz = { id: '88888888-8888-4888-8888-888888888888', fullName: 'Ustadz Ahmad Uji', email: 'ahmad@example.invalid', whatsapp: '081234500000', phone: null };
 let invitations = [{ id, invitationType: 'INSTITUTION', institutionId, institutionName: institution.name, invitationNumber: 'UND-01',
   quota: 3, allowGroup: true, status: 'SENT', sentAt: null, respondedAt: null, responseDeadline: event.invitationResponseDeadline }];
 const requests = [], failures = [], screenshots = [];
@@ -37,7 +38,9 @@ const fixture = {
       const url = new URL(request.url, 'http://127.0.0.1');
       if (url.pathname === '/__invitation_smoke') {
         if (url.searchParams.get('mode') === 'commands') commandParticipant = { id: commandId, name: 'Ustadz Uji Status', participantCode: 'P-COMMAND', approvalStatus: 'APPROVED', confirmationStatus: 'CONFIRMED' };
-        const entry = url.searchParams.get('mode') === 'commands' ? '/qa/participants' : url.searchParams.get('mode') === 'admin' ? `/admin/events/${eventId}/registrations?view=invitations`
+        const entry = url.searchParams.get('mode') === 'commands' ? '/qa/participants'
+          : url.searchParams.get('mode') === 'individual' ? '/invitation/individual/personal'
+          : url.searchParams.get('mode') === 'admin' ? `/admin/events/${eventId}/registrations?view=invitations`
           : `/invitation/institution/${url.searchParams.get('token') || 'group'}`;
         response.setHeader('Content-Type', 'text/html');
         return response.end(await server.transformIndexHtml(request.url, `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module">
@@ -55,6 +58,7 @@ const fixture = {
           createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:[${JSON.stringify(entry)}]},React.createElement(Refine,{authProvider,options:{disableTelemetry:true}},React.createElement(Routes,null,
             React.createElement(Route,{path:'/admin/events/:id/registrations',element:React.createElement(EventRegistrationsPage)}),
             React.createElement(Route,{path:'/invitation/institution/:token',element:React.createElement(InvitationRegistrationPage)}),
+            React.createElement(Route,{path:'/invitation/individual/:token',element:React.createElement(InvitationRegistrationPage)}),
             React.createElement(Route,{path:'/qa/participants',element:React.createElement(CommandFixture)})))));
         </script></body></html>`));
       }
@@ -65,6 +69,7 @@ const fixture = {
       requests.push({ route, method, body });
       let data;
       if (route === `/events/${eventId}/invitations/institutions`) data = [institution];
+      else if (route === `/events/${eventId}/invitations/ustadz`) data = [ustadz];
       else if (route === `/events/${eventId}/participants`) data = commandParticipant ? [commandParticipant] : [];
       else if (route === `/events/${eventId}/participants/${commandId}/replacement-options`) data = [{ id: replacementId, fullName: 'Ustadz Pengganti', email: 'pengganti@example.invalid' }];
       else if (method === 'POST' && route.startsWith(`/events/${eventId}/participants/${commandId}/`)) {
@@ -74,11 +79,16 @@ const fixture = {
       }
       else if (route === `/events/${eventId}` || route === `/events/${eventId}/registration-settings`) data = event;
       else if (route === `/events/${eventId}/invitations` && method === 'GET') data = invitations;
-      else if (route === `/events/${eventId}/invitations/${id}` && method === 'PATCH') {
-        invitations[0] = { ...invitations[0], ...body }; data = { invitation: invitations[0] };
+      else if (route.startsWith(`/events/${eventId}/invitations/`) && method === 'PATCH') {
+        const index = invitations.findIndex((invitation) => invitation.id === route.split('/').at(-1));
+        if (index < 0) throw new Error('Missing fixture invitation');
+        invitations[index] = { ...invitations[index], ...body }; data = { invitation: invitations[index] };
       } else if (route === `/events/${eventId}/invitations` && method === 'POST') {
-        const invitation = { ...body, id: crypto.randomUUID(), institutionName: institution.name, status: 'DRAFT', sentAt: null, respondedAt: null };
-        invitations.push(invitation); data = { invitation, publicUrl: '/invitation/institution/created' };
+        const personal = body.invitationType === 'INDIVIDUAL';
+        const invitation = { ...body, id: crypto.randomUUID(), institutionName: personal ? null : institution.name,
+          ustadzName: personal ? ustadz.fullName : null, ustadzEmail: personal ? ustadz.email : null,
+          ustadzWhatsapp: personal ? ustadz.whatsapp : null, status: 'DRAFT', sentAt: null, respondedAt: null };
+        invitations.push(invitation); data = { invitation, publicUrl: personal ? '/invitation/individual/personal' : '/invitation/institution/created' };
       } else if (/^\/invitations\/public\/institution\/\w+\/policy$/.test(route)) {
         const token = route.split('/').at(-2);
         data = token === 'managed' ? invitations[0] : { ...invitations[0], quota: 3, allowGroup: true };
@@ -89,6 +99,15 @@ const fixture = {
         data = { message: 'Konfirmasi tersimpan', emailQueued: body.delegates.length,
           participants: body.delegates.map((person, index) => ({ id: `person-${index}`, participantCode: `P-TEST-${index}`, qrToken: `pqr_fixture${index}.signature`, cardUrl: `/card?token=pqr_fixture${index}.signature`, whatsapp: person.whatsapp })),
           portalAccounts: body.delegates.map((person, index) => ({ participantId: `person-${index}`, participantName: person.fullName, email: person.email, passwordSetupRequired: true, loginUrl: '/login/ustadz' })) };
+      } else if (route === '/invitations/public/individual/personal' && method === 'GET') {
+        data = { invitation: { invitationNumber: 'PR-01', quota: 1, allowGroup: false, status: 'OPENED', responseDeadline: event.invitationResponseDeadline },
+          recipient: { fullName: ustadz.fullName }, event };
+      } else if (route === '/invitations/public/individual/personal/policy' && method === 'GET') {
+        data = { invitationNumber: 'PR-01', quota: 1, allowGroup: false, status: 'OPENED', responseDeadline: event.invitationResponseDeadline };
+      } else if (route === '/invitations/public/individual/personal/response' && method === 'POST') {
+        data = { message: 'Konfirmasi tersimpan', emailQueued: 1,
+          participants: [{ id: 'personal-person', participantCode: 'P-PERSONAL', qrToken: 'pqr_personal.signature', cardUrl: '/card?token=pqr_personal.signature', whatsapp: body.delegates[0].whatsapp }],
+          portalAccounts: [{ participantId: 'personal-person', participantName: ustadz.fullName, email: body.delegates[0].email, passwordSetupRequired: true, loginUrl: '/login/ustadz' }] };
       } else { failures.push(`Unexpected fixture ${method} ${route}`); response.statusCode = 404; data = null; }
       response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ data, error: data === null ? { message: 'Unexpected test route' } : null }));
     });
@@ -99,7 +118,7 @@ const server = await createServer({ root, configFile: false, envDir: false, cach
 let browser, socket;
 try {
   await server.listen(); const port = server.httpServer.address().port;
-  browser = spawn(chrome, ['--headless=new', '--disable-gpu', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${temporary}`, 'about:blank'], { stdio: 'ignore' });
+  browser = spawn(chrome, ['--headless=new', '--disable-gpu', '--disable-extensions', '--no-first-run', '--no-default-browser-check', '--remote-debugging-port=0', `--user-data-dir=${temporary}`, 'about:blank'], { stdio: 'ignore' });
   let debuggerPort;
   for (let i = 0; i < 150; i++) {
     try { debuggerPort = Number((await readFile(path.join(temporary, 'DevToolsActivePort'), 'utf8')).split('\n')[0]); break; }
@@ -114,8 +133,9 @@ try {
   socket.onmessage = ({ data }) => {
     const message = JSON.parse(data);
     if (message.id && pending.has(message.id)) { const [resolve, reject] = pending.get(message.id); pending.delete(message.id); message.error ? reject(new Error(message.error.message)) : resolve(message.result); }
-    if (message.method === 'Runtime.exceptionThrown') failures.push(message.params.exceptionDetails);
-    if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error') failures.push(message.params.args);
+    if (message.method === 'Runtime.exceptionThrown' && !message.params.exceptionDetails.url?.startsWith('chrome-extension://')) failures.push(message.params.exceptionDetails);
+    if (message.method === 'Runtime.consoleAPICalled' && message.params.type === 'error'
+      && !message.params.stackTrace?.callFrames?.[0]?.url?.startsWith('chrome-extension://')) failures.push(message.params.args);
   };
   const evaluate = async (expression) => {
     const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
@@ -129,7 +149,7 @@ try {
   const fill = (selector, value) => evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)throw new Error('Missing input');const prototype=el.tagName==='SELECT'?HTMLSelectElement.prototype:el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(prototype,'value').set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event(el.tagName==='SELECT'?'change':'input',{bubbles:true}));})()`);
   const navigate = (query) => send('Page.navigate', { url: `http://127.0.0.1:${port}/__invitation_smoke?${query}` });
   const checkWidths = async (label) => {
-    for (const width of [320, 390, 768, 1280]) {
+    for (const width of [320, 375, 390, 414, 768, 1280]) {
       await send('Emulation.setDeviceMetricsOverride', { width, height: 850, deviceScaleFactor: 1, mobile: width < 768 });
       await new Promise((resolve) => setTimeout(resolve, 100));
       assert.equal(await evaluate('document.documentElement.scrollWidth<=window.innerWidth'), true, `${label}: no overflow at ${width}px`);
@@ -291,8 +311,46 @@ try {
   assert.equal(replacementRequest.body.quota, 5);
   assert.equal(invitations.find((invitation) => invitation.id === revokedId).status, 'REVOKED', 'revoked invitation stays revoked');
   await checkWidths('revoked invitation replacement');
+
+  await evaluate(`Array.from(document.querySelectorAll('nav[aria-label="Jenis undangan"] button')).find(el=>el.textContent.includes('Perorangan')).click()`);
+  await until(`document.querySelector('#individual-invitation-editor select option[value="${ustadz.id}"]')`, 'personal recipient picker');
+  await fill('#individual-invitation-editor select', ustadz.id);
+  await fill('#individual-invitation-number', 'PR-01');
+  await click('Buat tautan pribadi');
+  await until(`document.body.textContent.includes('PR-01') && document.body.textContent.includes('Ustadz Ahmad Uji')`, 'personal invitation created');
+  const personalCreate = requests.filter((item) => item.route === `/events/${eventId}/invitations` && item.method === 'POST').at(-1);
+  assert.equal(personalCreate.body.invitationType, 'INDIVIDUAL'); assert.equal(personalCreate.body.ustadzId, ustadz.id);
+  assert.equal(personalCreate.body.quota, 1); assert.equal(personalCreate.body.allowGroup, false);
+  assert.equal(await evaluate(`document.querySelector('.invitation-share__heading')?.textContent.includes('asatidz penerima')`), true);
+  await checkWidths('personal admin invitation'); await screenshot('personal-admin');
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 850, deviceScaleFactor: 1, mobile: true });
+  await screenshot('personal-admin-mobile');
+  await click('Edit undangan');
+  await until(`document.querySelector('form[aria-label="Formulir undangan pribadi"]')`, 'personal invitation edit');
+  await fill('#individual-invitation-number', 'PR-02'); await click('Simpan perubahan');
+  await until(`document.body.textContent.includes('PR-02')`, 'personal invitation edited');
+  assert.equal(requests.filter((item) => item.method === 'PATCH').at(-1).body.ustadzId, ustadz.id);
+
+  await navigate('mode=individual');
+  await until(`document.querySelector('form[aria-label="Formulir konfirmasi undangan"]')`, 'personal public form');
+  assert.equal(await evaluate(`document.querySelector('input[name="delegate-0-name"]').value`), ustadz.fullName);
+  assert.equal(await evaluate(`document.querySelector('input[name="delegate-0-name"]').readOnly`), true);
+  assert.equal(await evaluate(`document.body.textContent.includes('Saya membawa rombongan')`), false);
+  await fill('input[name="delegate-0-email"]', ustadz.email);
+  await fill('input[name="delegate-0-whatsapp"]', ustadz.whatsapp);
+  await fill('#invitation-0-city', 'KOTA BANDUNG'); await fill('#invitation-0-province', 'JAWA BARAT');
+  await evaluate(`document.querySelector('input[name="consent"]').click()`);
+  await checkWidths('personal public form'); await screenshot('personal-public');
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 850, deviceScaleFactor: 1, mobile: true });
+  await screenshot('personal-public-mobile');
+  await click('Kirim konfirmasi');
+  await until(`document.querySelector('.public-receipt')`, 'personal QR receipt');
+  await screenshot('personal-receipt');
+  const personalResponse = requests.find((item) => item.route === '/invitations/public/individual/personal/response');
+  assert.equal(personalResponse.body.delegates.length, 1);
+  assert.equal('institutionName' in personalResponse.body, false);
   assert.deepEqual(failures, [], 'no browser exceptions or unexpected API requests');
-  console.log(JSON.stringify({ result: 'PASS', widths: [320, 390, 768, 1280], checks: ['master institution picker', 'edit persists group policy', 'quota two from admin to same public invitation', 'unchecked group hides add button and clears members', 'admin disables public group controls', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection', 'revoked invitation replacement keeps old link disabled'], screenshots }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', widths: [320, 375, 390, 414, 768, 1280], checks: ['master institution picker', 'edit persists group policy', 'quota two from admin to same public invitation', 'unchecked group hides add button and clears members', 'admin disables public group controls', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection', 'revoked invitation replacement keeps old link disabled', 'personal picker and share', 'personal edit', 'personal public RSVP and QR'], screenshots }, null, 2));
 } finally {
   socket?.close(); browser?.kill(); await server.close();
   await new Promise((resolve) => setTimeout(resolve, 400));

@@ -40,6 +40,7 @@ import { ParticipantCommunicationPanel } from "@/components/communications/Parti
 import { ParticipantProfileDialog } from "@/components/participants/ParticipantProfileDialog";
 import { InvitationShareActions } from "@/components/invitations/InvitationShareActions";
 import { InstitutionInvitationForm } from "@/components/invitations/InstitutionInvitationForm";
+import { IndividualInvitationForm, type IndividualInvitationRecipient, type IndividualInvitationValues } from "@/components/invitations/IndividualInvitationForm";
 import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
 import { ParticipantShareDialog } from "@/components/participants/ParticipantShareDialog";
 import { ParticipantManagementDialog } from "@/components/participants/ParticipantManagementDialog";
@@ -58,6 +59,10 @@ type Invitation = {
   id: string;
   invitationType?: string;
   ustadzName?: string | null;
+  ustadzId?: string | null;
+  ustadzEmail?: string | null;
+  ustadzWhatsapp?: string | null;
+  ustadzPhone?: string | null;
   institutionId: string | null;
   institutionName: string | null;
   institutionCode?: string | null;
@@ -326,7 +331,7 @@ const escapeCsvCell = (value: string) => `"${value.replaceAll('"', '""')}"`;
 
 export const EventRegistrationsPage: React.FC = () => {
   const { id = "" } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { data: identity, isLoading: identityLoading } = useGetIdentity<AuthIdentity>();
   const canOpenMasterData = identity?.assignments.some((assignment) => ROLE_PERMISSIONS[assignment.roleCode as RoleCode]?.includes("institutions.read")) || false;
   const staffPermissions = participantStaffPermissions(identity?.assignments, id);
@@ -334,6 +339,10 @@ export const EventRegistrationsPage: React.FC = () => {
   const canReadParticipants = staffPermissions.includes("participants.read");
   const canReadInvitations = staffPermissions.includes("invitations.read");
   const canCreateInvitations = staffPermissions.includes("invitations.create");
+  const canSendInvitations = staffPermissions.includes("invitations.send");
+  const canRevokeInvitations = staffPermissions.includes("invitations.revoke");
+  const canOpenUstadzData = Boolean(identity?.assignments.some((assignment) => ROLE_PERMISSIONS[assignment.roleCode as RoleCode]?.includes("ustadz.read")));
+  const canCreateUstadzData = Boolean(identity?.assignments.some((assignment) => ROLE_PERMISSIONS[assignment.roleCode as RoleCode]?.includes("ustadz.create")));
   const canCreateParticipants = staffPermissions.includes("participants.create");
   const canApproveParticipants = staffPermissions.includes("participants.approve");
   const participantView = searchParams.get("view") === "participants";
@@ -381,6 +390,8 @@ export const EventRegistrationsPage: React.FC = () => {
   const [linkBusy, setLinkBusy] = useState("");
   const [invitationActionBusy, setInvitationActionBusy] = useState("");
   const [editingInvitation, setEditingInvitation] = useState<Invitation | null>(null);
+  const [invitationAudience, setInvitationAudience] = useState<"INSTITUTION" | "INDIVIDUAL">(
+    searchParams.get("type") === "individual" ? "INDIVIDUAL" : "INSTITUTION");
   const [replacementSource, setReplacementSource] = useState("");
   const [invitationNotice, setInvitationNotice] = useState("");
   const [invitationFormError, setInvitationFormError] = useState("");
@@ -396,6 +407,10 @@ export const EventRegistrationsPage: React.FC = () => {
     allowGroup: false,
     responseDeadline: "",
   });
+  const [individualForm, setIndividualForm] = useState<IndividualInvitationValues>({ ustadzId: "", invitationNumber: "", responseDeadline: "" });
+  const [selectedIndividualRecipient, setSelectedIndividualRecipient] = useState<IndividualInvitationRecipient | null>(null);
+  const loadIndividualOptions = useCallback((query: string, page: number, signal: AbortSignal) =>
+    api<IndividualInvitationRecipient[]>(`/events/${id}/invitations/ustadz?${new URLSearchParams({ search: query, page: String(page), pageSize: "20" })}`, { signal }), [id]);
 
   const participantQuery = new URLSearchParams({ page: String(participantPage), pageSize: "25", search: debouncedSearch, status: participantStatus,
     ...(requestedInstitutionId ? { institutionId: requestedInstitutionId } : {}), ...(requestedInvitationId ? { invitationId: requestedInvitationId } : {}) }).toString();
@@ -476,6 +491,9 @@ export const EventRegistrationsPage: React.FC = () => {
       setEventDeadline(deadlineData);
       if (defaultsApplied.current !== id) {
         defaultsApplied.current = id;
+        if (!requestedInstitutionId && !searchParams.get("type") && deadlineData.audienceMode === "INDIVIDUAL_INVITATION") {
+          setInvitationAudience("INDIVIDUAL");
+        }
         setForm({ institutionId: requestedInstitutionId, invitationNumber: "",
           quota: deadlineData.defaultInstitutionQuota || 1, allowGroup: (deadlineData.defaultInstitutionQuota || 1) > 1,
           responseDeadline: fromEventIso(deadlineData.invitationResponseDeadline, deadlineData.timezone || "Asia/Jakarta") });
@@ -507,8 +525,11 @@ export const EventRegistrationsPage: React.FC = () => {
     setInstitutions([]);
     setCreatedLink(""); setCreatedInvitation(null); setInvitationLinks({});
     setEditingInvitation(null); setReplacementSource(""); setInvitationNotice(""); setInvitationFormError(""); setEventDeadline(null);
+    setInvitationAudience(searchParams.get("type") === "individual" ? "INDIVIDUAL" : "INSTITUTION");
     setLinkBusy(""); setInvitationActionBusy(""); setSubmitting(false);
     setForm({ institutionId: requestedInstitutionId, invitationNumber: "", quota: 1, allowGroup: false, responseDeadline: "" });
+    setIndividualForm({ ustadzId: "", invitationNumber: "", responseDeadline: "" });
+    setSelectedIndividualRecipient(null);
     settingsCache.current = null;
     return () => { mounted.current = false; loadGeneration.current += 1; readController.current?.abort(); };
   }, [id]);
@@ -539,12 +560,13 @@ export const EventRegistrationsPage: React.FC = () => {
   const filtered = useMemo(
     () =>
       invitations.filter((invitation) => {
-        const matchesSearch = `${invitation.institutionName} ${invitation.invitationNumber}`
+        const matchesSearch = `${invitation.institutionName || ""} ${invitation.ustadzName || ""} ${invitation.invitationNumber}`
           .toLowerCase()
           .includes(search.toLowerCase());
-        return matchesSearch && (!requestedInstitutionId || invitation.institutionId === requestedInstitutionId) && (statusFilter === "ALL" || invitation.status === statusFilter);
+        return matchesSearch && (invitation.invitationType || "INSTITUTION") === invitationAudience &&
+          (!requestedInstitutionId || invitation.institutionId === requestedInstitutionId) && (statusFilter === "ALL" || invitation.status === statusFilter);
       }),
-    [invitations, search, statusFilter, requestedInstitutionId]
+    [invitations, search, statusFilter, requestedInstitutionId, invitationAudience]
   );
   const filteredParticipants = useMemo(
     () =>
@@ -592,7 +614,9 @@ export const EventRegistrationsPage: React.FC = () => {
   const acceptedCount = invitations.filter((item) => item.status === "ACCEPTED").length;
   const awaitingCount = invitations.filter((item) => ["DRAFT", "SENT", "OPENED"].includes(item.status)).length;
   const approvedCount = participantSummary.approved;
-  const invitationEventLocked = Boolean(eventDeadline?.audienceMode && !["MIXED", "INSTITUTION_INVITATION"].includes(eventDeadline.audienceMode))
+  const audienceAllowed = (audience: "INSTITUTION" | "INDIVIDUAL") => !eventDeadline?.audienceMode
+    || ["MIXED", audience === "INSTITUTION" ? "INSTITUTION_INVITATION" : "INDIVIDUAL_INVITATION"].includes(eventDeadline.audienceMode);
+  const invitationEventLocked = !audienceAllowed(invitationAudience)
     || Boolean(eventDeadline?.status && ["CANCELLED", "COMPLETED", "ARCHIVED"].includes(eventDeadline.status));
   const invitationEditorDisabled = loading || Boolean(invitationActionBusy) || invitationEventLocked;
   const editorInstitutions = editingInvitation?.institutionId && !institutions.some((institution) => institution.id === editingInvitation.institutionId)
@@ -605,11 +629,15 @@ export const EventRegistrationsPage: React.FC = () => {
   const institutionForInvitation = (invitation: Invitation) =>
     institutions.find((institution) => institution.id === invitation.institutionId);
   const contactForInvitation = (invitation: Invitation) => {
+    if (invitation.invitationType === "INDIVIDUAL") return { email: invitation.ustadzEmail,
+      whatsapp: invitation.ustadzWhatsapp || invitation.ustadzPhone };
     const institution = institutionForInvitation(invitation);
     return { email: institution?.email || invitation.institutionEmail, whatsapp: institution?.whatsapp || institution?.phone || invitation.institutionWhatsapp || invitation.institutionPhone };
   };
   const shareContextFor = (invitation: Invitation, invitationUrl: string) => ({
-    institutionName: invitation.institutionName || institutionForInvitation(invitation)?.name || "Lembaga penerima",
+    institutionName: invitation.invitationType === "INDIVIDUAL" ? invitation.ustadzName || "Asatidz penerima"
+      : invitation.institutionName || institutionForInvitation(invitation)?.name || "Lembaga penerima",
+    recipientType: invitation.invitationType === "INDIVIDUAL" ? "INDIVIDUAL" as const : "INSTITUTION" as const,
     eventName: eventDeadline?.name || "Daurah Asatidz",
     invitationNumber: invitation.invitationNumber,
     invitationUrl,
@@ -618,6 +646,9 @@ export const EventRegistrationsPage: React.FC = () => {
     timezone: eventDeadline?.timezone,
     responseDeadline: invitation.responseDeadline || eventDeadline?.invitationResponseDeadline,
   });
+  const recipientForInvitation = (invitation: Invitation): IndividualInvitationRecipient | null => invitation.ustadzId
+    ? { id: invitation.ustadzId, fullName: invitation.ustadzName || "Asatidz penerima",
+      email: invitation.ustadzEmail, whatsapp: invitation.ustadzWhatsapp, phone: invitation.ustadzPhone } : null;
 
   const resetInvitationForm = () => {
     setEditingInvitation(null);
@@ -626,62 +657,93 @@ export const EventRegistrationsPage: React.FC = () => {
     setForm({ institutionId: requestedInstitutionId, invitationNumber: "", quota: eventDeadline?.defaultInstitutionQuota || 1,
       allowGroup: (eventDeadline?.defaultInstitutionQuota || 1) > 1,
       responseDeadline: fromEventIso(eventDeadline?.invitationResponseDeadline, eventDeadline?.timezone || "Asia/Jakarta") });
+    setIndividualForm({ ustadzId: "", invitationNumber: "",
+      responseDeadline: fromEventIso(eventDeadline?.invitationResponseDeadline, eventDeadline?.timezone || "Asia/Jakarta") });
+    setSelectedIndividualRecipient(null);
+  };
+  const switchInvitationAudience = (audience: "INSTITUTION" | "INDIVIDUAL") => {
+    resetInvitationForm(); setInvitationAudience(audience); setStatusFilter("ALL"); setSearch("");
+    const next = new URLSearchParams(searchParams);
+    if (audience === "INDIVIDUAL") { next.set("type", "individual"); next.delete("institutionId"); }
+    else next.delete("type");
+    setSearchParams(next, { replace: true });
   };
   const startEditingInvitation = (invitation: Invitation) => {
+    const individual = invitation.invitationType === "INDIVIDUAL";
+    setInvitationAudience(individual ? "INDIVIDUAL" : "INSTITUTION");
     setEditingInvitation(invitation); setReplacementSource(""); setError(""); setInvitationNotice(""); setInvitationFormError("");
-    setForm({ institutionId: invitation.institutionId || "", invitationNumber: invitation.invitationNumber,
+    if (individual) {
+      setSelectedIndividualRecipient(recipientForInvitation(invitation));
+      setIndividualForm({ ustadzId: invitation.ustadzId || "", invitationNumber: invitation.invitationNumber,
+        responseDeadline: fromEventIso(invitation.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta") });
+    }
+    else setForm({ institutionId: invitation.institutionId || "", invitationNumber: invitation.invitationNumber,
       quota: invitation.quota || 1, allowGroup: invitationAllowsGroup(invitation),
       responseDeadline: fromEventIso(invitation.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta") });
-    window.requestAnimationFrame(() => document.getElementById("institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" }));
+    window.requestAnimationFrame(() => document.getElementById(individual ? "individual-invitation-editor" : "institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" }));
   };
   const startReplacementInvitation = (invitation: Invitation) => {
-    if (!invitation.institutionId) return;
+    const individual = invitation.invitationType === "INDIVIDUAL";
+    if (individual ? !invitation.ustadzId : !invitation.institutionId) return;
     const timezone = eventDeadline?.timezone || "Asia/Jakarta";
     const usableDeadline = [invitation.responseDeadline, eventDeadline?.invitationResponseDeadline]
       .find((deadline) => deadline && new Date(deadline).getTime() > Date.now());
+    setInvitationAudience(individual ? "INDIVIDUAL" : "INSTITUTION");
     setEditingInvitation(null); setReplacementSource(invitation.invitationNumber);
     setError(""); setInvitationNotice(""); setInvitationFormError("");
-    setForm({ institutionId: invitation.institutionId, invitationNumber: "", quota: invitation.quota || 1,
+    if (individual) {
+      setSelectedIndividualRecipient(recipientForInvitation(invitation));
+      setIndividualForm({ ustadzId: invitation.ustadzId || "", invitationNumber: "",
+        responseDeadline: fromEventIso(usableDeadline, timezone) });
+    }
+    else setForm({ institutionId: invitation.institutionId || "", invitationNumber: "", quota: invitation.quota || 1,
       allowGroup: invitationAllowsGroup(invitation), responseDeadline: fromEventIso(usableDeadline, timezone) });
     window.requestAnimationFrame(() => {
-      document.getElementById("institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" });
-      document.getElementById("institution-invitation-number")?.focus({ preventScroll: true });
+      document.getElementById(individual ? "individual-invitation-editor" : "institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" });
+      document.getElementById(individual ? "individual-invitation-number" : "institution-invitation-number")?.focus({ preventScroll: true });
     });
   };
   const createInvitation = async () => {
     if (submitting) return;
     const editing = editingInvitation;
     const replacing = replacementSource;
-    if (editing && form.institutionId !== editing.institutionId && !window.confirm("Ganti lembaga penerima? Tautan lama akan dicabut dan tautan baru perlu dibagikan kembali.")) return;
+    const individual = invitationAudience === "INDIVIDUAL";
+    if (editing && (individual ? individualForm.ustadzId !== editing.ustadzId : form.institutionId !== editing.institutionId)
+      && !window.confirm(`Ganti ${individual ? "asatidz" : "lembaga"} penerima? Tautan lama akan dicabut dan tautan baru perlu dibagikan kembali.`)) return;
     setSubmitting(true);
     setError("");
     setInvitationNotice("");
     setInvitationFormError("");
     try {
       const originalDeadline = editing?.responseDeadline || eventDeadline?.invitationResponseDeadline;
-      const responseDeadline = originalDeadline && form.responseDeadline === fromEventIso(originalDeadline, eventDeadline?.timezone || "Asia/Jakarta")
-        ? originalDeadline : toEventIso(form.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta");
-      const payload = { ...form, quota: form.allowGroup ? form.quota : 1, invitationNumber: form.invitationNumber.trim(),
-        responseDeadline };
+      const localDeadline = individual ? individualForm.responseDeadline : form.responseDeadline;
+      const responseDeadline = originalDeadline && localDeadline === fromEventIso(originalDeadline, eventDeadline?.timezone || "Asia/Jakarta")
+        ? originalDeadline : toEventIso(localDeadline, eventDeadline?.timezone || "Asia/Jakarta");
+      const payload = individual ? { ...individualForm, quota: 1, allowGroup: false,
+        invitationNumber: individualForm.invitationNumber.trim(), responseDeadline }
+        : { ...form, quota: form.allowGroup ? form.quota : 1, invitationNumber: form.invitationNumber.trim(), responseDeadline };
       let created: { invitation: Invitation; publicUrl?: string };
       if (demoMode) {
         const institutionName = institutions.find((institution) => institution.id === form.institutionId)?.name || editing?.institutionName || "Lembaga penerima";
         const invitation: Invitation = {
           id: editing?.id || `inv-demo-${Date.now()}`,
-          invitationType: "INSTITUTION",
-          institutionId: form.institutionId,
-          institutionName,
-          invitationNumber: form.invitationNumber.trim(),
-          quota: payload.quota, allowGroup: form.allowGroup,
+          invitationType: individual ? "INDIVIDUAL" : "INSTITUTION",
+          institutionId: individual ? null : form.institutionId,
+          institutionName: individual ? null : institutionName,
+          ustadzId: individual ? individualForm.ustadzId : null,
+          ustadzName: individual ? editing?.ustadzName || "Asatidz penerima" : null,
+          invitationNumber: payload.invitationNumber,
+          quota: payload.quota, allowGroup: individual ? false : form.allowGroup,
           status: editing?.status || "DRAFT", sentAt: editing?.sentAt || null, respondedAt: editing?.respondedAt || null,
           responseDeadline: payload.responseDeadline,
         };
-        created = { invitation, ...(!editing || editing.institutionId !== form.institutionId ? { publicUrl: buildInstitutionInvitationPath(institutionName, `inv_inst_demo_${invitation.id}`) } : {}) };
+        created = { invitation, ...(!editing || (individual ? editing.ustadzId !== individualForm.ustadzId : editing.institutionId !== form.institutionId)
+          ? { publicUrl: individual ? `/invitation/individual/inv_ind_demo_${invitation.id}` : buildInstitutionInvitationPath(institutionName, `inv_inst_demo_${invitation.id}`) } : {}) };
         setInvitations((current) => editing ? current.map((item) => item.id === editing.id ? invitation : item) : [invitation, ...current]);
       } else {
         created = await api<{ invitation: Invitation; publicUrl?: string }>(`/events/${id}/invitations${editing ? `/${editing.id}` : ""}`, {
           method: editing ? "PATCH" : "POST",
-          body: JSON.stringify({ ...payload, ...(!editing ? { invitationType: "INSTITUTION" } : editing.updatedAt ? { expectedUpdatedAt: editing.updatedAt } : {}) }),
+          body: JSON.stringify({ ...payload, ...(!editing ? { invitationType: invitationAudience } : editing.updatedAt ? { expectedUpdatedAt: editing.updatedAt } : {}) }),
         });
         if (!mounted.current || activeEventId.current !== id) return;
         await loadData();
@@ -697,7 +759,7 @@ export const EventRegistrationsPage: React.FC = () => {
       }
       resetInvitationForm();
       setInvitationNotice(editing ? created.publicUrl ? "Perubahan tersimpan. Bagikan tautan baru; tautan lama sudah dicabut." : "Undangan berhasil diperbarui. Tautan yang sudah dibagikan tetap berlaku."
-        : replacing ? `Undangan pengganti untuk ${replacing} berhasil dibuat. Undangan lama tetap dicabut; bagikan tautan dan kode baru.`
+        : replacing ? `Undangan pengganti untuk ${replacing} berhasil dibuat. Undangan lama tetap dicabut; bagikan tautan baru.`
           : "Undangan berhasil dibuat. Tautan siap dibagikan.");
     } catch (submitError) {
       if (mounted.current && activeEventId.current === id) setInvitationFormError(submitError instanceof Error ? submitError.message : "Undangan gagal disimpan.");
@@ -742,7 +804,8 @@ export const EventRegistrationsPage: React.FC = () => {
     setError("");
     try {
       const regenerated = demoMode
-        ? { publicUrl: buildInstitutionInvitationPath(invitation.institutionName || "Lembaga penerima", `inv_inst_demo_${invitation.id}`) }
+        ? { publicUrl: invitation.invitationType === "INDIVIDUAL" ? `/invitation/individual/inv_ind_demo_${invitation.id}`
+          : buildInstitutionInvitationPath(invitation.institutionName || "Lembaga penerima", `inv_inst_demo_${invitation.id}`) }
         : await api<{ publicUrl: string }>(
             `/events/${id}/invitations/${invitation.id}/regenerate-link`,
             { method: "POST" },
@@ -1250,15 +1313,15 @@ export const EventRegistrationsPage: React.FC = () => {
   return (
     <AdminLayout>
       <PageHeader
-        title="Undangan lembaga"
-        description={eventDeadline?.name || "Kelola undangan, respons, dan delegasi dalam satu tempat."}
+        title="Undangan event"
+        description={eventDeadline?.name || "Kelola undangan lembaga dan pribadi, respons, serta peserta."}
         breadcrumbs={[
           { label: "Admin", href: "/admin" },
           { label: "Event", href: "/admin/events" },
           { label: "Undangan" },
         ]}
         actions={
-          <div className="flex flex-wrap gap-2"><button type="button" disabled={submitting} onClick={() => { resetInvitationForm(); window.requestAnimationFrame(() => document.getElementById("institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" })); }} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white disabled:opacity-50"><Plus className="h-4 w-4" /> Buat undangan</button><Link
+          <div className="flex flex-wrap gap-2">{canCreateInvitations && <button type="button" disabled={submitting || invitationEventLocked} onClick={() => { resetInvitationForm(); window.requestAnimationFrame(() => document.getElementById(invitationAudience === "INDIVIDUAL" ? "individual-invitation-editor" : "institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" })); }} className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-4 w-4" /> {invitationAudience === "INDIVIDUAL" ? "Undang asatidz" : "Undang lembaga"}</button>}<Link
             to={`/admin/events/${id}`}
             className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
           >
@@ -1268,6 +1331,15 @@ export const EventRegistrationsPage: React.FC = () => {
         }
       />
       <EventWorkspaceNav eventId={id} />
+      <nav aria-label="Jenis undangan" className="mb-5 flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+        {(["INSTITUTION", "INDIVIDUAL"] as const).map((audience) => <button key={audience} type="button"
+          aria-pressed={invitationAudience === audience} onClick={() => switchInvitationAudience(audience)}
+          className={`inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-lg px-4 text-sm font-bold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 ${invitationAudience === audience ? "bg-emerald-900 text-white" : "border border-slate-300 bg-white text-slate-700 hover:bg-slate-50"}`}>
+          {audience === "INSTITUTION" ? <Building2 className="h-4 w-4" /> : <UserCheck className="h-4 w-4" />}
+          {audience === "INSTITUTION" ? "Lembaga" : "Perorangan"}
+          <span className="rounded-full bg-white/20 px-2 tabular-nums">{invitations.filter((item) => (item.invitationType || "INSTITUTION") === audience).length}</span>
+        </button>)}
+      </nav>
       {requestedInstitutionId && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-l-4 border-emerald-600 bg-emerald-50 px-4 py-3 text-sm text-emerald-950"><span>Undangan untuk {institutions.find((institution) => institution.id === requestedInstitutionId)?.name || "lembaga terpilih"}</span><Link className="font-bold underline" to={`/admin/events/${id}/registrations?view=invitations`}>Tampilkan semua</Link></div>}
 
       {eventDeadline && (
@@ -1302,7 +1374,7 @@ export const EventRegistrationsPage: React.FC = () => {
         ))}
       </section>
 
-      {eventDeadline?.audienceMode && !["MIXED", "INSTITUTION_INVITATION"].includes(eventDeadline.audienceMode) && <p className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-950">Jalur undangan lembaga belum diaktifkan. <Link to={`/admin/events/${id}/edit`} className="font-bold underline">Atur jalur peserta</Link></p>}
+      {eventDeadline?.audienceMode && !audienceAllowed(invitationAudience) && <p className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-950">Jalur undangan {invitationAudience === "INDIVIDUAL" ? "perorangan" : "lembaga"} belum diaktifkan. <Link to={`/admin/events/${id}/edit`} className="font-bold underline">Atur jalur peserta</Link></p>}
 
       {error && (
         <div role="alert" className="mt-5 flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-xs text-rose-900">
@@ -1316,13 +1388,13 @@ export const EventRegistrationsPage: React.FC = () => {
           <div className="mb-4 flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center">
             <div className="relative min-w-0 flex-1">
               <Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
-              <label htmlFor="registration-search" className="sr-only">Cari lembaga atau nomor undangan</label>
+              <label htmlFor="registration-search" className="sr-only">Cari penerima atau nomor undangan</label>
               <input
                 id="registration-search"
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Cari lembaga atau nomor undangan"
-                className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-xs outline-transparent hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700"
+                placeholder={invitationAudience === "INDIVIDUAL" ? "Cari asatidz atau nomor undangan" : "Cari lembaga atau nomor undangan"}
+                className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-sm outline-transparent hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700"
               />
             </div>
             <label className="sr-only" htmlFor="registration-status">Filter status</label>
@@ -1330,7 +1402,7 @@ export const EventRegistrationsPage: React.FC = () => {
               id="registration-status"
               value={statusFilter}
               onChange={(event) => setStatusFilter(event.target.value)}
-              className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 text-xs font-semibold text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700"
+              className="min-h-[44px] rounded-lg border border-slate-300 bg-white px-3 text-sm font-semibold text-slate-700 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700"
             >
               <option value="ALL">Semua status</option>
               <option value="DRAFT">Draft</option>
@@ -1352,7 +1424,7 @@ export const EventRegistrationsPage: React.FC = () => {
             <div className="rounded-xl border border-dashed border-slate-300 bg-white px-6 py-12 text-center">
               <Mail className="mx-auto h-8 w-8 text-slate-400" />
               <h2 className="mt-3 text-sm font-bold text-slate-900">Belum ada undangan yang cocok</h2>
-              <p className="mt-1 text-xs text-slate-500">Ubah filter atau buat tautan undangan lembaga baru.</p>
+              <p className="mt-1 text-sm text-slate-600">Ubah filter atau buat undangan {invitationAudience === "INDIVIDUAL" ? "perorangan" : "lembaga"} baru.</p>
             </div>
           ) : (
             <div className="space-y-3">
@@ -1363,9 +1435,10 @@ export const EventRegistrationsPage: React.FC = () => {
                     <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-mono text-[10px] font-bold text-emerald-800">
+                          <span className="font-mono text-sm font-bold text-emerald-800">
                             {invitation.invitationNumber}
                           </span>
+                          <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">{invitation.invitationType === "INDIVIDUAL" ? "Pribadi" : "Lembaga"}</span>
                           <StatusBadge
                             label={invitationStatusLabel[invitation.status] || invitation.status}
                             variant={invitation.status === "ACCEPTED" ? "success" : ["DECLINED", "REVOKED"].includes(invitation.status) ? "danger" : "info"}
@@ -1374,16 +1447,18 @@ export const EventRegistrationsPage: React.FC = () => {
                             <StatusBadge label="Tenggat lewat" variant="danger" />
                           )}
                         </div>
-                        <h2 className="mt-1 overflow-wrap-anywhere text-sm font-black text-slate-950">
-                          {invitation.institutionId ? canOpenMasterData ? <Link to={`/admin/institutions/${invitation.institutionId}`} className="hover:text-emerald-800 hover:underline">{invitation.institutionName || "Lembaga penerima"}</Link> : invitation.institutionName || "Lembaga penerima" : invitation.ustadzName || "Undangan individu"}
+                        <h2 className="mt-2 min-w-0 break-words text-base font-black text-slate-950">
+                          {invitation.invitationType === "INDIVIDUAL"
+                            ? invitation.ustadzId && canOpenUstadzData ? <Link to={`/admin/ustadz/${invitation.ustadzId}`} className="hover:text-emerald-800 hover:underline">{invitation.ustadzName || "Asatidz penerima"}</Link> : invitation.ustadzName || "Asatidz penerima"
+                            : invitation.institutionId ? canOpenMasterData ? <Link to={`/admin/institutions/${invitation.institutionId}`} className="hover:text-emerald-800 hover:underline">{invitation.institutionName || "Lembaga penerima"}</Link> : invitation.institutionName || "Lembaga penerima" : "Lembaga penerima"}
                         </h2>
-                        <p className="mt-1 text-[11px] text-slate-500">
-                          {invitation.registeredCount ?? delegates.length} dari {invitation.quota || 1} peserta · {invitationAllowsGroup(invitation) ? "Rombongan diizinkan" : "Satu perwakilan"}
+                        <p className="mt-1 text-sm text-slate-600">
+                          {invitation.registeredCount ?? delegates.length} dari {invitation.invitationType === "INDIVIDUAL" ? 1 : invitation.quota || 1} peserta · {invitation.invitationType === "INDIVIDUAL" ? "Satu asatidz" : invitationAllowsGroup(invitation) ? "Rombongan diizinkan" : "Satu perwakilan"}
                         </p>
                         {invitation.responseDeadline && <p className="mt-2 text-xs text-slate-500">Batas respons: {formatEventDateTime(invitation.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta")} {eventTimezoneLabel(eventDeadline?.timezone || "Asia/Jakarta")}</p>}
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {canCreateInvitations && invitation.institutionId && invitation.status !== "REVOKED" && (
+                        {canCreateInvitations && (invitation.institutionId || invitation.ustadzId) && invitation.status !== "REVOKED" && (
                           <button
                             type="button"
                             onClick={() => startEditingInvitation(invitation)}
@@ -1405,7 +1480,7 @@ export const EventRegistrationsPage: React.FC = () => {
                             Buat ulang tautan
                           </button>
                         )}
-                        {invitation.status === "DRAFT" && (
+                        {canSendInvitations && invitation.status === "DRAFT" && (
                           <button
                             onClick={() => void updateInvitation(invitation, "send")}
                             disabled={Boolean(invitationActionBusy) || submitting || Boolean(linkBusy)}
@@ -1415,7 +1490,7 @@ export const EventRegistrationsPage: React.FC = () => {
                             Tandai terkirim
                           </button>
                         )}
-                        {isInvitationPending(invitation.status) && (
+                        {canRevokeInvitations && isInvitationPending(invitation.status) && (
                           <button
                             onClick={() => void updateInvitation(invitation, "revoke")}
                             disabled={Boolean(invitationActionBusy) || submitting || Boolean(linkBusy)}
@@ -1429,20 +1504,23 @@ export const EventRegistrationsPage: React.FC = () => {
 
                     {invitation.status === "REVOKED" && <div className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                       <p>Undangan ini sudah dicabut. Tautan lama tidak dapat digunakan atau diaktifkan lewat edit.</p>
-                      {canCreateInvitations && invitation.institutionId && <>
+                      {canCreateInvitations && (invitation.institutionId || invitation.ustadzId) && <>
                         <button type="button" onClick={() => startReplacementInvitation(invitation)}
-                          disabled={submitting || invitationEditorDisabled || !institutions.some((institution) => institution.id === invitation.institutionId)}
+                          disabled={submitting || loading || Boolean(invitationActionBusy)
+                            || Boolean(eventDeadline?.status && ["CANCELLED", "COMPLETED", "ARCHIVED"].includes(eventDeadline.status))
+                            || !audienceAllowed(invitation.invitationType === "INDIVIDUAL" ? "INDIVIDUAL" : "INSTITUTION")
+                            || invitation.invitationType !== "INDIVIDUAL" && !institutions.some((institution) => institution.id === invitation.institutionId)}
                           className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-lg border border-amber-700 bg-white px-3 text-sm font-bold text-amber-950 hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800 disabled:cursor-not-allowed disabled:opacity-50">
                           <Plus className="h-4 w-4" /> Buat undangan pengganti
                         </button>
-                        {!institutions.some((institution) => institution.id === invitation.institutionId) && <p className="mt-2">Lembaga ini tidak aktif. Aktifkan kembali di data lembaga sebelum membuat undangan pengganti.</p>}
-                        {invitationEventLocked && <p className="mt-2">Jalur undangan event ini sedang dikunci. Periksa pengaturan event sebelum membuat pengganti.</p>}
+                        {invitation.invitationType !== "INDIVIDUAL" && !institutions.some((institution) => institution.id === invitation.institutionId) && <p className="mt-2">Lembaga ini tidak aktif. Aktifkan kembali di data lembaga sebelum membuat undangan pengganti.</p>}
+                        {!audienceAllowed(invitation.invitationType === "INDIVIDUAL" ? "INDIVIDUAL" : "INSTITUTION") && <p className="mt-2">Jalur undangan event ini sedang dikunci. Periksa pengaturan event sebelum membuat pengganti.</p>}
                       </>}
                     </div>}
 
                     {invitationLinks[invitation.id] && isInvitationPending(invitation.status) && (
                       <div className="border-t border-emerald-200 bg-emerald-50 px-4 py-3">
-                        <p className="text-sm font-bold text-emerald-950">Tautan formulir khusus lembaga</p>
+                        <p className="text-sm font-bold text-emerald-950">Tautan formulir {invitation.invitationType === "INDIVIDUAL" ? "pribadi" : "khusus lembaga"}</p>
                         <div className="mt-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
                           <code className="min-w-0 flex-1 break-all rounded-lg bg-white px-3 py-2 text-sm leading-6 text-emerald-950">
                             {invitationLinks[invitation.id]}
@@ -1457,7 +1535,7 @@ export const EventRegistrationsPage: React.FC = () => {
                           </button>
                         </div>
                         <p className="mt-2 text-sm leading-6 text-emerald-900">
-                          Tautan ini adalah akses pribadi lembaga. Bagikan hanya kepada penerima.
+                          Tautan ini adalah akses pribadi {invitation.invitationType === "INDIVIDUAL" ? "asatidz" : "lembaga"}. Bagikan hanya kepada penerima.
                         </p>
                         <InvitationShareActions
                           context={shareContextFor(invitation, invitationLinks[invitation.id])}
@@ -1467,7 +1545,7 @@ export const EventRegistrationsPage: React.FC = () => {
                       </div>
                     )}
 
-                    {invitation.responseNotes && <p className="border-t border-slate-100 px-4 py-3 text-sm text-slate-600"><span className="font-bold">Catatan lembaga: </span>{invitation.responseNotes}</p>}
+                    {invitation.responseNotes && <p className="border-t border-slate-100 px-4 py-3 text-sm text-slate-600"><span className="font-bold">Catatan {invitation.invitationType === "INDIVIDUAL" ? "asatidz" : "lembaga"}: </span>{invitation.responseNotes}</p>}
 
                     {(invitation.registeredCount || delegates.length) > 0 && (
                       <div className="border-t border-slate-200 bg-slate-50 px-4 py-3">
@@ -1504,7 +1582,7 @@ export const EventRegistrationsPage: React.FC = () => {
 
         <aside className="min-w-0 space-y-4 self-start xl:sticky xl:top-36">
           {invitationNotice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">{invitationNotice}</p>}
-          {canCreateInvitations && <InstitutionInvitationForm key={`${id}:${editingInvitation?.id || (replacementSource ? `replacement:${replacementSource}` : "new")}`} institutions={editorInstitutions}
+          {canCreateInvitations && invitationAudience === "INSTITUTION" && <InstitutionInvitationForm key={`${id}:${editingInvitation?.id || (replacementSource ? `replacement:${replacementSource}` : "new")}`} institutions={editorInstitutions}
             canOpenMasterData={canOpenMasterData}
             error={invitationFormError || pickerError}
             value={form} onChange={setForm} onSubmit={() => void createInvitation()} onCancel={resetInvitationForm}
@@ -1512,8 +1590,18 @@ export const EventRegistrationsPage: React.FC = () => {
             recipientLocked={Boolean(editingInvitation && (editingInvitation.respondedAt || editingRegisteredCount > 0 || !isInvitationPending(editingInvitation.status)))}
             timezone={eventDeadline?.timezone || "Asia/Jakarta"} busy={submitting}
             disabled={invitationEditorDisabled} />}
+          {canCreateInvitations && invitationAudience === "INDIVIDUAL" && <IndividualInvitationForm
+            key={`${id}:${editingInvitation?.id || (replacementSource ? `replacement:${replacementSource}` : "new")}`}
+            value={individualForm} onChange={setIndividualForm} onSubmit={() => void createInvitation()} onCancel={resetInvitationForm}
+            loadOptions={loadIndividualOptions} selectedRecipient={selectedIndividualRecipient}
+            editing={Boolean(editingInvitation)} replacementNumber={replacementSource}
+            recipientLocked={Boolean(editingInvitation && (editingInvitation.respondedAt || (editingInvitation.registeredCount || 0) > 0 || !isInvitationPending(editingInvitation.status)))}
+            timezone={eventDeadline?.timezone || "Asia/Jakarta"} busy={submitting} disabled={invitationEditorDisabled}
+            canOpenProfile={canOpenUstadzData} canCreateProfile={canCreateUstadzData} error={invitationFormError} />}
 
-          {createdLink && createdInvitation && isInvitationPending(invitations.find((invitation) => invitation.id === createdInvitation.id)?.status || createdInvitation.status) && (
+          {createdLink && createdInvitation && !filtered.some((invitation) => invitation.id === createdInvitation.id)
+            && (createdInvitation.invitationType || "INSTITUTION") === invitationAudience
+            && isInvitationPending(invitations.find((invitation) => invitation.id === createdInvitation.id)?.status || createdInvitation.status) && (
             <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
               <div className="flex items-center gap-2 text-[11px] font-black text-emerald-900">
                 <CheckCircle2 className="h-4 w-4" />

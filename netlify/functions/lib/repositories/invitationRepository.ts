@@ -13,7 +13,7 @@ import {
   userRoleAssignments,
   users,
 } from "../db/schema";
-import { eq, and, desc, sql, isNull, ne, inArray } from "drizzle-orm";
+import { eq, and, desc, sql, isNull, ne, inArray, ilike, asc, or } from "drizzle-orm";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { withTransaction } from "../db/transaction";
 import { resolveRegistrationInstitution } from "../services/registrationInstitutionService";
@@ -41,7 +41,11 @@ export async function findInvitationsRepository(eventId?: string) {
       institutionEmail: institutions.email,
       institutionWhatsapp: institutions.whatsapp,
       institutionPhone: institutions.phone,
+      ustadzId: invitations.ustadzId,
       ustadzName: ustadzProfiles.fullName,
+      ustadzEmail: ustadzProfiles.email,
+      ustadzWhatsapp: ustadzProfiles.whatsapp,
+      ustadzPhone: ustadzProfiles.phone,
       invitationNumber: invitations.invitationNumber,
       quota: invitations.quota,
       status: invitations.status,
@@ -59,6 +63,45 @@ export async function findInvitationsRepository(eventId?: string) {
     .leftJoin(ustadzProfiles, eq(invitations.ustadzId, ustadzProfiles.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(invitations.createdAt));
+}
+
+export async function findInvitationUstadzOptionsRepository(search: string, page: number, pageSize: number) {
+  const db = getDbClient();
+  const term = search.trim().replace(/[\\%_]/g, "\\$&");
+  const conditions = [eq(ustadzProfiles.profileStatus, "ACTIVE"), isNull(ustadzProfiles.deletedAt),
+    isNull(ustadzProfiles.mergedIntoId)];
+  if (term) {
+    const pattern = `%${term}%`;
+    conditions.push(or(ilike(ustadzProfiles.fullName, pattern), ilike(ustadzProfiles.email, pattern),
+      ilike(ustadzProfiles.whatsapp, pattern), ilike(ustadzProfiles.phone, pattern))!);
+  }
+  return db.select({ id: ustadzProfiles.id, fullName: ustadzProfiles.fullName, email: ustadzProfiles.email,
+    whatsapp: ustadzProfiles.whatsapp, phone: ustadzProfiles.phone })
+    .from(ustadzProfiles).where(and(...conditions)).orderBy(asc(ustadzProfiles.fullName))
+    .limit(pageSize).offset((page - 1) * pageSize);
+}
+
+export async function findInvitationUstadzRecipientRepository(id: string) {
+  const [recipient] = await getDbClient().select({ id: ustadzProfiles.id, fullName: ustadzProfiles.fullName,
+    email: ustadzProfiles.email, whatsapp: ustadzProfiles.whatsapp, phone: ustadzProfiles.phone,
+    profileStatus: ustadzProfiles.profileStatus, deletedAt: ustadzProfiles.deletedAt,
+    mergedIntoId: ustadzProfiles.mergedIntoId }).from(ustadzProfiles).where(eq(ustadzProfiles.id, id)).limit(1);
+  return recipient || null;
+}
+
+export async function findOpenIndividualInvitationRepository(eventId: string, ustadzId: string, exceptId?: string) {
+  const [invitation] = await getDbClient().select({ id: invitations.id, invitationNumber: invitations.invitationNumber })
+    .from(invitations).where(and(eq(invitations.eventId, eventId), eq(invitations.ustadzId, ustadzId),
+      eq(invitations.invitationType, "INDIVIDUAL"), inArray(invitations.status, ["DRAFT", "SENT", "OPENED"]),
+      ...(exceptId ? [ne(invitations.id, exceptId)] : []))).limit(1);
+  return invitation || null;
+}
+
+export async function findUstadzEventParticipationRepository(eventId: string, ustadzId: string) {
+  const [participant] = await getDbClient().select({ id: eventParticipants.id })
+    .from(eventParticipants).where(and(eq(eventParticipants.eventId, eventId),
+      eq(eventParticipants.ustadzId, ustadzId))).limit(1);
+  return participant || null;
 }
 
 export async function findInvitationByEventAndNumberRepository(eventId: string, invitationNumber: string) {
@@ -340,6 +383,16 @@ export async function updateInvitationRepository(
 ) {
   return withTransaction(async (tx) => {
     await lockRegistrationEvent(tx, existing.eventId);
+    if (existing.invitationType === "INDIVIDUAL" && changes.ustadzId && changes.ustadzId !== existing.ustadzId) {
+      const [pending] = await tx.select({ id: invitations.id }).from(invitations)
+        .where(and(eq(invitations.eventId, existing.eventId), eq(invitations.ustadzId, changes.ustadzId),
+          eq(invitations.invitationType, "INDIVIDUAL"), inArray(invitations.status, ["DRAFT", "SENT", "OPENED"]),
+          ne(invitations.id, existing.id))).limit(1);
+      if (pending) throw new ConflictError("Penerima baru saja mendapat undangan aktif. Muat ulang daftar undangan.");
+      const [participant] = await tx.select({ id: eventParticipants.id }).from(eventParticipants)
+        .where(and(eq(eventParticipants.eventId, existing.eventId), eq(eventParticipants.ustadzId, changes.ustadzId))).limit(1);
+      if (participant) throw new ConflictError("Penerima baru saja terdaftar pada event. Lihat data peserta.");
+    }
     const rows = await tx.update(invitations).set({ ...changes, updatedAt: new Date() })
       .where(and(eq(invitations.id, existing.id), eq(invitations.eventId, existing.eventId),
         sql`date_trunc('milliseconds', ${invitations.updatedAt}) = ${existing.updatedAt.toISOString()}::timestamptz`,
@@ -416,6 +469,18 @@ export async function createInvitationRepository(
   tokenHash: string
 ) {
   return withTransaction(async (tx) => {
+    if (invData.invitationType === "INDIVIDUAL" && invData.ustadzId) {
+      // Registration writers use the same event-row lock. Recheck inside it so
+      // two admins cannot issue live personal links to one recipient concurrently.
+      await lockRegistrationEvent(tx, invData.eventId);
+      const [pending] = await tx.select({ id: invitations.id }).from(invitations)
+        .where(and(eq(invitations.eventId, invData.eventId), eq(invitations.ustadzId, invData.ustadzId),
+          eq(invitations.invitationType, "INDIVIDUAL"), inArray(invitations.status, ["DRAFT", "SENT", "OPENED"]))).limit(1);
+      if (pending) throw new ConflictError("Asatidz ini baru saja mendapat undangan aktif. Muat ulang daftar undangan.");
+      const [participant] = await tx.select({ id: eventParticipants.id }).from(eventParticipants)
+        .where(and(eq(eventParticipants.eventId, invData.eventId), eq(eventParticipants.ustadzId, invData.ustadzId))).limit(1);
+      if (participant) throw new ConflictError("Asatidz ini baru saja terdaftar pada event. Lihat data peserta.");
+    }
     const createdInv = await tx.insert(invitations).values(invData).returning();
     const createdLink = await tx
       .insert(invitationLinks)

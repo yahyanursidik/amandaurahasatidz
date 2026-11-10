@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   find: vi.fn(), list: vi.fn(), number: vi.fn(), token: vi.fn(), create: vi.fn(), update: vi.fn(), count: vi.fn(),
   status: vi.fn(), opened: vi.fn(), rotate: vi.fn(), save: vi.fn(), event: vi.fn(), institution: vi.fn(), options: vi.fn(), audit: vi.fn(),
+  ustadzOptions: vi.fn(), recipient: vi.fn(), openIndividual: vi.fn(), participantForUstadz: vi.fn(),
 }));
 vi.mock("../../netlify/functions/lib/repositories/invitationRepository", () => ({
   findInvitationByIdRepository: mocks.find, findInvitationsRepository: mocks.list,
@@ -11,6 +12,10 @@ vi.mock("../../netlify/functions/lib/repositories/invitationRepository", () => (
   countInvitationParticipantsRepository: mocks.count, updateInvitationStatusRepository: mocks.status,
   rotateInvitationLinkRepository: mocks.rotate, saveInstitutionDelegationRepository: mocks.save,
   markInvitationOpenedRepository: mocks.opened,
+  findInvitationUstadzOptionsRepository: mocks.ustadzOptions,
+  findInvitationUstadzRecipientRepository: mocks.recipient,
+  findOpenIndividualInvitationRepository: mocks.openIndividual,
+  findUstadzEventParticipationRepository: mocks.participantForUstadz,
 }));
 vi.mock("../../netlify/functions/lib/repositories/eventRepository", () => ({ findEventByIdRepository: mocks.event, findRegistrationEventRepository: mocks.event }));
 vi.mock("../../netlify/functions/lib/repositories/institutionRepository", () => ({
@@ -18,7 +23,7 @@ vi.mock("../../netlify/functions/lib/repositories/institutionRepository", () => 
 }));
 vi.mock("../../netlify/functions/lib/services/auditService", () => ({ createAuditLog: mocks.audit }));
 
-import { createInvitationService, editInvitationService, getInvitationInstitutionsService, getInvitationsService,
+import { createInvitationService, editInvitationService, getInvitationInstitutionsService, getInvitationUstadzOptionsService, getInvitationsService,
   sendInvitationService, revokeInvitationService, regenerateInvitationLinkService,
   getPublicInstitutionInvitationService, getPublicIndividualInvitationService, submitInstitutionResponseService,
 } from "../../netlify/functions/lib/services/invitationService";
@@ -44,6 +49,10 @@ beforeEach(() => {
   mocks.update.mockImplementation(async (existing, changes) => ({ ...existing, ...changes }));
   mocks.create.mockImplementation(async (input) => ({ invitation: { id, ...input } }));
   mocks.rotate.mockResolvedValue({ id: "link", expiresAt: deadline }); mocks.options.mockResolvedValue([]);
+  mocks.ustadzOptions.mockResolvedValue([]); mocks.openIndividual.mockResolvedValue(null);
+  mocks.participantForUstadz.mockResolvedValue(null);
+  mocks.recipient.mockResolvedValue({ id: otherId, fullName: "Ustadz Uji", email: "ustadz@example.invalid",
+    whatsapp: "081200000000", phone: null, profileStatus: "ACTIVE", deletedAt: null, mergedIntoId: null });
   mocks.token.mockResolvedValue({ invitation: { ...invitation }, event: { ...event }, link: { id: "link", expiresAt: deadline },
     institution: { name: "Ma'had Uji", code: "MU", email: "private@example.invalid" } });
 });
@@ -129,6 +138,60 @@ describe("edit undangan dan integritas relasi", () => {
     mocks.find.mockResolvedValue({ ...invitation, status: "REVOKED" });
     await expect(editInvitationService(eventId, id, { quota: 2 }, "actor", "request")).rejects.toMatchObject({ statusCode: 422 });
     expect(mocks.update).not.toHaveBeenCalled();
+  });
+});
+
+describe("undangan perorangan", () => {
+  const individual = { ...invitation, invitationType: "INDIVIDUAL", institutionId: null, ustadzId: otherId, quota: 1 };
+  it("membatasi undangan ke satu profil aktif dan satu kursi", async () => {
+    const input = createInvitationSchema.parse({ eventId, ustadzId: otherId, invitationType: "INDIVIDUAL", invitationNumber: "PR-01" });
+    const result = await createInvitationService(input, "actor", "request");
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ ustadzId: otherId, institutionId: null, quota: 1 }), expect.any(String));
+    expect(result.publicUrl).toMatch(/^\/invitation\/individual\/inv_ind_/);
+    expect(result.invitation.ustadzName).toBe("Ustadz Uji");
+    expect(createInvitationSchema.safeParse({ ...input, quota: 2 }).success).toBe(false);
+    expect(createInvitationSchema.safeParse({ ...input, institutionId }).success).toBe(false);
+  });
+  it("menolak profil nonaktif, undangan aktif ganda, dan peserta yang sudah terdaftar", async () => {
+    mocks.recipient.mockResolvedValueOnce({ profileStatus: "INACTIVE" });
+    await expect(createInvitationService({ eventId, ustadzId: otherId, invitationType: "INDIVIDUAL", invitationNumber: "PR-01" }, "actor", "request"))
+      .rejects.toMatchObject({ statusCode: 422 });
+    mocks.openIndividual.mockResolvedValueOnce({ id, invitationNumber: "PR-LAMA" });
+    await expect(createInvitationService({ eventId, ustadzId: otherId, invitationType: "INDIVIDUAL", invitationNumber: "PR-01" }, "actor", "request"))
+      .rejects.toMatchObject({ statusCode: 409 });
+    mocks.participantForUstadz.mockResolvedValueOnce({ id });
+    await expect(createInvitationService({ eventId, ustadzId: otherId, invitationType: "INDIVIDUAL", invitationNumber: "PR-01" }, "actor", "request"))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(mocks.create).not.toHaveBeenCalled();
+  });
+  it("mengedit tenggat tanpa mengganti tautan, tetapi memutar tautan bila penerima berubah", async () => {
+    mocks.find.mockResolvedValue(individual);
+    const unchanged = await editInvitationService(eventId, id, { invitationNumber: "PR-02" }, "actor", "request");
+    expect(unchanged).not.toHaveProperty("publicUrl");
+    expect(mocks.update).toHaveBeenCalledWith(individual, expect.objectContaining({ ustadzId: otherId, quota: 1 }), undefined);
+    const nextRecipient = "55555555-5555-4555-8555-555555555555";
+    const changed = await editInvitationService(eventId, id, { ustadzId: nextRecipient }, "actor", "request");
+    expect(mocks.openIndividual).toHaveBeenCalledWith(eventId, nextRecipient, id);
+    expect(mocks.update).toHaveBeenLastCalledWith(individual, expect.objectContaining({ ustadzId: nextRecipient, status: "DRAFT", sentAt: null }),
+      expect.objectContaining({ tokenHash: expect.any(String) }));
+    expect(changed.publicUrl).toMatch(/^\/invitation\/individual\/inv_ind_/);
+  });
+  it("mengunci penerima setelah respons dan tidak menerima kuota rombongan", async () => {
+    mocks.find.mockResolvedValue({ ...individual, respondedAt: new Date() });
+    await expect(editInvitationService(eventId, id, { ustadzId: institutionId }, "actor", "request")).rejects.toMatchObject({ statusCode: 409 });
+    await expect(editInvitationService(eventId, id, { quota: 2 }, "actor", "request")).rejects.toMatchObject({ statusCode: 422 });
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+  it("halaman publik menampilkan nama penerima tanpa membocorkan kontak direktori", async () => {
+    mocks.token.mockResolvedValue({ invitation: individual, event, link: { id: "link", expiresAt: deadline } });
+    const result = await getPublicIndividualInvitationService("inv_ind_token", "request");
+    expect(result.recipient).toEqual({ fullName: "Ustadz Uji" });
+    expect(result.invitation).toMatchObject({ quota: 1, allowGroup: false });
+    expect(JSON.stringify(result)).not.toContain("ustadz@example.invalid");
+  });
+  it("picker memakai izin event, bukan direktori global", async () => {
+    await getInvitationUstadzOptionsService(eventId, "Uji", 2, 20);
+    expect(mocks.ustadzOptions).toHaveBeenCalledWith("Uji", 2, 20);
   });
 });
 

@@ -12,6 +12,10 @@ import {
   updateInvitationRepository,
   countInvitationParticipantsRepository,
   markInvitationOpenedRepository,
+  findInvitationUstadzOptionsRepository,
+  findInvitationUstadzRecipientRepository,
+  findOpenIndividualInvitationRepository,
+  findUstadzEventParticipationRepository,
 } from "../repositories/invitationRepository";
 import { generateSecureToken, hashToken } from "../utils/token";
 import { NotFoundError, ValidationError, ForbiddenError, ConflictError } from "../utils/errors";
@@ -77,6 +81,25 @@ export async function getInvitationInstitutionsService(eventId: string, page: nu
   return findInvitationInstitutionOptionsRepository(page, pageSize);
 }
 
+export async function getInvitationUstadzOptionsService(eventId: string, search: string, page: number, pageSize: number) {
+  if (!await findRegistrationEventRepository(eventId)) throw new NotFoundError("Event tidak ditemukan.");
+  return findInvitationUstadzOptionsRepository(search, page, pageSize);
+}
+
+async function assertIndividualRecipient(eventId: string, ustadzId: string, exceptInvitationId?: string) {
+  const recipient = await findInvitationUstadzRecipientRepository(ustadzId);
+  if (!recipient || recipient.profileStatus !== "ACTIVE" || recipient.deletedAt || recipient.mergedIntoId) {
+    throw new ValidationError("Pilih profil asatidz aktif dari direktori.");
+  }
+  const [participant, pendingInvitation] = await Promise.all([
+    findUstadzEventParticipationRepository(eventId, ustadzId),
+    findOpenIndividualInvitationRepository(eventId, ustadzId, exceptInvitationId),
+  ]);
+  if (participant) throw new ConflictError("Asatidz ini sudah terdaftar pada event. Lihat data peserta sebelum membuat undangan baru.");
+  if (pendingInvitation) throw new ConflictError(`Asatidz ini sudah memiliki undangan aktif ${pendingInvitation.invitationNumber}. Gunakan atau cabut undangan tersebut.`);
+  return recipient;
+}
+
 function resolveInvitationQuota(data: { quota?: number; allowGroup?: boolean }, fallback: number, individual = false) {
   if (individual || data.allowGroup === false) return 1;
   const quota = data.quota ?? fallback;
@@ -101,11 +124,18 @@ export async function createInvitationService(data: any, actorUserId: string, re
     );
   }
   let recipientInstitution: Awaited<ReturnType<typeof findInstitutionByIdRepository>> | null = null;
+  let recipientUstadz: Awaited<ReturnType<typeof findInvitationUstadzRecipientRepository>> | null = null;
   if (data.invitationType === "INSTITUTION") {
     recipientInstitution = await findInstitutionByIdRepository(data.institutionId);
     if (!recipientInstitution || recipientInstitution.status !== "ACTIVE" || recipientInstitution.deletedAt) {
       throw new ValidationError("Lembaga penerima tidak aktif. Pilih lembaga aktif dari data master.");
     }
+  } else {
+    if (!data.ustadzId) throw new ValidationError("Pilih asatidz penerima undangan individu.");
+    if (data.allowGroup === true || data.quota != null && data.quota !== 1) {
+      throw new ValidationError("Undangan individu hanya berlaku untuk satu asatidz.");
+    }
+    recipientUstadz = await assertIndividualRecipient(data.eventId, data.ustadzId);
   }
   const responseDeadline = data.responseDeadline
     ? new Date(data.responseDeadline)
@@ -155,7 +185,10 @@ export async function createInvitationService(data: any, actorUserId: string, re
   });
 
   return {
-    invitation: { ...result.invitation, institutionName: recipientInstitution?.name || null, allowGroup: invitationAllowsGroup(result.invitation) },
+    invitation: { ...result.invitation, institutionName: recipientInstitution?.name || null,
+      ustadzName: recipientUstadz?.fullName || null, ustadzEmail: recipientUstadz?.email || null,
+      ustadzWhatsapp: recipientUstadz?.whatsapp || null, ustadzPhone: recipientUstadz?.phone || null,
+      allowGroup: invitationAllowsGroup(result.invitation) },
     rawToken: tokenInfo.rawToken, // Returned ONLY ONCE during creation for sending link
     publicUrl: data.invitationType === "INSTITUTION"
       ? buildInstitutionInvitationPath(recipientInstitution?.name || "Lembaga", tokenInfo.rawToken)
@@ -167,17 +200,64 @@ export async function createInvitationService(data: any, actorUserId: string, re
 }
 
 export async function editInvitationService(eventId: string, id: string, data: {
-  institutionId?: string; invitationNumber?: string; quota?: number; allowGroup?: boolean; responseDeadline?: string | null; expectedUpdatedAt?: string;
+  institutionId?: string; ustadzId?: string; invitationNumber?: string; quota?: number; allowGroup?: boolean;
+  responseDeadline?: string | null; expectedUpdatedAt?: string;
 }, actorUserId: string, requestId: string) {
   const invitation = await scopedInvitation(eventId, id);
   if (data.expectedUpdatedAt && new Date(data.expectedUpdatedAt).getTime() !== new Date(invitation.updatedAt).getTime()) {
     throw new ConflictError("Undangan telah diperbarui oleh petugas lain. Muat ulang sebelum mengedit kembali.");
   }
   if (invitation.status === "REVOKED") throw new ValidationError("Undangan yang dicabut tidak dapat diedit.");
-  if (invitation.invitationType !== "INSTITUTION") throw new ValidationError("Editor ini khusus undangan lembaga.");
   const event = await findEventByIdRepository(eventId);
   if (!event) throw new NotFoundError("Event tidak ditemukan.");
   if (["CANCELLED", "COMPLETED", "ARCHIVED"].includes(event.status)) throw new ValidationError("Pengaturan undangan event ini sudah dikunci.");
+  if (invitation.invitationType === "INDIVIDUAL") {
+    if (data.institutionId || data.allowGroup === true || data.quota != null && data.quota !== 1) {
+      throw new ValidationError("Undangan individu hanya berlaku untuk satu asatidz.");
+    }
+    const registeredCount = await countInvitationParticipantsRepository(id);
+    const recipientId = data.ustadzId || invitation.ustadzId;
+    if (!recipientId) throw new ValidationError("Profil penerima undangan individu tidak ditemukan.");
+    const recipientChanged = recipientId !== invitation.ustadzId;
+    if (recipientChanged && (registeredCount > 0 || invitation.respondedAt || !isInvitationPending(invitation.status))) {
+      throw new ConflictError("Penerima tidak dapat diganti setelah ada respons atau peserta.");
+    }
+    const recipient = recipientChanged ? await assertIndividualRecipient(eventId, recipientId, id)
+      : await findInvitationUstadzRecipientRepository(recipientId);
+    if (!recipient) throw new ValidationError("Profil penerima tidak ditemukan.");
+    const number = data.invitationNumber || invitation.invitationNumber;
+    const owner = await findInvitationByEventAndNumberRepository(eventId, number);
+    if (owner && owner.id !== id) throw new ConflictError("Nomor undangan sudah digunakan pada event ini.");
+    const changes: Parameters<typeof updateInvitationRepository>[1] = { invitationNumber: number, quota: 1,
+      ustadzId: recipientId };
+    if (data.responseDeadline !== undefined) {
+      const deadline = data.responseDeadline ? new Date(data.responseDeadline) : event.invitationResponseDeadline;
+      const previous = invitation.responseDeadline || event.invitationResponseDeadline;
+      if (deadline && new Date(deadline) < new Date() && new Date(deadline).getTime() !== (previous ? new Date(previous).getTime() : null)) {
+        throw new ValidationError("Batas respons baru harus berada di masa mendatang.");
+      }
+      changes.responseDeadline = deadline ? new Date(deadline) : null;
+    }
+    const token = recipientChanged ? generateSecureToken("inv_ind") : null;
+    if (recipientChanged) { changes.status = "DRAFT"; changes.sentAt = null; }
+    const deadline = changes.responseDeadline === undefined ? invitation.responseDeadline || event.invitationResponseDeadline : changes.responseDeadline;
+    let updated;
+    try {
+      updated = await updateInvitationRepository(invitation, changes, token ? { tokenHash: token.tokenHash,
+        expiresAt: deadline ? new Date(deadline) : new Date(Date.now() + 14 * 86400000) } : undefined);
+    } catch (error) {
+      const code = (error as { code?: string; cause?: { code?: string } }).code || (error as { cause?: { code?: string } }).cause?.code;
+      if (code === "23505") throw new ConflictError("Nomor undangan baru saja digunakan. Gunakan nomor lain.");
+      throw error;
+    }
+    await createAuditLog({ actorUserId, action: "INVITATION_UPDATED", resourceType: "INVITATION", resourceId: id,
+      eventId, beforeData: invitation as any, afterData: updated as any, requestId });
+    return { invitation: { ...updated, ustadzName: recipient.fullName, ustadzEmail: recipient.email,
+      ustadzWhatsapp: recipient.whatsapp, ustadzPhone: recipient.phone, allowGroup: false },
+      ...(token ? { publicUrl: `/invitation/individual/${token.rawToken}` } : {}) };
+  }
+  if (invitation.invitationType !== "INSTITUTION") throw new ValidationError("Jenis undangan tidak dikenal.");
+  if (data.ustadzId) throw new ValidationError("Undangan lembaga tidak memakai penerima perorangan.");
   const registeredCount = await countInvitationParticipantsRepository(id);
   const institutionId = data.institutionId || invitation.institutionId;
   const recipientChanged = institutionId !== invitation.institutionId;
@@ -596,6 +676,10 @@ export async function getPublicIndividualInvitationService(rawToken: string, req
     throw new ForbiddenError("Tautan undangan individu ini telah dicabut oleh panitia.");
   }
   assertInvitationResponseOpen(result);
+  const recipient = invitation.ustadzId ? await findInvitationUstadzRecipientRepository(invitation.ustadzId) : null;
+  if (!recipient || recipient.profileStatus !== "ACTIVE" || recipient.deletedAt || recipient.mergedIntoId) {
+    throw new ForbiddenError("Profil penerima undangan tidak aktif. Hubungi panitia.");
+  }
 
   await markInvitationOpenedRepository(invitation.id);
 
@@ -611,9 +695,12 @@ export async function getPublicIndividualInvitationService(rawToken: string, req
   return {
     invitation: {
       invitationNumber: invitation.invitationNumber,
+      quota: 1,
+      allowGroup: false,
       status: "OPENED",
       responseDeadline: invitation.responseDeadline || event.invitationResponseDeadline,
     },
+    recipient: { fullName: recipient.fullName },
     event: {
       name: event.name,
       slug: event.slug,
@@ -632,7 +719,7 @@ export async function getPublicIndividualInvitationService(rawToken: string, req
 }
 
 export async function submitIndividualResponseService(rawToken: string, payload: {
-  responseStatus: "ACCEPTED" | "DECLINED"; institutionName?: string | null;
+  responseStatus: "ACCEPTED" | "DECLINED";
   delegates?: Array<{ fullName: string; email: string; phone?: string | null; whatsapp?: string | null; address?: string | null;
     city: string; province: string; cityCode?: string | null; provinceCode?: string | null; isLead?: boolean }>;
 }, requestId: string) {
@@ -653,7 +740,8 @@ export async function submitIndividualResponseService(rawToken: string, payload:
     }
   }
   const saved = await saveInstitutionDelegationRepository(invitation.id, {
-    ...payload, isFinal: true, delegates: payload.responseStatus === "ACCEPTED" ? payload.delegates?.map((delegate) => ({ ...delegate, isLead: true })) : [],
+    ...payload, institutionName: null, isFinal: true,
+    delegates: payload.responseStatus === "ACCEPTED" ? payload.delegates?.map((delegate) => ({ ...delegate, isLead: true })) : [],
   }, { eventId: event.id, tokenHash });
   const cards = saved.participants.map((person, index) => ({ participantId: person.id,
     ustadzName: payload.delegates?.[index]?.fullName || "Peserta", email: payload.delegates?.[index]?.email || "",
