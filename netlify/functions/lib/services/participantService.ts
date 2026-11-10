@@ -1,5 +1,6 @@
 import {
   findParticipantsRepository,
+  findParticipantPageRepository,
   findParticipantByIdRepository,
   countInstitutionParticipantsRepository,
   countApprovedParticipantsForEventRepository,
@@ -20,6 +21,7 @@ import { hashPassword } from "../utils/password";
 import { isRegularRegistrationSource, quotaForSource } from "./eventQuota";
 import { z } from "zod";
 import { bulkApproveSchema } from "../validations/participantValidation";
+import type { ParticipantPageQuery } from "../validations/participantValidation";
 
 function generateTemporaryPassword() {
   const alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%";
@@ -36,6 +38,10 @@ function generateTemporaryPassword() {
 
 export async function getParticipantsService(eventId: string) {
   return await findParticipantsRepository(eventId);
+}
+
+export async function getParticipantPageService(eventId: string, query: ParticipantPageQuery) {
+  return findParticipantPageRepository(eventId, query);
 }
 
 export async function provisionParticipantPortalAccountService(

@@ -27,7 +27,7 @@ export const CommitteeCreatePage: React.FC = () => {
   });
 
   useEffect(() => {
-    void committeeApi<EventItem[]>("/events").then(setEvents).catch(() => setEvents([]));
+    void committeeApi<EventItem[]>("/events/options").then(setEvents).catch(() => setEvents([]));
   }, []);
 
   const submit = async (event: React.FormEvent) => {

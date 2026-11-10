@@ -46,6 +46,18 @@ describe("formulir undangan lembaga", () => {
     expect(html).toContain("/admin/institutions/i"); expect(html).toContain('type="datetime-local"'); expect(html).toContain("WITA");
     expect(html).not.toContain('type="number"');
   });
+  it("menjelaskan undangan pengganti tanpa mengaktifkan kembali undangan dicabut", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><InstitutionInvitationForm institutions={[{ id: "i", code: "MU", name: "Ma'had Uji" }]}
+      value={{ institutionId: "i", invitationNumber: "", quota: 5, allowGroup: true, responseDeadline: "2027-01-01T12:00" }}
+      onChange={() => {}} onSubmit={() => {}} onCancel={() => {}} editing={false} replacementNumber="UND-OLD"
+      recipientLocked={false} registeredCount={0} timezone="Asia/Makassar" busy={false} disabled={false} /></MemoryRouter>);
+    expect(html).toContain('aria-label="Buat undangan pengganti"');
+    expect(html).toContain("Undangan UND-OLD tetap dicabut");
+    expect(html).toContain("Nomor undangan baru");
+    expect(html).toContain("Buat tautan pengganti");
+    expect(html).toContain("Peserta lama tidak dipindahkan otomatis");
+    expect(html).not.toContain('value="UND-OLD"');
+  });
   it("pesan WhatsApp/email mengikuti izin rombongan tanpa meminta kode yang tidak dipakai", () => {
     const context = { institutionName: "Ma'had", eventName: "Daurah", invitationNumber: "UND-1", invitationUrl: "https://example.invalid/invitation/token" };
     expect(buildInvitationShareText({ ...context, allowGroup: false })).toContain("tanpa peserta tambahan");

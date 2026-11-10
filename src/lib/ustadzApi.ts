@@ -144,7 +144,7 @@ const cleanPayload = (values: Partial<UstadzFormValues>) =>
   );
 
 export const ustadzApi = {
-  list: (params: URLSearchParams) => request<UstadzProfile[]>(`/ustadz?${params.toString()}`),
+  list: (params: URLSearchParams, options?: RequestInit) => request<UstadzProfile[]>(`/ustadz?${params.toString()}`, options),
   listAllUnmerged: async () => {
     const profiles: UstadzProfile[] = [];
     for (let page = 1; ; page += 1) {

@@ -1,6 +1,8 @@
 import { getDbClient } from "../db/client";
 import { events, eventDays, eventSessions, eventCommitteeAssignments, users } from "../db/schema";
-import { eq, ilike, and, or, isNull, count, desc, asc, inArray, sql } from "drizzle-orm";
+import { eq, ilike, and, or, isNull, count, desc, asc, inArray, sql, getTableColumns, ne } from "drizzle-orm";
+import { publicPosterUrl, publicProgramColumns } from "./eventReadProjections";
+import type { PublicProgramQuery } from "../validations/eventValidation";
 import { withTransaction } from "../db/transaction";
 import { assertRegistrationQuotaEdit } from "../services/registrationCapacity";
 
@@ -62,27 +64,63 @@ export async function findEventsRepository(search?: string, status?: string) {
   return result;
 }
 
+/** Small event selectors must not transfer every poster and event description. */
+export async function findEventOptionsRepository() {
+  return getDbClient().select({ id: events.id, code: events.code, name: events.name, status: events.status,
+    startDate: events.startDate, endDate: events.endDate, timezone: events.timezone,
+    venueName: events.venueName, venueAddress: events.venueAddress,
+    invitationResponseDeadline: events.invitationResponseDeadline,
+    attendanceConfirmationDeadline: events.attendanceConfirmationDeadline,
+    attendanceConfirmationRequired: events.attendanceConfirmationRequired, lateConfirmationPolicy: events.lateConfirmationPolicy,
+  }).from(events).where(isNull(events.archivedAt)).orderBy(desc(events.startDate), desc(events.id));
+}
+
 export async function findPublicEventsRepository() {
   const db = getDbClient();
-  return db.select({
-    slug: events.slug,
-    code: events.code,
-    name: events.name,
-    subtitle: events.subtitle,
-    posterUrl: events.posterUrl,
-    posterAlt: events.posterAlt,
-    startDate: events.startDate,
-    endDate: events.endDate,
-    venueName: events.venueName,
-    audienceMode: events.audienceMode,
-    status: events.status,
-    regularQuota: events.regularQuota,
-    registrationOpenAt: events.registrationOpenAt,
-    registrationCloseAt: events.registrationCloseAt,
-  }).from(events).where(and(
+  return db.select(publicProgramColumns).from(events).where(and(
     isNull(events.archivedAt),
     inArray(events.status, ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING", "COMPLETED"]),
-  )).orderBy(asc(events.startDate));
+  )).orderBy(asc(events.startDate), asc(events.id)).limit(50);
+}
+
+export async function findPublicProgramPageRepository(query: PublicProgramQuery) {
+  const db = getDbClient();
+  const searchPattern = `%${query.search.replace(/[\\%_]/g, (character) => `\\${character}`)}%`;
+  const visible = and(isNull(events.archivedAt), inArray(events.status,
+    ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING", "COMPLETED"]));
+  const keyword = query.search ? or(ilike(events.name, searchPattern), ilike(events.code, searchPattern),
+    ilike(events.venueName, searchPattern), sql`extract(year from ${events.startDate})::text like ${searchPattern}`) : undefined;
+  const where = and(visible, keyword, query.view === "history" ? eq(events.status, "COMPLETED")
+    : query.view === "agenda" ? ne(events.status, "COMPLETED") : undefined);
+  const priority = sql`case
+    when ${events.status} = 'REGISTRATION_OPEN' and (${events.registrationOpenAt} is null or ${events.registrationOpenAt} <= now())
+      and (${events.registrationCloseAt} is null or ${events.registrationCloseAt} >= now()) then
+      case when ${events.audienceMode} in ('PUBLIC_OPEN','MIXED') and ${events.regularQuota} is distinct from 0 then 0 else 1 end
+    when ${events.status} = 'PUBLISHED' or (${events.status} = 'REGISTRATION_OPEN' and ${events.registrationOpenAt} > now()) then 2
+    when ${events.status} = 'ONGOING' then 3 when ${events.status} = 'COMPLETED' then 5 else 4 end`;
+  const ordering = query.view === "history" ? [desc(events.endDate), desc(events.startDate), desc(events.id)]
+    : [asc(priority), sql`case when ${events.status} = 'COMPLETED' then -extract(epoch from ${events.startDate}) else extract(epoch from ${events.startDate}) end`, asc(events.id)];
+  const pageSize = query.view === "featured" ? Math.min(query.pageSize, 3) : query.pageSize;
+  const [data, [totalRow]] = await Promise.all([
+    db.select(publicProgramColumns).from(events).where(where).orderBy(...ordering)
+      .limit(pageSize).offset((query.page - 1) * pageSize),
+    db.select({ total: count() }).from(events).where(where),
+  ]);
+  const total = totalRow?.total || 0;
+  return { data, meta: { page: query.page, pageSize, total, pageCount: Math.max(1, Math.ceil(total / pageSize)) } };
+}
+
+/** Registration controls do not need posters, schedules, or committee accounts. */
+export async function findRegistrationEventRepository(id: string) {
+  const [event] = await getDbClient().select({ id: events.id, name: events.name, slug: events.slug,
+    timezone: events.timezone, startDate: events.startDate, endDate: events.endDate,
+    venueName: events.venueName, venueAddress: events.venueAddress, audienceMode: events.audienceMode,
+    status: events.status, defaultInstitutionQuota: events.defaultInstitutionQuota,
+    invitationResponseDeadline: events.invitationResponseDeadline,
+    attendanceConfirmationDeadline: events.attendanceConfirmationDeadline,
+    attendanceConfirmationRequired: events.attendanceConfirmationRequired, lateConfirmationPolicy: events.lateConfirmationPolicy,
+  }).from(events).where(eq(events.id, id)).limit(1);
+  return event || null;
 }
 
 export async function findEventByIdRepository(id: string) {
@@ -90,13 +128,12 @@ export async function findEventByIdRepository(id: string) {
   const found = await db.select().from(events).where(eq(events.id, id)).limit(1);
   if (found.length === 0) return null;
 
-  const days = await db
+  const [days, sessions, committee] = await Promise.all([db
     .select()
     .from(eventDays)
     .where(eq(eventDays.eventId, id))
-    .orderBy(asc(eventDays.dayNumber));
-
-  const sessions = await db
+    .orderBy(asc(eventDays.dayNumber)),
+  db
     .select({
       id: eventSessions.id,
       eventDayId: eventSessions.eventDayId,
@@ -116,9 +153,8 @@ export async function findEventByIdRepository(id: string) {
     .from(eventSessions)
     .innerJoin(eventDays, eq(eventSessions.eventDayId, eventDays.id))
     .where(eq(eventDays.eventId, id))
-    .orderBy(asc(eventSessions.sortOrder));
-
-  const committee = await db
+    .orderBy(asc(eventSessions.sortOrder)),
+  db
     .select({
       id: eventCommitteeAssignments.id,
       userId: eventCommitteeAssignments.userId,
@@ -132,7 +168,7 @@ export async function findEventByIdRepository(id: string) {
     })
     .from(eventCommitteeAssignments)
     .innerJoin(users, eq(eventCommitteeAssignments.userId, users.id))
-    .where(eq(eventCommitteeAssignments.eventId, id));
+    .where(eq(eventCommitteeAssignments.eventId, id))]);
 
   return {
     ...found[0],
@@ -145,7 +181,7 @@ export async function findEventByIdRepository(id: string) {
 export async function findEventBySlugRepository(slug: string) {
   const db = getDbClient();
   const found = await db
-    .select()
+    .select({ ...getTableColumns(events), posterUrl: publicPosterUrl })
     .from(events)
     .where(
       and(
@@ -164,8 +200,9 @@ export async function findEventBySlugRepository(slug: string) {
   if (found.length === 0) return null;
 
   const eventId = found[0].id;
-  const days = await db.select().from(eventDays).where(eq(eventDays.eventId, eventId)).orderBy(asc(eventDays.dayNumber));
-  const sessions = await db
+  const [days, sessions] = await Promise.all([
+    db.select().from(eventDays).where(eq(eventDays.eventId, eventId)).orderBy(asc(eventDays.dayNumber)),
+    db
     .select({
       id: eventSessions.id,
       eventDayId: eventSessions.eventDayId,
@@ -180,7 +217,7 @@ export async function findEventBySlugRepository(slug: string) {
     .from(eventSessions)
     .innerJoin(eventDays, eq(eventSessions.eventDayId, eventDays.id))
     .where(eq(eventDays.eventId, eventId))
-    .orderBy(asc(eventSessions.startAt), asc(eventSessions.sortOrder));
+    .orderBy(asc(eventSessions.startAt), asc(eventSessions.sortOrder))]);
 
   return {
     ...found[0],

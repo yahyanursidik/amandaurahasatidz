@@ -399,6 +399,18 @@ export async function findInvitationByTokenHashRepository(tokenHash: string) {
   };
 }
 
+/** Policy revalidation is intentionally read-only (no usedCount/status/audit writes). */
+export async function findInvitationPolicyByTokenHashRepository(tokenHash: string) {
+  const [result] = await getDbClient().select({
+    link: { revokedAt: invitationLinks.revokedAt, expiresAt: invitationLinks.expiresAt },
+    invitation: { id: invitations.id, invitationType: invitations.invitationType, invitationNumber: invitations.invitationNumber,
+      quota: invitations.quota, status: invitations.status, responseDeadline: invitations.responseDeadline, updatedAt: invitations.updatedAt },
+    event: { id: events.id, status: events.status, invitationResponseDeadline: events.invitationResponseDeadline },
+  }).from(invitationLinks).innerJoin(invitations, eq(invitations.id, invitationLinks.invitationId))
+    .innerJoin(events, eq(events.id, invitations.eventId)).where(eq(invitationLinks.tokenHash, tokenHash)).limit(1);
+  return result || null;
+}
+
 export async function createInvitationRepository(
   invData: typeof invitations.$inferInsert,
   tokenHash: string

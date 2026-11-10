@@ -39,7 +39,7 @@ export const CommitteeDirectoryPage: React.FC = () => {
         if (eventId) query.set("eventId", eventId);
         const [directory, eventRows] = await Promise.all([
           committeeApi<DirectoryData>(`/committee-members?${query}`),
-          committeeApi<EventItem[]>("/events"),
+          committeeApi<EventItem[]>("/events/options"),
         ]);
         if (active) { setData(directory); setEvents(eventRows); setNotice(""); }
       } catch (error) {

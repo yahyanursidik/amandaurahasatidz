@@ -2,7 +2,7 @@ import { UserContext, UserRoleAssignment } from "../middleware/rbac";
 import { getDbClient } from "../db/client";
 import { users, userRoleAssignments, roles } from "../db/schema";
 import { eq } from "drizzle-orm";
-import { findOwnPortalProfileRepository } from "../repositories/portalProfileRepository";
+import { findOwnPortalProfileIdRepository } from "../repositories/portalProfileRepository";
 import { RoleCode } from "../../../../src/config/permissions";
 import { parseCookies } from "../utils/cookie";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
@@ -181,7 +181,11 @@ export async function getUserSession(
 async function resolveUserContextFromEmail(targetEmail: string): Promise<UserContext> {
   const normalizedEmail = targetEmail.trim().toLowerCase();
   const db = getDbClient();
-  const foundUsers = await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1);
+  const foundUsers = await db.select({ id: users.id, email: users.email, name: users.name, status: users.status,
+    roleCode: roles.code, eventId: userRoleAssignments.eventId, institutionId: userRoleAssignments.institutionId,
+    startsAt: userRoleAssignments.startsAt, endsAt: userRoleAssignments.endsAt,
+  }).from(users).leftJoin(userRoleAssignments, eq(userRoleAssignments.userId, users.id))
+    .leftJoin(roles, eq(userRoleAssignments.roleId, roles.id)).where(eq(users.email, normalizedEmail));
 
   if (foundUsers.length === 0) {
     throw new UnauthorizedError("Akun tidak ditemukan atau belum diaktifkan.");
@@ -191,19 +195,7 @@ async function resolveUserContextFromEmail(targetEmail: string): Promise<UserCon
   if (userRecord.status !== "ACTIVE") {
     throw new UnauthorizedError("Akun tidak aktif. Hubungi administrator.");
   }
-  const assignmentsList = await db
-    .select({
-      roleCode: roles.code,
-      eventId: userRoleAssignments.eventId,
-      institutionId: userRoleAssignments.institutionId,
-      startsAt: userRoleAssignments.startsAt,
-      endsAt: userRoleAssignments.endsAt,
-    })
-    .from(userRoleAssignments)
-    .innerJoin(roles, eq(userRoleAssignments.roleId, roles.id))
-    .where(eq(userRoleAssignments.userId, userRecord.id));
-
-  const assignments: UserRoleAssignment[] = assignmentsList.map((a) => ({
+  const assignments: UserRoleAssignment[] = foundUsers.filter((a) => a.roleCode).map((a) => ({
     roleCode: a.roleCode as RoleCode,
     eventId: a.eventId,
     institutionId: a.institutionId,
@@ -211,7 +203,7 @@ async function resolveUserContextFromEmail(targetEmail: string): Promise<UserCon
     endsAt: a.endsAt,
   }));
   const ustadzProfile = assignments.some((assignment) => assignment.roleCode === "USTADZ")
-    ? await findOwnPortalProfileRepository(userRecord.id)
+    ? await findOwnPortalProfileIdRepository(userRecord.id)
     : undefined;
 
   return {

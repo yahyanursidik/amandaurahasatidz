@@ -55,3 +55,9 @@ export async function updateOwnPortalProfileRepository(
   return { ...saved, createdAt: new Date(saved.createdAt), updatedAt: new Date(saved.updatedAt),
     deletedAt: saved.deletedAt ? new Date(saved.deletedAt) : null };
 }
+
+export async function findOwnPortalProfileIdRepository(userId: string) {
+  const [profile] = await getDbClient().select({ id: ustadzProfiles.id }).from(ustadzProfiles)
+    .where(portalProfileOwnership(userId)).limit(1);
+  return profile;
+}

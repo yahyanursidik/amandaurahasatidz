@@ -12,6 +12,7 @@ export const InstitutionInvitationForm: React.FC<{
   onSubmit: () => void;
   onCancel: () => void;
   editing: boolean;
+  replacementNumber?: string;
   recipientLocked: boolean;
   registeredCount: number;
   timezone: string;
@@ -19,7 +20,7 @@ export const InstitutionInvitationForm: React.FC<{
   disabled: boolean;
   canOpenMasterData?: boolean;
   error?: string;
-}> = ({ institutions, value, onChange, onSubmit, onCancel, editing, recipientLocked, registeredCount, timezone, busy, disabled, canOpenMasterData = true, error }) => {
+}> = ({ institutions, value, onChange, onSubmit, onCancel, editing, replacementNumber = "", recipientLocked, registeredCount, timezone, busy, disabled, canOpenMasterData = true, error }) => {
   const [search, setSearch] = useState("");
   const selected = institutions.find((institution) => institution.id === value.institutionId);
   const options = institutions.filter((institution) => institution.id === value.institutionId ||
@@ -28,9 +29,14 @@ export const InstitutionInvitationForm: React.FC<{
   return <section id="institution-invitation-editor" className={`min-w-0 rounded-2xl border bg-white p-5 shadow-sm ${editing ? "border-sky-300 ring-2 ring-sky-100" : "border-slate-200"}`}>
     <div className="flex items-center gap-2 border-b border-slate-100 pb-4">
       {editing ? <PencilLine className="h-5 w-5 text-sky-700" /> : <Plus className="h-5 w-5 text-emerald-700" />}
-      <h2 className="text-base font-black text-slate-950">{editing ? "Edit undangan lembaga" : "Buat undangan lembaga"}</h2>
+      <h2 className="text-base font-black text-slate-950">{editing ? "Edit undangan lembaga" : replacementNumber ? "Buat undangan pengganti" : "Buat undangan lembaga"}</h2>
     </div>
-    <form onSubmit={(event) => { event.preventDefault(); if (!busy && !disabled) onSubmit(); }} aria-label={editing ? "Edit undangan lembaga" : "Buat undangan lembaga"} className="mt-4 space-y-4">
+    <p className="mt-3 text-xs leading-5 text-slate-600">{editing
+      ? `Pengaturan ini berlaku untuk ${value.invitationNumber || "undangan terpilih"} setelah Simpan perubahan. Tautan tetap sama jika lembaga tidak diganti.`
+      : replacementNumber
+        ? `Undangan ${replacementNumber} tetap dicabut. Isi nomor undangan baru; setelah disimpan, bagikan tautan dan kode baru. Peserta lama tidak dipindahkan otomatis.`
+      : "Pengaturan di sini hanya untuk undangan baru setelah disimpan. Untuk mengubah tautan yang sudah dibagikan, pilih Edit undangan pada daftar."}</p>
+    <form onSubmit={(event) => { event.preventDefault(); if (!busy && !disabled) onSubmit(); }} aria-label={editing ? "Edit undangan lembaga" : replacementNumber ? "Buat undangan pengganti" : "Buat undangan lembaga"} className="mt-4 space-y-4">
       <fieldset disabled={busy || disabled} className="min-w-0 space-y-4">
         <div>
           {!recipientLocked && <label className="relative mb-2 block"><span className="sr-only">Cari data lembaga</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Cari nama atau kode lembaga" className={`${inputClass} pl-9`} /></label>}
@@ -49,7 +55,7 @@ export const InstitutionInvitationForm: React.FC<{
           {canOpenMasterData && <Link to={`/admin/institutions/${selected.id}`} target="_blank" className="mt-2 inline-flex min-h-11 items-center text-xs font-bold underline">Profil lembaga ↗</Link>}
         </div>}
         {!selected && !institutions.length && <p className="rounded-lg bg-amber-50 p-3 text-sm text-amber-900">Belum ada lembaga aktif. {canOpenMasterData ? "Tambahkan melalui data lembaga." : "Hubungi pengelola data lembaga."}</p>}
-        <label className="block text-sm font-bold text-slate-700">Nomor undangan<input required minLength={2} maxLength={120} value={value.invitationNumber} onChange={(event) => onChange({ ...value, invitationNumber: event.target.value })} placeholder="INV/2027/001" className={inputClass} /></label>
+        <label className="block text-sm font-bold text-slate-700">{replacementNumber ? "Nomor undangan baru" : "Nomor undangan"}<input id="institution-invitation-number" required minLength={2} maxLength={120} value={value.invitationNumber} onChange={(event) => onChange({ ...value, invitationNumber: event.target.value })} placeholder="INV/2027/001" className={inputClass} /></label>
         <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-sky-200 bg-sky-50 p-3 text-sm text-sky-950">
           <input type="checkbox" checked={value.allowGroup} disabled={registeredCount > 1} onChange={(event) => onChange({ ...value, allowGroup: event.target.checked, quota: event.target.checked ? Math.max(2, value.quota) : 1 })} className="mt-1 h-5 w-5 shrink-0 accent-sky-700" />
           <span><strong className="flex items-center gap-2"><Users className="h-4 w-4" /> Boleh membawa rombongan</strong><span className="mt-1 block text-xs">{value.allowGroup ? "Kuota termasuk peserta utama." : "Hanya satu perwakilan; form peserta tambahan disembunyikan."}</span></span>
@@ -60,9 +66,9 @@ export const InstitutionInvitationForm: React.FC<{
       </fieldset>
       {error && <p role="alert" className="rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-950">{error}</p>}
       <div className="flex flex-wrap gap-2">
-        {editing && <button type="button" disabled={busy} onClick={onCancel} className="min-h-11 rounded-lg border border-slate-300 px-3 text-sm font-bold">Batal</button>}
+        {(editing || replacementNumber) && <button type="button" disabled={busy} onClick={onCancel} className="min-h-11 rounded-lg border border-slate-300 px-3 text-sm font-bold">Batal</button>}
         <button type="submit" disabled={busy || disabled || !institutions.length} className="inline-flex min-h-11 flex-1 items-center justify-center gap-2 rounded-lg bg-emerald-700 px-3 text-sm font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50">
-          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : editing ? <PencilLine className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}{busy ? "Menyimpan…" : editing ? "Simpan perubahan" : "Buat tautan undangan"}
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : editing ? <PencilLine className="h-4 w-4" /> : <Link2 className="h-4 w-4" />}{busy ? "Menyimpan…" : editing ? "Simpan perubahan" : replacementNumber ? "Buat tautan pengganti" : "Buat tautan undangan"}
         </button>
       </div>
     </form>

@@ -1,7 +1,7 @@
-import { ZodSchema, ZodError } from "zod";
+import { ZodError, type ZodTypeAny, type output } from "zod";
 import { ValidationError } from "./errors";
 
-export function validateRequestData<T>(schema: ZodSchema<T>, data: unknown): T {
+export function validateRequestData<T extends ZodTypeAny>(schema: T, data: unknown): output<T> {
   try {
     return schema.parse(data);
   } catch (error) {
