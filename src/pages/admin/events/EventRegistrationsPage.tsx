@@ -4,6 +4,7 @@
  */
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams, useSearchParams } from "react-router-dom";
+import { useGetIdentity } from "@refinedev/core";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -16,10 +17,10 @@ import {
   Download,
   FileSpreadsheet,
   Link2,
-  KeyRound,
   Loader2,
   Mail,
   Plus,
+  PencilLine,
   Search,
   Send,
   ShieldCheck,
@@ -32,29 +33,45 @@ import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { ENV } from "@/config/env";
+import { ROLE_PERMISSIONS, type RoleCode } from "@/config/permissions";
+import type { AuthIdentity } from "@/lib/refine/authProvider";
 import { EventWorkspaceNav } from "@/components/admin/events/EventWorkspaceNav";
 import { ParticipantCommunicationPanel } from "@/components/communications/ParticipantCommunicationPanel";
 import { ParticipantProfileDialog } from "@/components/participants/ParticipantProfileDialog";
 import { InvitationShareActions } from "@/components/invitations/InvitationShareActions";
+import { InstitutionInvitationForm } from "@/components/invitations/InstitutionInvitationForm";
 import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
 import { ParticipantShareDialog } from "@/components/participants/ParticipantShareDialog";
+import { ParticipantManagementDialog } from "@/components/participants/ParticipantManagementDialog";
+import { participantStaffPermissions } from "@/lib/participantManagement";
 import { ManualParticipantDialog } from "@/components/participants/ManualParticipantDialog";
 import { BulkParticipantApprovalPanel } from "@/components/participants/BulkParticipantApprovalPanel";
 import { canApproveParticipant, eligibleApprovalIds } from "@/lib/participantBulkApproval";
 import { buildInstitutionInvitationPath } from "@/lib/invitationUrl";
 import { parseParticipantCsv } from "@/lib/participantImportCsv";
-import { eventTimezoneLabel, fromEventIso, toEventIso } from "@/lib/eventDateTime";
+import { eventTimezoneLabel, formatEventDateTime, fromEventIso, toEventIso } from "@/lib/eventDateTime";
+import { invitationAllowsGroup, invitationStatusLabel, isInvitationPending, type InstitutionInvitationValues, type InvitationInstitutionOption } from "@/lib/institutionInvitation";
 
 type Invitation = {
   id: string;
+  invitationType?: string;
+  ustadzName?: string | null;
   institutionId: string | null;
   institutionName: string | null;
+  institutionCode?: string | null;
+  institutionEmail?: string | null;
+  institutionWhatsapp?: string | null;
+  institutionPhone?: string | null;
   invitationNumber: string;
   quota: number | null;
+  allowGroup?: boolean;
+  registeredCount?: number;
+  responseNotes?: string | null;
   status: string;
   sentAt: string | null;
   respondedAt: string | null;
   responseDeadline: string | null;
+  updatedAt?: string;
 };
 
 type Participant = {
@@ -89,14 +106,7 @@ type Participant = {
   portalPasswordConfigured?: boolean | null;
 };
 
-type Institution = {
-  id: string;
-  name: string;
-  code: string;
-  email?: string | null;
-  phone?: string | null;
-  whatsapp?: string | null;
-};
+type Institution = InvitationInstitutionOption;
 
 type ParticipantImportRow = {
   fullName: string;
@@ -137,6 +147,9 @@ type EventDeadline = {
   startDate?: string | null;
   endDate?: string | null;
   venueName?: string | null;
+  defaultInstitutionQuota?: number | null;
+  audienceMode?: string;
+  status?: string;
   invitationResponseDeadline: string | null;
   attendanceConfirmationDeadline: string | null;
   attendanceConfirmationRequired: boolean;
@@ -234,10 +247,10 @@ const api = async <T,>(path: string, options?: RequestInit): Promise<T> => {
   return result.data as T;
 };
 
-const loadActiveInstitutions = async () => {
+const loadActiveInstitutions = async (eventId: string) => {
   const institutions: Institution[] = [];
   for (let page = 1; ; page += 1) {
-    const batch = await api<Institution[]>(`/institutions?status=ACTIVE&pageSize=100&page=${page}`);
+    const batch = await api<Institution[]>(`/events/${eventId}/invitations/institutions?pageSize=100&page=${page}`);
     institutions.push(...batch);
     if (batch.length < 100) return institutions;
   }
@@ -311,8 +324,12 @@ const escapeCsvCell = (value: string) => `"${value.replaceAll('"', '""')}"`;
 export const EventRegistrationsPage: React.FC = () => {
   const { id = "" } = useParams<{ id: string }>();
   const [searchParams] = useSearchParams();
+  const { data: identity } = useGetIdentity<AuthIdentity>();
+  const canOpenMasterData = identity?.assignments.some((assignment) => ROLE_PERMISSIONS[assignment.roleCode as RoleCode]?.includes("institutions.read")) || false;
+  const staffPermissions = participantStaffPermissions(identity?.assignments, id);
   const participantView = searchParams.get("view") === "participants";
   const requestedInstitutionId = searchParams.get("institutionId") || "";
+  const requestedInvitationId = searchParams.get("invitationId") || "";
   const requestedStatus = searchParams.get("status") || "ALL";
   const demoMode = import.meta.env.DEV && !isUuid(id);
   const activeEventId = useRef(id);
@@ -322,7 +339,6 @@ export const EventRegistrationsPage: React.FC = () => {
   const [invitations, setInvitations] = useState<Invitation[]>([]);
   const [participants, setParticipants] = useState<Participant[]>([]);
   const [institutions, setInstitutions] = useState<Institution[]>([]);
-  const [representativeContacts, setRepresentativeContacts] = useState<Record<string, { email?: string | null; phone?: string | null }>>({});
   const [search, setSearch] = useState(() => searchParams.get("search") || "");
   useEffect(() => { setSearch(searchParams.get("search") || ""); }, [searchParams]);
   const [statusFilter, setStatusFilter] = useState(() => searchParams.get("status") || "ALL");
@@ -344,16 +360,20 @@ export const EventRegistrationsPage: React.FC = () => {
   const [participantImportProgress, setParticipantImportProgress] = useState<{ processed: number; total: number } | null>(null);
   const [copied, setCopied] = useState("");
   const [createdLink, setCreatedLink] = useState("");
-  const [createdAccessCode, setCreatedAccessCode] = useState("");
   const [createdInvitation, setCreatedInvitation] = useState<Invitation | null>(null);
   const [invitationLinks, setInvitationLinks] = useState<Record<string, string>>({});
-  const [invitationAccessCodes, setInvitationAccessCodes] = useState<Record<string, string>>({});
   const [linkBusy, setLinkBusy] = useState("");
+  const [invitationActionBusy, setInvitationActionBusy] = useState("");
+  const [editingInvitation, setEditingInvitation] = useState<Invitation | null>(null);
+  const [invitationNotice, setInvitationNotice] = useState("");
+  const [invitationFormError, setInvitationFormError] = useState("");
+  const defaultsApplied = useRef("");
   const [eventDeadline, setEventDeadline] = useState<EventDeadline | null>(null);
-  const [form, setForm] = useState({
+  const [form, setForm] = useState<InstitutionInvitationValues>({
     institutionId: requestedInstitutionId,
     invitationNumber: "",
-    quota: 2,
+    quota: 1,
+    allowGroup: false,
     responseDeadline: "",
   });
 
@@ -385,7 +405,7 @@ export const EventRegistrationsPage: React.FC = () => {
       const [invitationData, participantData, institutionData, deadlineData] = await Promise.all([
         api<Invitation[]>(`/events/${id}/invitations`),
         api<Participant[]>(`/events/${id}/participants`),
-        loadActiveInstitutions(),
+        loadActiveInstitutions(id),
         api<EventDeadline>(`/events/${id}`),
       ]);
       if (!isCurrent()) return false;
@@ -393,20 +413,15 @@ export const EventRegistrationsPage: React.FC = () => {
       setParticipants(participantData || []);
       setApprovalRequiresRefresh(false);
       const listedInstitutions = institutionData;
-      if (requestedInstitutionId && !listedInstitutions.some((institution) => institution.id === requestedInstitutionId)) {
-        try {
-          const selectedInstitution = await api<Institution>(`/institutions/${requestedInstitutionId}`);
-          if (isCurrent()) listedInstitutions.push(selectedInstitution);
-        } catch { /* The historic institution may no longer be available for new invitations. */ }
-      }
       if (!isCurrent()) return false;
       setInstitutions(listedInstitutions);
       setEventDeadline(deadlineData);
-      setForm((current) => ({
-        ...current,
-        institutionId: requestedInstitutionId || current.institutionId,
-        responseDeadline: current.responseDeadline || fromEventIso(deadlineData.invitationResponseDeadline, deadlineData.timezone || "Asia/Jakarta").slice(0, 10),
-      }));
+      if (defaultsApplied.current !== id) {
+        defaultsApplied.current = id;
+        setForm({ institutionId: requestedInstitutionId, invitationNumber: "",
+          quota: deadlineData.defaultInstitutionQuota || 1, allowGroup: (deadlineData.defaultInstitutionQuota || 1) > 1,
+          responseDeadline: fromEventIso(deadlineData.invitationResponseDeadline, deadlineData.timezone || "Asia/Jakarta") });
+      }
       return true;
     } catch (loadError) {
       if (isCurrent()) setError(loadError instanceof Error ? loadError.message : "Data registrasi gagal dimuat.");
@@ -424,6 +439,12 @@ export const EventRegistrationsPage: React.FC = () => {
     setApprovalMessage("");
     setApprovalRequiresRefresh(false);
     setParticipants([]);
+    setInvitations([]);
+    setInstitutions([]);
+    setCreatedLink(""); setCreatedInvitation(null); setInvitationLinks({});
+    setEditingInvitation(null); setInvitationNotice(""); setInvitationFormError(""); setEventDeadline(null);
+    setLinkBusy(""); setInvitationActionBusy(""); setSubmitting(false);
+    setForm({ institutionId: requestedInstitutionId, invitationNumber: "", quota: 1, allowGroup: false, responseDeadline: "" });
     void loadData();
     return () => { mounted.current = false; loadGeneration.current += 1; };
   }, [id]);
@@ -434,11 +455,20 @@ export const EventRegistrationsPage: React.FC = () => {
   }, [participantView]);
 
   useEffect(() => {
-    setStatusFilter(participantView && ["PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED"].includes(requestedStatus)
+    setStatusFilter((participantView ? ["PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED"] : ["DRAFT", "SENT", "OPENED", "ACCEPTED", "DECLINED", "REVOKED"]).includes(requestedStatus)
       ? requestedStatus
       : "ALL");
   }, [participantView, requestedStatus]);
   useEffect(() => { if (requestedInstitutionId) setForm((current) => ({ ...current, institutionId: requestedInstitutionId })); }, [requestedInstitutionId]);
+  useEffect(() => {
+    if (demoMode) return;
+    const refreshInstitutions = () => {
+      void loadActiveInstitutions(id).then((items) => { if (mounted.current && activeEventId.current === id) setInstitutions(items); })
+        .catch(() => { /* Keep the last loaded picker available when returning from a profile tab offline. */ });
+    };
+    window.addEventListener("focus", refreshInstitutions);
+    return () => window.removeEventListener("focus", refreshInstitutions);
+  }, [id, demoMode]);
 
   const filtered = useMemo(
     () =>
@@ -456,15 +486,15 @@ export const EventRegistrationsPage: React.FC = () => {
         const matchesSearch = `${participant.ustadzName} ${participant.participantCode} ${participant.institutionName || ""}`
           .toLowerCase()
           .includes(search.toLowerCase());
-        return matchesSearch && (!requestedInstitutionId || participant.institutionId === requestedInstitutionId) && (statusFilter === "ALL" || participant.approvalStatus === statusFilter);
+        return matchesSearch && (!requestedInstitutionId || participant.institutionId === requestedInstitutionId) && (!requestedInvitationId || participant.invitationId === requestedInvitationId) && (statusFilter === "ALL" || participant.approvalStatus === statusFilter || statusFilter === "DECLINED" && participant.approvalStatus === "REJECTED");
       }),
-    [participants, search, statusFilter, requestedInstitutionId]
+    [participants, search, statusFilter, requestedInstitutionId, requestedInvitationId]
   );
   const participantPageCount = Math.max(1, Math.ceil(filteredParticipants.length / 25));
   const visibleParticipantPage = Math.min(participantPage, participantPageCount);
   const pagedParticipants = filteredParticipants.slice((visibleParticipantPage - 1) * 25, visibleParticipantPage * 25);
 
-  useEffect(() => { setParticipantPage(1); }, [id, search, statusFilter]);
+  useEffect(() => { setParticipantPage(1); }, [id, search, statusFilter, requestedInstitutionId, requestedInvitationId]);
   useEffect(() => {
     const eligible = eligibleApprovalIds(participants);
     setSelectedParticipants((current) => current.filter((participantId) => eligible.includes(participantId)));
@@ -473,85 +503,107 @@ export const EventRegistrationsPage: React.FC = () => {
   const acceptedCount = invitations.filter((item) => item.status === "ACCEPTED").length;
   const awaitingCount = invitations.filter((item) => ["DRAFT", "SENT", "OPENED"].includes(item.status)).length;
   const approvedCount = participants.filter((item) => item.approvalStatus === "APPROVED").length;
+  const editorInstitutions = editingInvitation?.institutionId && !institutions.some((institution) => institution.id === editingInvitation.institutionId)
+    ? [...institutions, { id: editingInvitation.institutionId, code: editingInvitation.institutionCode || "Arsip",
+      name: editingInvitation.institutionName || "Lembaga penerima", email: editingInvitation.institutionEmail,
+      whatsapp: editingInvitation.institutionWhatsapp || editingInvitation.institutionPhone }]
+    : institutions;
+  const editingRegisteredCount = editingInvitation ? editingInvitation.registeredCount ?? participants.filter((participant) => participant.invitationId === editingInvitation.id).length : 0;
   const toAbsoluteInvitationUrl = (publicUrl: string) => new URL(publicUrl, window.location.origin).toString();
   const institutionForInvitation = (invitation: Invitation) =>
     institutions.find((institution) => institution.id === invitation.institutionId);
   const contactForInvitation = (invitation: Invitation) => {
     const institution = institutionForInvitation(invitation);
-    const representative = invitation.institutionId ? representativeContacts[invitation.institutionId] : undefined;
-    return { email: institution?.email || representative?.email, whatsapp: institution?.whatsapp || institution?.phone || representative?.phone };
-  };
-  const loadRepresentativeContact = async (institutionId: string | null) => {
-    if (demoMode || !institutionId) return;
-    try {
-      const institution = await api<{ representatives?: Array<{ email: string; phone?: string | null; isPrimary: boolean }> }>(`/institutions/${institutionId}`);
-      const representative = institution.representatives?.find((rep) => rep.isPrimary) || institution.representatives?.[0];
-      if (representative) setRepresentativeContacts((current) => ({ ...current, [institutionId]: representative }));
-    } catch { /* Official institution contacts remain available for sharing. */ }
+    return { email: institution?.email || invitation.institutionEmail, whatsapp: institution?.whatsapp || institution?.phone || invitation.institutionWhatsapp || invitation.institutionPhone };
   };
   const shareContextFor = (invitation: Invitation, invitationUrl: string) => ({
     institutionName: invitation.institutionName || institutionForInvitation(invitation)?.name || "Lembaga penerima",
     eventName: eventDeadline?.name || "Daurah Asatidz",
     invitationNumber: invitation.invitationNumber,
     invitationUrl,
-    accessCode: invitationAccessCodes[invitation.id] || (createdInvitation?.id === invitation.id ? createdAccessCode : ""),
+    allowGroup: invitationAllowsGroup(invitation),
+    quota: invitation.quota || 1,
+    timezone: eventDeadline?.timezone,
     responseDeadline: invitation.responseDeadline || eventDeadline?.invitationResponseDeadline,
   });
 
-  const createInvitation = async (event: React.FormEvent) => {
-    event.preventDefault();
+  const resetInvitationForm = () => {
+    setEditingInvitation(null);
+    setInvitationFormError("");
+    setForm({ institutionId: requestedInstitutionId, invitationNumber: "", quota: eventDeadline?.defaultInstitutionQuota || 1,
+      allowGroup: (eventDeadline?.defaultInstitutionQuota || 1) > 1,
+      responseDeadline: fromEventIso(eventDeadline?.invitationResponseDeadline, eventDeadline?.timezone || "Asia/Jakarta") });
+  };
+  const startEditingInvitation = (invitation: Invitation) => {
+    setEditingInvitation(invitation); setError(""); setInvitationNotice(""); setInvitationFormError("");
+    setForm({ institutionId: invitation.institutionId || "", invitationNumber: invitation.invitationNumber,
+      quota: invitation.quota || 1, allowGroup: invitationAllowsGroup(invitation),
+      responseDeadline: fromEventIso(invitation.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta") });
+    window.requestAnimationFrame(() => document.getElementById("institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" }));
+  };
+  const createInvitation = async () => {
+    if (submitting) return;
+    const editing = editingInvitation;
+    if (editing && form.institutionId !== editing.institutionId && !window.confirm("Ganti lembaga penerima? Tautan lama akan dicabut dan tautan baru perlu dibagikan kembali.")) return;
     setSubmitting(true);
     setError("");
+    setInvitationNotice("");
+    setInvitationFormError("");
     try {
+      const originalDeadline = editing?.responseDeadline || eventDeadline?.invitationResponseDeadline;
+      const responseDeadline = originalDeadline && form.responseDeadline === fromEventIso(originalDeadline, eventDeadline?.timezone || "Asia/Jakarta")
+        ? originalDeadline : toEventIso(form.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta");
+      const payload = { ...form, quota: form.allowGroup ? form.quota : 1, invitationNumber: form.invitationNumber.trim(),
+        responseDeadline };
+      let created: { invitation: Invitation; publicUrl?: string };
       if (demoMode) {
-        const rawToken = "inv_inst_demo_tautan_khusus_lembaga";
-        const institutionName = institutions.find((institution) => institution.id === form.institutionId)?.name || "Lembaga penerima";
-        setCreatedLink(`${window.location.origin}${buildInstitutionInvitationPath(institutionName, rawToken)}`);
-        setCreatedAccessCode("AMAN-2026");
-        setCreatedInvitation({
-          id: "inv-demo-created",
+        const institutionName = institutions.find((institution) => institution.id === form.institutionId)?.name || editing?.institutionName || "Lembaga penerima";
+        const invitation: Invitation = {
+          id: editing?.id || `inv-demo-${Date.now()}`,
+          invitationType: "INSTITUTION",
           institutionId: form.institutionId,
-          institutionName: institutions.find((institution) => institution.id === form.institutionId)?.name || "Lembaga penerima",
+          institutionName,
           invitationNumber: form.invitationNumber.trim(),
-          quota: form.quota,
-          status: "DRAFT",
-          sentAt: null,
-          respondedAt: null,
-          responseDeadline: toEventIso(form.responseDeadline ? `${form.responseDeadline}T23:59:59` : "", eventDeadline?.timezone || "Asia/Jakarta"),
-        });
+          quota: payload.quota, allowGroup: form.allowGroup,
+          status: editing?.status || "DRAFT", sentAt: editing?.sentAt || null, respondedAt: editing?.respondedAt || null,
+          responseDeadline: payload.responseDeadline,
+        };
+        created = { invitation, ...(!editing || editing.institutionId !== form.institutionId ? { publicUrl: buildInstitutionInvitationPath(institutionName, `inv_inst_demo_${invitation.id}`) } : {}) };
+        setInvitations((current) => editing ? current.map((item) => item.id === editing.id ? invitation : item) : [invitation, ...current]);
       } else {
-        const created = await api<{ invitation: Invitation; publicUrl: string; accessCode: string }>(`/events/${id}/invitations`, {
-          method: "POST",
-          body: JSON.stringify({
-            ...form,
-            invitationNumber: form.invitationNumber.trim(),
-            responseDeadline: toEventIso(form.responseDeadline ? `${form.responseDeadline}T23:59:59` : "", eventDeadline?.timezone || "Asia/Jakarta"),
-            invitationType: "INSTITUTION",
-          }),
+        created = await api<{ invitation: Invitation; publicUrl?: string }>(`/events/${id}/invitations${editing ? `/${editing.id}` : ""}`, {
+          method: editing ? "PATCH" : "POST",
+          body: JSON.stringify({ ...payload, ...(!editing ? { invitationType: "INSTITUTION" } : editing.updatedAt ? { expectedUpdatedAt: editing.updatedAt } : {}) }),
         });
+        if (!mounted.current || activeEventId.current !== id) return;
+        await loadData();
+      }
+      if (!mounted.current || activeEventId.current !== id) return;
+      if (created.publicUrl) {
         const absoluteUrl = toAbsoluteInvitationUrl(created.publicUrl);
         setCreatedLink(absoluteUrl);
-        setCreatedAccessCode(created.accessCode);
         setCreatedInvitation(created.invitation);
         setInvitationLinks((current) => ({ ...current, [created.invitation.id]: absoluteUrl }));
-        setInvitationAccessCodes((current) => ({ ...current, [created.invitation.id]: created.accessCode }));
-        await loadData();
-        await loadRepresentativeContact(created.invitation.institutionId);
+      } else if (createdInvitation?.id === created.invitation.id) {
+        setCreatedInvitation(created.invitation);
       }
+      resetInvitationForm();
+      setInvitationNotice(editing ? created.publicUrl ? "Perubahan tersimpan. Bagikan tautan baru; tautan lama sudah dicabut." : "Undangan berhasil diperbarui. Tautan yang sudah dibagikan tetap berlaku." : "Undangan berhasil dibuat. Tautan siap dibagikan.");
     } catch (submitError) {
-      setError(submitError instanceof Error ? submitError.message : "Undangan gagal dibuat.");
+      if (mounted.current && activeEventId.current === id) setInvitationFormError(submitError instanceof Error ? submitError.message : "Undangan gagal disimpan.");
     } finally {
-      setSubmitting(false);
+      if (mounted.current && activeEventId.current === id) setSubmitting(false);
     }
   };
 
   const copyText = async (text: string, key: string) => {
-    await navigator.clipboard.writeText(text);
-    setCopied(key);
-    window.setTimeout(() => setCopied(""), 1800);
+    try { await navigator.clipboard.writeText(text); setCopied(key); window.setTimeout(() => setCopied(""), 1800); }
+    catch { setError("Tautan tidak dapat disalin otomatis. Salin dari teks tautan yang tersedia."); }
   };
 
   const updateInvitation = async (invitation: Invitation, action: "send" | "revoke") => {
+    if (invitationActionBusy) return;
+    if (action === "revoke" && !window.confirm(`Cabut undangan ${invitation.invitationNumber}? Tautan formulir tidak dapat dipakai lagi.`)) return;
     if (demoMode) {
       setInvitations((current) =>
         current.map((item) =>
@@ -560,45 +612,36 @@ export const EventRegistrationsPage: React.FC = () => {
       );
       return;
     }
+    setInvitationActionBusy(invitation.id); setError("");
     try {
       await api(`/events/${id}/invitations/${invitation.id}/${action}`, { method: "POST" });
+      if (action === "revoke") {
+        setInvitationLinks((current) => { const next = { ...current }; delete next[invitation.id]; return next; });
+        if (createdInvitation?.id === invitation.id) { setCreatedInvitation(null); setCreatedLink(""); }
+        if (editingInvitation?.id === invitation.id) resetInvitationForm();
+      }
       await loadData();
     } catch (actionError) {
       setError(actionError instanceof Error ? actionError.message : "Status undangan gagal diperbarui.");
-    }
+    } finally { setInvitationActionBusy(""); }
   };
 
   const regenerateInvitationLink = async (invitation: Invitation) => {
+    if (linkBusy || !window.confirm("Buat tautan baru? Tautan sebelumnya akan dinonaktifkan dan perlu dibagikan kembali.")) return;
     setLinkBusy(invitation.id);
     setError("");
     try {
       const regenerated = demoMode
-        ? { publicUrl: buildInstitutionInvitationPath(invitation.institutionName || "Lembaga penerima", `inv_inst_demo_${invitation.id}`), accessCode: "AMAN-2026" }
-        : await api<{ publicUrl: string; accessCode: string }>(
+        ? { publicUrl: buildInstitutionInvitationPath(invitation.institutionName || "Lembaga penerima", `inv_inst_demo_${invitation.id}`) }
+        : await api<{ publicUrl: string }>(
             `/events/${id}/invitations/${invitation.id}/regenerate-link`,
             { method: "POST" },
           );
       const absoluteUrl = toAbsoluteInvitationUrl(regenerated.publicUrl);
       setInvitationLinks((current) => ({ ...current, [invitation.id]: absoluteUrl }));
-      setInvitationAccessCodes((current) => ({ ...current, [invitation.id]: regenerated.accessCode }));
-      await loadRepresentativeContact(invitation.institutionId);
+      if (createdInvitation?.id === invitation.id) setCreatedLink(absoluteUrl);
     } catch (linkError) {
       setError(linkError instanceof Error ? linkError.message : "Tautan undangan gagal dibuat ulang.");
-    } finally {
-      setLinkBusy("");
-    }
-  };
-
-  const revealInvitationAccessCode = async (invitation: Invitation) => {
-    setLinkBusy(`code-${invitation.id}`);
-    setError("");
-    try {
-      const result = demoMode
-        ? { accessCode: "AMAN-2026" }
-        : await api<{ accessCode: string }>(`/events/${id}/invitations/${invitation.id}/access-code`);
-      setInvitationAccessCodes((current) => ({ ...current, [invitation.id]: result.accessCode }));
-    } catch (codeError) {
-      setError(codeError instanceof Error ? codeError.message : "Kode unik lembaga tidak dapat ditampilkan.");
     } finally {
       setLinkBusy("");
     }
@@ -812,7 +855,7 @@ export const EventRegistrationsPage: React.FC = () => {
           breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Event", href: "/admin/events" }, { label: "Peserta" }]}
         />
         <EventWorkspaceNav eventId={id} />
-        {requestedInstitutionId && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 border-l-4 border-emerald-600 bg-emerald-50 px-4 py-3 text-sm text-emerald-950"><span>Peserta dari {institutions.find((institution) => institution.id === requestedInstitutionId)?.name || "lembaga terpilih"}</span><Link className="font-bold underline" to={`/admin/events/${id}/registrations?view=participants`}>Tampilkan semua</Link></div>}
+        {(requestedInstitutionId || requestedInvitationId) && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950"><span>{requestedInvitationId ? "Peserta dari undangan terpilih" : `Peserta dari ${institutions.find((institution) => institution.id === requestedInstitutionId)?.name || "lembaga terpilih"}`}</span><Link className="font-bold underline" to={`/admin/events/${id}/registrations?view=participants`}>Tampilkan semua</Link></div>}
         {demoMode && (
           <div className="mb-5 border-t-2 border-amber-500 bg-amber-50 p-3 text-xs text-amber-950">
             Mode pratinjau aktif. Tindakan persetujuan tidak mengubah database.
@@ -1046,7 +1089,18 @@ export const EventRegistrationsPage: React.FC = () => {
                         publicUrl: eventDeadline?.slug ? `${window.location.origin}/events/${encodeURIComponent(eventDeadline.slug)}` : undefined,
                       }}
                     />
-                    <ParticipantShareDialog eventId={id} participantId={participant.id} participantName={participant.ustadzName} demoMode={demoMode} />
+                     <ParticipantShareDialog eventId={id} participantId={participant.id} participantName={participant.ustadzName} demoMode={demoMode} />
+                     <ParticipantManagementDialog key={`manage-${participant.id}`} eventId={id} participant={{ id: participant.id, name: participant.ustadzName,
+                       participantCode: participant.participantCode, approvalStatus: participant.approvalStatus, confirmationStatus: participant.confirmationStatus }}
+                       permissions={staffPermissions} disabled={loading || Boolean(participantBusy) || Boolean(participantImportBusy)} demoMode={demoMode}
+                       onBusyChange={(busy) => { if (mounted.current && activeEventId.current === id) { approvalBusyRef.current = busy; setParticipantBusy(busy ? participant.id : ""); } }}
+                       onCompleted={async () => {
+                         const refreshed = await loadData();
+                         if (mounted.current && activeEventId.current === id) setApprovalMessage(refreshed
+                           ? "Status peserta berhasil diperbarui. Riwayat pendaftaran dan presensi tetap tersimpan."
+                           : "Perubahan tersimpan, tetapi daftar belum diperbarui. Muat ulang sebelum melakukan aksi berikutnya.");
+                         return refreshed;
+                       }} />
                     <ParticipantPortalAccessAction
                       eventId={id}
                       participant={{
@@ -1084,21 +1138,21 @@ export const EventRegistrationsPage: React.FC = () => {
   return (
     <AdminLayout>
       <PageHeader
-        title="Undangan & pendaftar"
-        description="Pantau konfirmasi lembaga, delegasi asatidz, persetujuan peserta, dan kesiapan check-in individual."
+        title="Undangan lembaga"
+        description={eventDeadline?.name || "Kelola undangan, respons, dan delegasi dalam satu tempat."}
         breadcrumbs={[
           { label: "Admin", href: "/admin" },
           { label: "Event", href: "/admin/events" },
-          { label: "Registrasi" },
+          { label: "Undangan" },
         ]}
         actions={
-          <Link
+          <div className="flex flex-wrap gap-2"><button type="button" disabled={submitting} onClick={() => { resetInvitationForm(); window.requestAnimationFrame(() => document.getElementById("institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" })); }} className="inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white disabled:opacity-50"><Plus className="h-4 w-4" /> Buat undangan</button><Link
             to={`/admin/events/${id}`}
             className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-xs font-bold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
           >
             <ArrowLeft className="h-4 w-4" />
             Detail event
-          </Link>
+          </Link></div>
         }
       />
       <EventWorkspaceNav eventId={id} />
@@ -1106,8 +1160,8 @@ export const EventRegistrationsPage: React.FC = () => {
 
       {eventDeadline && (
         <div className="mb-5 grid gap-3 border-y border-slate-200 bg-white p-4 text-sm sm:grid-cols-2">
-          <div><p className="text-xs font-black uppercase tracking-wide text-slate-500">Batas respons undangan</p><p className="mt-1 font-black text-slate-950">{eventDeadline.invitationResponseDeadline ? new Date(eventDeadline.invitationResponseDeadline).toLocaleString("id-ID") : "Tidak dibatasi"}</p></div>
-          <div><p className="text-xs font-black uppercase tracking-wide text-slate-500">Konfirmasi kehadiran</p><p className="mt-1 font-black text-slate-950">{eventDeadline.attendanceConfirmationDeadline ? new Date(eventDeadline.attendanceConfirmationDeadline).toLocaleString("id-ID") : "Tidak dibatasi"} · {eventDeadline.lateConfirmationPolicy}</p></div>
+          <div><p className="text-xs font-black uppercase tracking-wide text-slate-500">Batas respons undangan</p><p className="mt-1 font-black text-slate-950">{eventDeadline.invitationResponseDeadline ? `${formatEventDateTime(eventDeadline.invitationResponseDeadline, eventDeadline.timezone || "Asia/Jakarta")} ${eventTimezoneLabel(eventDeadline.timezone || "Asia/Jakarta")}` : "Tidak dibatasi"}</p></div>
+          <Link to={`/admin/events/${id}/registrations?view=participants`} className="flex min-h-11 items-center gap-2 font-bold text-emerald-800"><Users className="h-4 w-4" /> Kelola peserta & akses portal →</Link>
         </div>
       )}
 
@@ -1123,18 +1177,20 @@ export const EventRegistrationsPage: React.FC = () => {
 
       <section aria-label="Ringkasan registrasi" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
-          { label: "Lembaga diundang", value: invitations.length, icon: Building2 },
-          { label: "Sudah konfirmasi", value: acceptedCount, icon: CheckCircle2 },
-          { label: "Menunggu respons", value: awaitingCount, icon: Clock3 },
-          { label: "Peserta disetujui", value: approvedCount, icon: UserCheck },
+          { label: "Undangan", value: invitations.length, icon: Building2, color: "border-sky-400 bg-sky-50 text-sky-800" },
+          { label: "Bersedia hadir", value: acceptedCount, icon: CheckCircle2, color: "border-emerald-400 bg-emerald-50 text-emerald-800" },
+          { label: "Menunggu respons", value: awaitingCount, icon: Clock3, color: "border-amber-400 bg-amber-50 text-amber-800" },
+          { label: "Peserta disetujui", value: approvedCount, icon: UserCheck, color: "border-violet-400 bg-violet-50 text-violet-800" },
         ].map((metric) => (
-          <div key={metric.label} className="border-t-2 border-emerald-700 bg-white px-4 py-4 shadow-sm">
-            <metric.icon className="mb-3 h-4 w-4 text-emerald-700" />
+          <div key={metric.label} className={`rounded-xl border-t-2 px-4 py-4 shadow-sm ${metric.color}`}>
+            <metric.icon className="mb-3 h-5 w-5" />
             <p className="text-2xl font-black tabular-nums text-slate-950">{loading ? "—" : metric.value}</p>
             <p className="mt-1 text-[11px] font-semibold text-slate-500">{metric.label}</p>
           </div>
         ))}
       </section>
+
+      {eventDeadline?.audienceMode && !["MIXED", "INSTITUTION_INVITATION"].includes(eventDeadline.audienceMode) && <p className="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-950">Jalur undangan lembaga belum diaktifkan. <Link to={`/admin/events/${id}/edit`} className="font-bold underline">Atur jalur peserta</Link></p>}
 
       {error && (
         <div role="alert" className="mt-5 flex items-start gap-3 rounded-lg border border-rose-200 bg-rose-50 p-4 text-xs text-rose-900">
@@ -1144,7 +1200,7 @@ export const EventRegistrationsPage: React.FC = () => {
       )}
 
       <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
-        <main className="min-w-0">
+        <section aria-label="Daftar undangan" className="min-w-0">
           <div className="mb-4 flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center">
             <div className="relative min-w-0 flex-1">
               <Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" />
@@ -1169,7 +1225,8 @@ export const EventRegistrationsPage: React.FC = () => {
               <option value="SENT">Terkirim</option>
               <option value="OPENED">Dibuka</option>
               <option value="ACCEPTED">Dikonfirmasi</option>
-              <option value="DECLINED">Ditolak</option>
+              <option value="DECLINED">Berhalangan</option>
+              <option value="REVOKED">Dicabut</option>
             </select>
           </div>
 
@@ -1198,37 +1255,38 @@ export const EventRegistrationsPage: React.FC = () => {
                             {invitation.invitationNumber}
                           </span>
                           <StatusBadge
-                            label={invitation.status}
-                            variant={invitation.status === "ACCEPTED" ? "success" : invitation.status === "DECLINED" ? "danger" : "info"}
+                            label={invitationStatusLabel[invitation.status] || invitation.status}
+                            variant={invitation.status === "ACCEPTED" ? "success" : ["DECLINED", "REVOKED"].includes(invitation.status) ? "danger" : "info"}
                           />
-                          {invitation.responseDeadline && new Date(invitation.responseDeadline) < new Date() && (
+                          {isInvitationPending(invitation.status) && invitation.responseDeadline && new Date(invitation.responseDeadline) < new Date() && (
                             <StatusBadge label="Tenggat lewat" variant="danger" />
                           )}
                         </div>
                         <h2 className="mt-1 overflow-wrap-anywhere text-sm font-black text-slate-950">
-                          {invitation.institutionName || "Undangan individu"}
+                          {invitation.institutionId ? canOpenMasterData ? <Link to={`/admin/institutions/${invitation.institutionId}`} className="hover:text-emerald-800 hover:underline">{invitation.institutionName || "Lembaga penerima"}</Link> : invitation.institutionName || "Lembaga penerima" : invitation.ustadzName || "Undangan individu"}
                         </h2>
                         <p className="mt-1 text-[11px] text-slate-500">
-                          {delegates.length} dari {invitation.quota || 1} delegasi terdaftar
+                          {invitation.registeredCount ?? delegates.length} dari {invitation.quota || 1} peserta · {invitationAllowsGroup(invitation) ? "Rombongan diizinkan" : "Satu perwakilan"}
                         </p>
+                        {invitation.responseDeadline && <p className="mt-2 text-xs text-slate-500">Batas respons: {formatEventDateTime(invitation.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta")} {eventTimezoneLabel(eventDeadline?.timezone || "Asia/Jakarta")}</p>}
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {!["REVOKED", "DECLINED"].includes(invitation.status) && (
+                        {invitation.institutionId && invitation.status !== "REVOKED" && (
                           <button
                             type="button"
-                            onClick={() => void revealInvitationAccessCode(invitation)}
-                            disabled={linkBusy === `code-${invitation.id}`}
+                            onClick={() => startEditingInvitation(invitation)}
+                            disabled={submitting || Boolean(invitationActionBusy)}
                             className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                           >
-                            {linkBusy === `code-${invitation.id}` ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
-                            Lihat kode
+                            <PencilLine className="h-4 w-4" />
+                            Edit undangan
                           </button>
                         )}
-                        {!["REVOKED", "DECLINED"].includes(invitation.status) && (
+                        {isInvitationPending(invitation.status) && (
                           <button
                             type="button"
                             onClick={() => void regenerateInvitationLink(invitation)}
-                            disabled={linkBusy === invitation.id}
+                            disabled={Boolean(linkBusy) || submitting || Boolean(invitationActionBusy)}
                             className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-sm font-bold text-emerald-900 hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             {linkBusy === invitation.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
@@ -1238,15 +1296,17 @@ export const EventRegistrationsPage: React.FC = () => {
                         {invitation.status === "DRAFT" && (
                           <button
                             onClick={() => void updateInvitation(invitation, "send")}
+                            disabled={Boolean(invitationActionBusy) || submitting || Boolean(linkBusy)}
                             className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-3 text-xs font-bold text-white hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
                           >
                             <Send className="h-3.5 w-3.5" />
                             Tandai terkirim
                           </button>
                         )}
-                        {!["REVOKED", "DECLINED"].includes(invitation.status) && (
+                        {isInvitationPending(invitation.status) && (
                           <button
                             onClick={() => void updateInvitation(invitation, "revoke")}
+                            disabled={Boolean(invitationActionBusy) || submitting || Boolean(linkBusy)}
                             className="inline-flex min-h-[44px] items-center whitespace-nowrap rounded-lg border border-slate-300 px-3 text-xs font-bold text-slate-600 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-700"
                           >
                             Cabut
@@ -1255,7 +1315,7 @@ export const EventRegistrationsPage: React.FC = () => {
                       </div>
                     </div>
 
-                    {invitationLinks[invitation.id] && (
+                    {invitationLinks[invitation.id] && isInvitationPending(invitation.status) && (
                       <div className="border-t border-emerald-200 bg-emerald-50 px-4 py-3">
                         <p className="text-sm font-bold text-emerald-950">Tautan formulir khusus lembaga</p>
                         <div className="mt-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
@@ -1272,20 +1332,8 @@ export const EventRegistrationsPage: React.FC = () => {
                           </button>
                         </div>
                         <p className="mt-2 text-sm leading-6 text-emerald-900">
-                          Tautan sebelumnya otomatis dinonaktifkan. Bagikan URL ini kepada lembaga terkait.
+                          Tautan ini adalah akses pribadi lembaga. Bagikan hanya kepada penerima.
                         </p>
-                        {invitationAccessCodes[invitation.id] && (
-                          <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-emerald-300 bg-white p-3">
-                            <div>
-                              <p className="text-xs font-bold text-emerald-800">Kode unik lembaga</p>
-                              <p className="mt-1 font-mono text-xl font-black tracking-[0.16em] text-emerald-950">{invitationAccessCodes[invitation.id]}</p>
-                            </div>
-                            <button type="button" onClick={() => void copyText(invitationAccessCodes[invitation.id], `code-${invitation.id}`)} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-emerald-300 px-3 text-sm font-bold text-emerald-900">
-                              {copied === `code-${invitation.id}` ? <Check className="h-4 w-4" /> : <Clipboard className="h-4 w-4" />}
-                              {copied === `code-${invitation.id}` ? "Tersalin" : "Salin kode"}
-                            </button>
-                          </div>
-                        )}
                         <InvitationShareActions
                           context={shareContextFor(invitation, invitationLinks[invitation.id])}
                           recipientWhatsapp={contactForInvitation(invitation).whatsapp}
@@ -1294,18 +1342,11 @@ export const EventRegistrationsPage: React.FC = () => {
                       </div>
                     )}
 
-                    {!invitationLinks[invitation.id] && invitationAccessCodes[invitation.id] && (
-                      <div className="border-t border-slate-200 bg-slate-50 px-4 py-3">
-                        <p className="text-xs font-bold text-slate-600">Kode unik lembaga</p>
-                        <div className="mt-1 flex flex-wrap items-center justify-between gap-3">
-                          <code className="font-mono text-lg font-black tracking-[0.14em] text-slate-950">{invitationAccessCodes[invitation.id]}</code>
-                          <p className="text-xs text-slate-600">Buat ulang tautan untuk memperoleh URL yang dapat dibagikan bersama kode ini.</p>
-                        </div>
-                      </div>
-                    )}
+                    {invitation.responseNotes && <p className="border-t border-slate-100 px-4 py-3 text-sm text-slate-600"><span className="font-bold">Catatan lembaga: </span>{invitation.responseNotes}</p>}
 
                     {delegates.length > 0 && (
                       <div className="border-t border-slate-200 bg-slate-50 px-4 py-3">
+                        <Link to={`/admin/events/${id}/registrations?view=participants&invitationId=${invitation.id}`} className="mb-3 inline-flex min-h-11 items-center gap-2 text-sm font-bold text-emerald-800"><Users className="h-4 w-4" /> Kelola {delegates.length} peserta →</Link>
                         <div className="grid gap-2 sm:grid-cols-2">
                           {delegates.map((delegate) => (
                             <div key={delegate.id} className="flex min-w-0 items-start justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3">
@@ -1334,87 +1375,26 @@ export const EventRegistrationsPage: React.FC = () => {
               })}
             </div>
           )}
-        </main>
+        </section>
 
-        <aside className="h-fit rounded-xl border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-4">
-          <div className="flex items-center gap-2 border-b border-slate-200 pb-3">
-            <Plus className="h-4 w-4 text-emerald-700" />
-            <h2 className="text-sm font-black text-slate-950">Buat undangan lembaga</h2>
-          </div>
-          <form onSubmit={createInvitation} className="mt-4 space-y-3">
-            <div>
-              <label htmlFor="institution" className="mb-1.5 block text-[11px] font-bold text-slate-700">Lembaga</label>
-              <select
-                id="institution"
-                required
-                value={form.institutionId}
-                onChange={(event) => setForm({ ...form, institutionId: event.target.value })}
-                className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-xs focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700"
-              >
-                <option value="">Pilih lembaga</option>
-                {institutions.map((institution) => (
-                  <option key={institution.id} value={institution.id}>{institution.code} · {institution.name}</option>
-                ))}
-              </select>
-            </div>
-            <div>
-              <label htmlFor="invitation-number" className="mb-1.5 block text-[11px] font-bold text-slate-700">Nomor undangan</label>
-              <input
-                id="invitation-number"
-                required
-                value={form.invitationNumber}
-                onChange={(event) => setForm({ ...form, invitationNumber: event.target.value })}
-                placeholder="INV/2026/BDG/003"
-                className="min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-xs outline-transparent hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700"
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label htmlFor="quota" className="mb-1.5 block text-[11px] font-bold text-slate-700">Kuota</label>
-                <input
-                  id="quota"
-                  type="number"
-                  min={1}
-                  required
-                  value={form.quota}
-                  onChange={(event) => setForm({ ...form, quota: Number(event.target.value) })}
-                  className="min-h-[44px] w-full rounded-lg border border-slate-300 px-3 text-xs focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700"
-                />
-              </div>
-              <div>
-                <label htmlFor="deadline" className="mb-1.5 block text-sm font-bold text-slate-700">Batas respons · {eventTimezoneLabel(eventDeadline?.timezone || "Asia/Jakarta")}</label>
-                <input
-                  id="deadline"
-                  type="date"
-                  value={form.responseDeadline}
-                  onChange={(event) => setForm({ ...form, responseDeadline: event.target.value })}
-                  className="min-h-[44px] w-full rounded-lg border border-slate-300 px-2 text-sm focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-emerald-700"
-                />
-              </div>
-            </div>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-xs font-black text-white hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Link2 className="h-4 w-4" />}
-              {submitting ? "Membuat tautan…" : "Buat tautan khusus"}
-            </button>
-          </form>
+        <aside className="min-w-0 space-y-4 self-start xl:sticky xl:top-36">
+          {invitationNotice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">{invitationNotice}</p>}
+          <InstitutionInvitationForm key={`${id}:${editingInvitation?.id || "new"}`} institutions={editorInstitutions}
+            canOpenMasterData={canOpenMasterData}
+            error={invitationFormError}
+            value={form} onChange={setForm} onSubmit={() => void createInvitation()} onCancel={resetInvitationForm}
+            editing={Boolean(editingInvitation)} registeredCount={editingRegisteredCount}
+            recipientLocked={Boolean(editingInvitation && (editingInvitation.respondedAt || editingRegisteredCount > 0 || !isInvitationPending(editingInvitation.status)))}
+            timezone={eventDeadline?.timezone || "Asia/Jakarta"} busy={submitting}
+            disabled={loading || Boolean(invitationActionBusy) || Boolean(eventDeadline?.audienceMode && !["MIXED", "INSTITUTION_INVITATION"].includes(eventDeadline.audienceMode)) || Boolean(eventDeadline?.status && ["CANCELLED", "COMPLETED", "ARCHIVED"].includes(eventDeadline.status))} />
 
-          {createdLink && (
+          {createdLink && createdInvitation && isInvitationPending(invitations.find((invitation) => invitation.id === createdInvitation.id)?.status || createdInvitation.status) && (
             <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
               <div className="flex items-center gap-2 text-[11px] font-black text-emerald-900">
                 <CheckCircle2 className="h-4 w-4" />
                 Tautan siap dibagikan
               </div>
               <p className="mt-2 break-all font-mono text-[10px] leading-relaxed text-emerald-950">{createdLink}</p>
-              {createdAccessCode && (
-                <div className="mt-3 rounded-lg border border-emerald-300 bg-white p-3 text-center">
-                  <p className="text-xs font-bold text-emerald-800">Kode unik lembaga</p>
-                  <p className="mt-1 font-mono text-xl font-black tracking-[0.16em] text-emerald-950">{createdAccessCode}</p>
-                </div>
-              )}
               <button
                 type="button"
                 onClick={() => void copyText(createdLink, "new-link")}

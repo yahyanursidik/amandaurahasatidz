@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   audit: vi.fn(), institution: vi.fn(),
 }));
 vi.mock("../../netlify/functions/lib/db/client", () => ({ getDbClient: () => mocks.db }));
+vi.mock("../../netlify/functions/lib/db/transactionClient", () => ({ createTransactionClient: () => ({ db: mocks.db, close: async () => {} }) }));
 vi.mock("../../netlify/functions/lib/services/auditService", () => ({ createAuditLog: mocks.audit }));
 vi.mock("../../netlify/functions/lib/services/registrationInstitutionService", () => ({ resolveRegistrationInstitution: mocks.institution }));
 
@@ -215,11 +216,11 @@ describe("createManualParticipantService (mocked database)", () => {
     expect(mocks.db.select).not.toHaveBeenCalled();
     expect(mocks.db.transaction).not.toHaveBeenCalled();
   });
-  it("uses existing Neon HTTP fallback once when interactive transactions are unsupported", async () => {
+  it("fails closed without replaying manual entry when transactions are unsupported", async () => {
     mocks.db.transaction.mockRejectedValueOnce(new Error("No transactions support in neon-http driver"));
-    expect((await create()).participantId).toBe(participantId);
-    expect(writes).toHaveLength(2);
-    expect(mocks.audit).toHaveBeenCalledTimes(1);
+    await expect(create()).rejects.toThrow("No transactions support in neon-http driver");
+    expect(writes).toHaveLength(0);
+    expect(mocks.audit).not.toHaveBeenCalled();
   });
   it("does not retry unrelated database failures or audit a failed creation", async () => {
     mocks.db.transaction.mockRejectedValueOnce(new Error("Database connection failed"));

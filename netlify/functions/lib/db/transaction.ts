@@ -1,23 +1,17 @@
-import { getDbClient } from "./client";
+import type { getDbClient } from "./client";
+import { createTransactionClient } from "./transactionClient";
 
 export async function withTransaction<T>(
   callback: (tx: ReturnType<typeof getDbClient>) => Promise<T>
 ): Promise<T> {
-  const db = getDbClient();
+  const { db, close } = createTransactionClient();
   try {
     return await db.transaction(async (tx) => {
       return await callback(tx as unknown as ReturnType<typeof getDbClient>);
     });
-  } catch (error) {
-    const message = error instanceof Error ? error.message.toLowerCase() : "";
-    const transactionUnsupported =
-      message.includes("transaction") &&
-      (message.includes("not supported")
-        || message.includes("does not support")
-        || message.includes("no transaction")
-        || message.includes("support in neon-http"));
-    if (!transactionUnsupported) throw error;
-    // Neon HTTP deployments that cannot run interactive transactions still execute once.
-    return callback(db);
+  } finally {
+    // Cleanup failure after COMMIT must not turn a successful mutation into an
+    // error that invites the caller to repeat it. Never replay the callback.
+    await close().catch(() => {});
   }
 }

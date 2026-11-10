@@ -1,5 +1,6 @@
 import { getDbClient } from "../db/client";
 import { withTransaction } from "../db/transaction";
+import { lockRegistrationEvent, assertRegistrationCapacity } from "./registrationCapacity";
 import { eventParticipants, events, institutions, ustadzProfiles, ustadzInstitutionAffiliations, participantStatusHistories } from "../db/schema";
 import { and, eq, inArray, or, sql } from "drizzle-orm";
 import { AppError, ValidationError, ForbiddenError, NotFoundError, ConflictError } from "../utils/errors";
@@ -385,6 +386,7 @@ export async function commitEventParticipantImportService(
   for (const row of rowsToImport) {
     try {
       const participantCode = await withTransaction(async (tx) => {
+      const lockedEvent = await lockRegistrationEvent(tx, eventId);
       const phones = [...new Set([row.normalizedPhone, row.normalizedWhatsapp].filter((value): value is string => Boolean(value)))];
        const profiles = await tx
          .select()
@@ -467,6 +469,9 @@ export async function commitEventParticipantImportService(
          throw new ConflictError("Pendaftaran sudah dibatalkan/diganti. Panitia harus meninjau perubahan secara manual.");
        }
        const nextApproval = normalizeParticipantApprovalStatus(row.approvalStatus);
+       if (nextApproval === "APPROVED" && existingParticipant?.approvalStatus !== "APPROVED") {
+         await assertRegistrationCapacity(tx, lockedEvent, existingParticipant?.registrationSource || "DIRECT_ADMIN_UPLOAD", 1);
+       }
        const created = existingParticipant ? (
          await tx.update(eventParticipants).set({
            approvalStatus: nextApproval,

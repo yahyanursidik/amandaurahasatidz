@@ -1,6 +1,8 @@
 import { getDbClient } from "../db/client";
 import { events, eventDays, eventSessions, eventCommitteeAssignments, users } from "../db/schema";
 import { eq, ilike, and, or, isNull, count, desc, asc, inArray, sql } from "drizzle-orm";
+import { withTransaction } from "../db/transaction";
+import { assertRegistrationQuotaEdit } from "../services/registrationCapacity";
 
 export async function findEventCatalogRepository(query: { page: number; pageSize: number; search: string; status: string }) {
   const db = getDbClient();
@@ -199,6 +201,16 @@ export async function updateEventRepository(id: string, data: Partial<typeof eve
   // Strip status column to prevent arbitrary status mutation in PATCH update!
   const sanitizedData = { ...data };
   delete sanitizedData.status;
+
+  if (["capacity", "regularQuota", "invitationQuota"].some((key) => key in sanitizedData)) {
+    return withTransaction(async (tx) => {
+      const [current] = await tx.select().from(events).where(eq(events.id, id)).limit(1).for("update");
+      if (!current) return null;
+      await assertRegistrationQuotaEdit(tx, { ...current, ...sanitizedData });
+      const [updated] = await tx.update(events).set({ ...sanitizedData, updatedAt: new Date() }).where(eq(events.id, id)).returning();
+      return updated;
+    });
+  }
 
   const updated = await db
     .update(events)

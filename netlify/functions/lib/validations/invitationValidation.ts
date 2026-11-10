@@ -1,13 +1,18 @@
 import { z } from "zod";
 
+const invitationNumber = z.string().trim().min(2, "Nomor undangan minimal 2 karakter").max(120, "Nomor undangan maksimal 120 karakter");
+const quota = z.coerce.number().int("Kuota harus berupa bilangan bulat").min(1, "Kuota minimal 1 peserta").max(1000, "Kuota maksimal 1.000 peserta");
+const responseDeadline = z.string().datetime({ offset: true, message: "Batas respons harus berupa tanggal dan waktu yang valid" }).optional().nullable();
+
 export const createInvitationSchema = z.object({
   eventId: z.string().uuid("ID Event tidak valid"),
   invitationType: z.enum(["INSTITUTION", "INDIVIDUAL"]),
   institutionId: z.string().uuid().optional().nullable(),
   ustadzId: z.string().uuid().optional().nullable(),
-  invitationNumber: z.string().trim().min(2, "Nomor undangan minimal 2 karakter").max(120, "Nomor undangan maksimal 120 karakter"),
-  quota: z.coerce.number().min(1, "Kuota minimal 1 peserta").default(1),
-  responseDeadline: z.string().optional().nullable(),
+  invitationNumber,
+  quota: quota.optional(),
+  allowGroup: z.boolean().optional(),
+  responseDeadline,
 }).superRefine((value, context) => {
   if (value.invitationType === "INSTITUTION" && !value.institutionId) {
     context.addIssue({
@@ -25,6 +30,20 @@ export const createInvitationSchema = z.object({
   }
 });
 
+export const updateInvitationSchema = z.object({
+  institutionId: z.string().uuid("ID lembaga tidak valid").optional(),
+  invitationNumber: invitationNumber.optional(),
+  quota: quota.optional(),
+  allowGroup: z.boolean().optional(),
+  responseDeadline,
+  expectedUpdatedAt: z.string().datetime({ offset: true }).optional(),
+}).strict().refine((value) => Object.keys(value).some((key) => key !== "expectedUpdatedAt"), "Tidak ada perubahan undangan yang dikirim");
+
+export const invitationInstitutionQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(100),
+});
+
 export const submitResponseSchema = z.object({
   captchaToken: z.string().optional(),
   institutionName: z.string().trim().max(180).refine((value) => value.length === 0 || value.length >= 3,
@@ -35,7 +54,7 @@ export const submitResponseSchema = z.object({
   delegates: z
     .array(
       z.object({
-        fullName: z.string().min(2, "Nama delegasi minimal 2 karakter"),
+        fullName: z.string().trim().min(2, "Nama delegasi minimal 2 karakter").max(180),
         email: z.string().trim().email("Format email delegasi tidak valid"),
         phone: z.string().min(8, "Nomor telepon minimal 8 digit").optional().nullable(),
         whatsapp: z.string().min(8, "Nomor WhatsApp minimal 8 digit").optional().nullable(),
@@ -46,7 +65,7 @@ export const submitResponseSchema = z.object({
         provinceCode: z.string().trim().max(30).optional().nullable(),
         isLead: z.boolean().default(false),
       })
-    )
+    ).max(1000, "Maksimal 1.000 delegasi")
     .optional(),
 }).superRefine((value, context) => {
   const delegates = value.delegates || [];
@@ -63,6 +82,9 @@ export const submitResponseSchema = z.object({
       path: ["delegates"],
       message: "Pilih tepat satu ketua rombongan",
     });
+  }
+  if (value.responseStatus === "DECLINED" && delegates.length > 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["delegates"], message: "Undangan berhalangan tidak boleh menyertakan peserta" });
   }
   const normalizedEmails = delegates.map((delegate) => delegate.email.toLowerCase());
   if (new Set(normalizedEmails).size !== normalizedEmails.length) {

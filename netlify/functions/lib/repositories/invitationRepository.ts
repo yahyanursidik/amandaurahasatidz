@@ -13,13 +13,14 @@ import {
   userRoleAssignments,
   users,
 } from "../db/schema";
-import { eq, and, desc, sql, isNull, ne } from "drizzle-orm";
+import { eq, and, desc, sql, isNull, ne, inArray } from "drizzle-orm";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { withTransaction } from "../db/transaction";
 import { resolveRegistrationInstitution } from "../services/registrationInstitutionService";
 import { hashPassword } from "../utils/password";
 import { canIssueImmediatePassword, generateMemorableTemporaryPassword } from "../utils/memorablePassword";
-import { ConflictError } from "../utils/errors";
+import { ConflictError, ForbiddenError, NotFoundError } from "../utils/errors";
+import { lockRegistrationEvent, assertRegistrationCapacity } from "../services/registrationCapacity";
 
 export async function findInvitationsRepository(eventId?: string) {
   const db = getDbClient();
@@ -36,16 +37,26 @@ export async function findInvitationsRepository(eventId?: string) {
       invitationType: invitations.invitationType,
       institutionId: invitations.institutionId,
       institutionName: institutions.name,
+      institutionCode: institutions.code,
+      institutionEmail: institutions.email,
+      institutionWhatsapp: institutions.whatsapp,
+      institutionPhone: institutions.phone,
+      ustadzName: ustadzProfiles.fullName,
       invitationNumber: invitations.invitationNumber,
       quota: invitations.quota,
       status: invitations.status,
       sentAt: invitations.sentAt,
       respondedAt: invitations.respondedAt,
       responseDeadline: invitations.responseDeadline,
+      updatedAt: invitations.updatedAt,
+      eventResponseDeadline: events.invitationResponseDeadline,
+      registeredCount: sql<number>`(select count(*)::int from event_participants p where p.invitation_id = ${invitations.id})`,
+      responseNotes: sql<string | null>`(select r.notes from invitation_responses r where r.invitation_id = ${invitations.id} order by r.created_at desc limit 1)`,
     })
     .from(invitations)
     .innerJoin(events, eq(invitations.eventId, events.id))
     .leftJoin(institutions, eq(invitations.institutionId, institutions.id))
+    .leftJoin(ustadzProfiles, eq(invitations.ustadzId, ustadzProfiles.id))
     .where(conditions.length > 0 ? and(...conditions) : undefined)
     .orderBy(desc(invitations.createdAt));
 }
@@ -79,16 +90,32 @@ export async function saveInstitutionDelegationRepository(
       provinceCode?: string | null;
       isLead?: boolean;
     }>;
-  }
+  },
+  context: { eventId: string; tokenHash: string },
 ) {
   return await withTransaction(async (tx) => {
+    const event = await lockRegistrationEvent(tx, context.eventId);
     const invitationRows = await tx
       .select()
       .from(invitations)
       .where(eq(invitations.id, invitationId))
-      .limit(1);
+      .limit(1).for("update");
     const invitation = invitationRows[0];
-    if (!invitation) throw new Error("Undangan tidak ditemukan.");
+    if (!invitation || invitation.eventId !== context.eventId) throw new NotFoundError("Undangan tidak ditemukan pada event ini.");
+    if (["ACCEPTED", "DECLINED", "REVOKED"].includes(invitation.status)) {
+      throw new ConflictError("Undangan sudah dijawab atau dicabut. Muat ulang formulir.");
+    }
+    const limit = invitation.invitationType === "INDIVIDUAL" ? 1 : invitation.quota || 1;
+    if ((payload.delegates?.length || 0) > limit) throw new ConflictError(`Kuota undangan telah berubah. Maksimal ${limit} peserta.`);
+    const [link] = await tx.select().from(invitationLinks).where(and(eq(invitationLinks.invitationId, invitationId),
+      eq(invitationLinks.tokenHash, context.tokenHash), isNull(invitationLinks.revokedAt))).limit(1).for("update");
+    const deadline = invitation.responseDeadline || event.invitationResponseDeadline;
+    if (!link || link.expiresAt && link.expiresAt < new Date() || deadline && deadline < new Date() || event.status === "DRAFT") {
+      throw new ForbiddenError("Tautan sudah dicabut, kedaluwarsa, atau event tidak menerima konfirmasi.");
+    }
+    if (payload.isFinal && payload.responseStatus === "ACCEPTED") {
+      await assertRegistrationCapacity(tx, event, "INSTITUTION_DELEGATION", payload.delegates?.length || 0);
+    }
     const participantInstitutionId = payload.isFinal && payload.responseStatus === "ACCEPTED"
       ? invitation.institutionId || await resolveRegistrationInstitution(tx, payload.institutionName)
       : invitation.institutionId;
@@ -136,9 +163,9 @@ export async function saveInstitutionDelegationRepository(
                 email: normalizedEmail,
                 phone: normalizedPhone,
                 whatsapp: normalizedWhatsapp,
-                    address: delegate.address?.trim() || null,
-                    cityCode: delegate.cityCode || delegate.city?.trim() || null,
-                    provinceCode: delegate.provinceCode || delegate.province?.trim() || null,
+                address: delegate.address?.trim() || null,
+                cityCode: delegate.cityCode || delegate.city?.trim() || null,
+                provinceCode: delegate.provinceCode || delegate.province?.trim() || null,
                 profileStatus: "ACTIVE",
               })
               .returning({ id: ustadzProfiles.id });
@@ -149,9 +176,13 @@ export async function saveInstitutionDelegationRepository(
 
         const existingProfile = (await tx.select().from(ustadzProfiles).where(eq(ustadzProfiles.id, ustadzId)).limit(1))[0];
         if (!existingProfile || normalizeName(existingProfile.fullName) !== normalizedName ||
-          existingProfile.email && normalizeEmail(existingProfile.email) !== normalizedEmail) {
+          existingProfile.email && normalizeEmail(existingProfile.email) !== normalizedEmail ||
+          existingProfile?.deletedAt || existingProfile?.mergedIntoId || existingProfile?.profileStatus !== "ACTIVE") {
           throw new ConflictError(`Identitas ${delegate.fullName} tidak cocok dengan profil asatidz. Hubungi panitia.`);
         }
+        const alreadyRegistered = await tx.select({ id: eventParticipants.id }).from(eventParticipants)
+          .where(and(eq(eventParticipants.eventId, invitation.eventId), eq(eventParticipants.ustadzId, ustadzId))).limit(1);
+        if (alreadyRegistered.length) throw new ConflictError(`${delegate.fullName} sudah terdaftar pada event ini. Hubungi panitia; data pendaftaran lama tidak diubah.`);
         // Existing contact details are owned by the profile holder, not by a public invitation form.
         if (!existingProfile.email && normalizedEmail) {
           await tx.update(ustadzProfiles).set({ email: normalizedEmail, updatedAt: new Date() })
@@ -170,6 +201,7 @@ export async function saveInstitutionDelegationRepository(
           if (portalUser && normalizeEmail(portalUser.email) !== normalizedEmail) {
             throw new ConflictError(`Email akun ${delegate.fullName} berbeda dengan data undangan. Hubungi panitia.`);
           }
+          if (portalUser && portalUser.status !== "ACTIVE") throw new ConflictError("Akun peserta tidak aktif. Hubungi panitia.");
           if (portalUser && !currentProfile?.userId) {
             const linked = (await tx.select({ id: ustadzProfiles.id }).from(ustadzProfiles)
               .where(eq(ustadzProfiles.userId, portalUser.id)).limit(1))[0];
@@ -259,19 +291,9 @@ export async function saveInstitutionDelegationRepository(
             confirmedAt: new Date(),
             approvedAt: new Date(),
           })
-          .onConflictDoUpdate({
-            target: [eventParticipants.eventId, eventParticipants.ustadzId],
-            set: {
-              institutionId: participantInstitutionId,
-              invitationId,
-              isDelegationLead: Boolean(delegate.isLead),
-              confirmationStatus: "CONFIRMED",
-              approvalStatus: "APPROVED",
-              approvedAt: new Date(),
-              updatedAt: new Date(),
-            },
-          })
+          .onConflictDoNothing({ target: [eventParticipants.eventId, eventParticipants.ustadzId] })
           .returning();
+        if (!createdParticipant[0]) throw new ConflictError(`${delegate.fullName} baru saja didaftarkan. Hubungi panitia.`);
         participantRows.push(createdParticipant[0]);
         portalCredentials.push({ participantId: createdParticipant[0].id, temporaryPassword: issuedPassword, passwordSetupRequired });
       }
@@ -298,6 +320,41 @@ export async function findInvitationByIdRepository(id: string) {
   const db = getDbClient();
   const found = await db.select().from(invitations).where(eq(invitations.id, id)).limit(1);
   return found[0] || null;
+}
+
+export async function markInvitationOpenedRepository(id: string) {
+  await getDbClient().update(invitations).set({ status: "OPENED", updatedAt: new Date() })
+    .where(and(eq(invitations.id, id), inArray(invitations.status, ["DRAFT", "SENT"])));
+}
+
+export async function countInvitationParticipantsRepository(id: string) {
+  const rows = await getDbClient().select({ total: sql<number>`count(*)::int` }).from(eventParticipants)
+    .where(eq(eventParticipants.invitationId, id));
+  return Number(rows[0]?.total || 0);
+}
+
+export async function updateInvitationRepository(
+  existing: typeof invitations.$inferSelect,
+  changes: Partial<typeof invitations.$inferInsert>,
+  replacementLink?: { tokenHash: string; expiresAt: Date | null },
+) {
+  return withTransaction(async (tx) => {
+    await lockRegistrationEvent(tx, existing.eventId);
+    const rows = await tx.update(invitations).set({ ...changes, updatedAt: new Date() })
+      .where(and(eq(invitations.id, existing.id), eq(invitations.eventId, existing.eventId),
+        sql`date_trunc('milliseconds', ${invitations.updatedAt}) = ${existing.updatedAt.toISOString()}::timestamptz`,
+        eq(invitations.status, existing.status))).returning();
+    if (!rows[0]) throw new ConflictError("Undangan telah berubah. Muat ulang sebelum menyimpan kembali.");
+    if (replacementLink) {
+      await tx.update(invitationLinks).set({ revokedAt: new Date() })
+        .where(and(eq(invitationLinks.invitationId, existing.id), isNull(invitationLinks.revokedAt)));
+      await tx.insert(invitationLinks).values({ invitationId: existing.id, ...replacementLink });
+    } else if ("responseDeadline" in changes) {
+      await tx.update(invitationLinks).set({ expiresAt: changes.responseDeadline || new Date(Date.now() + 14 * 86400000) })
+        .where(and(eq(invitationLinks.invitationId, existing.id), isNull(invitationLinks.revokedAt)));
+    }
+    return rows[0];
+  });
 }
 
 export async function findInvitationByTokenHashRepository(tokenHash: string) {
@@ -369,9 +426,14 @@ export async function createInvitationRepository(
 export async function rotateInvitationLinkRepository(
   invitationId: string,
   tokenHash: string,
-  expiresAt: Date,
+  expiresAt: Date | null,
 ) {
+  const hint = await findInvitationByIdRepository(invitationId);
+  if (!hint) throw new NotFoundError("Undangan tidak ditemukan.");
   return await withTransaction(async (tx) => {
+    await lockRegistrationEvent(tx, hint.eventId);
+    const [current] = await tx.select().from(invitations).where(eq(invitations.id, invitationId)).limit(1).for("update");
+    if (!current || !["DRAFT", "SENT", "OPENED"].includes(current.status)) throw new ConflictError("Undangan sudah final atau dicabut.");
     const created = await tx
       .insert(invitationLinks)
       .values({
@@ -397,14 +459,17 @@ export async function rotateInvitationLinkRepository(
 }
 
 export async function updateInvitationStatusRepository(id: string, status: string, extra: Record<string, any> = {}) {
-  const db = getDbClient();
-  const updated = await db
-    .update(invitations)
-    .set({ status, ...extra, updatedAt: new Date() })
-    .where(eq(invitations.id, id))
-    .returning();
-
-  return updated[0] || null;
+  const hint = await findInvitationByIdRepository(id);
+  if (!hint) throw new NotFoundError("Undangan tidak ditemukan.");
+  return withTransaction(async (tx) => {
+    await lockRegistrationEvent(tx, hint.eventId);
+    const [current] = await tx.select().from(invitations).where(eq(invitations.id, id)).limit(1).for("update");
+    if (!current || !["DRAFT", "SENT", "OPENED"].includes(current.status)) throw new ConflictError("Undangan sudah final atau dicabut.");
+    const [updated] = await tx.update(invitations).set({ ...extra,
+      status: status === "SENT" && current.status === "OPENED" ? "OPENED" : status, updatedAt: new Date(),
+    }).where(eq(invitations.id, id)).returning();
+    return updated;
+  });
 }
 
 export async function saveInvitationResponseRepository(
