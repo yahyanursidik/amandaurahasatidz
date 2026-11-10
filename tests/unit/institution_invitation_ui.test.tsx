@@ -20,6 +20,20 @@ describe("formulir undangan lembaga", () => {
     expect(html).not.toContain("Saya membawa rombongan"); expect(html).not.toContain("Tambah peserta");
     expect(html).toContain("Peserta utama");
   });
+  it("menampilkan kuota dua dari undangan dan tidak menawarkan anggota saat belum dicentang", () => {
+    const html = renderToStaticMarkup(<InvitationResponseForm data={{ ...data, invitation: { ...data.invitation, quota: 2, allowGroup: true } }} invitationType="institution" saving={false} error="" onSubmit={() => {}} />);
+    expect(html).toContain("Maksimal 2 orang termasuk peserta utama");
+    expect(html).not.toContain("Maksimal 5");
+    expect(html).not.toContain("Tambah peserta</button>");
+    expect(html).not.toContain("Peserta tambahan 1");
+  });
+  it("tidak menawarkan rombongan jika dimatikan meskipun payload lama menyebut kuota lima", () => {
+    const html = renderToStaticMarkup(<InvitationResponseForm data={{ ...data, invitation: { ...data.invitation, quota: 5, allowGroup: false } }} invitationType="institution" saving={false} error="" onSubmit={() => {}} />);
+    expect(html).not.toContain("Saya membawa rombongan");
+    expect(html).not.toContain("Tambah peserta");
+    expect(html).not.toContain("Peserta tambahan 1");
+    expect(html).toContain("Peserta utama");
+  });
   it("mempertahankan input lembaga opsional hanya untuk undangan individu tanpa lembaga", () => {
     const html = renderToStaticMarkup(<InvitationResponseForm data={{ invitation: data.invitation }} invitationType="individual" saving={false} error="" onSubmit={() => {}} />);
     expect(html).toContain("Nama lembaga/komunitas"); expect(html).not.toContain("Saya membawa rombongan");
