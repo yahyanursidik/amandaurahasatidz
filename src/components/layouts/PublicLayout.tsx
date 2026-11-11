@@ -23,9 +23,10 @@ export const PublicLayout: React.FC<PublicLayoutProps> = ({ children, wide = fal
       <a className="public-site__skip" href="#konten-utama">Lewati ke konten</a>
       <header className="public-site__header">
         <div className={`public-site__bar ${wide ? "public-site__bar--wide" : ""}`}>
-          <Link to="/" className="public-site__brand" aria-label="Yayasan Tarbiyah Sunnah — Aman Daurah Asatidz, halaman utama">
-            <img src="/images/tarbiyah-sunnah-logo.svg" alt="" width="148" height="42" />
-            <span>Aman Daurah<br />Asatidz</span>
+          <Link to="/" className="public-site__brand" aria-label="Yayasan Tarbiyah Sunnah — Daurah Duat dan Pegiat Dakwah, halaman utama">
+            <img className="public-site__brand-logo" src="/images/tarbiyah-sunnah-logo.svg" alt="" width="148" height="42" />
+            <img className="public-site__brand-mark" src="/images/tarbiyah-sunnah-mark.svg" alt="" width="40" height="36" />
+            <span>Daurah Duat<br />dan Pegiat Dakwah</span>
           </Link>
           {!kiosk && <nav aria-label="Navigasi publik" className="public-site__nav">
             <NavLink end to="/" className={navClass}>Yayasan</NavLink>
@@ -51,7 +52,7 @@ export const PublicLayout: React.FC<PublicLayoutProps> = ({ children, wide = fal
 
       {!kiosk && <div className="public-site__footer">
         <div className="public-site__footer-inner">
-          <div><strong>Aman Daurah Asatidz</strong><p>Layanan program daurah Yayasan Tarbiyah Sunnah.</p></div>
+          <div><strong>Daurah Duat dan Pegiat Dakwah</strong><p>Layanan program daurah Yayasan Tarbiyah Sunnah.</p></div>
           <nav aria-label="Tautan penutup"><Link to="/">Yayasan</Link><Link to="/programs">Riwayat Daurah</Link><Link to="/ruang-asatidz">Ruang Asatidz</Link><a href="https://tarbiyahsunnah.com/tentang-kami/" target="_blank" rel="noopener noreferrer">Profil resmi YTS</a></nav>
         </div>
         <AppFooter className="public-site__credits" />

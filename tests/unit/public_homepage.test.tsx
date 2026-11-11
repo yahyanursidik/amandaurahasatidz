@@ -40,6 +40,13 @@ describe("public homepage", () => {
     }
   });
 
+  it("uses the current application name in public navigation and footer", () => {
+    const html = renderToStaticMarkup(<StaticRouter location="/"><PublicLayout><p>Beranda</p></PublicLayout></StaticRouter>);
+    expect(html).toContain('aria-label="Yayasan Tarbiyah Sunnah — Daurah Duat dan Pegiat Dakwah, halaman utama"');
+    expect(html).toContain("Daurah Duat<br/>dan Pegiat Dakwah");
+    expect(html).not.toContain("Aman Daurah");
+  });
+
   it("presents /programs as a daurah history, not a selection catalog", () => {
     const html = renderToStaticMarkup(<StaticRouter location="/programs"><PublicProgramsPage /></StaticRouter>);
     expect(html).toContain('id="catalog-title"');

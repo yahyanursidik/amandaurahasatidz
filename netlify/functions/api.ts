@@ -198,6 +198,7 @@ import {
 } from "./lib/services/emailQueueService";
 import { processWebhookIdempotentService } from "./lib/services/webhookService";
 import { cancelBroadcastCampaign, getBroadcastAudienceSummary, getBroadcastCampaignJobs, getBroadcastTransportStatus, listBroadcastCampaigns, listBroadcastTemplates, saveBroadcastTemplate, scheduleBroadcast, sendBroadcastTest } from "./lib/services/broadcastService";
+import { checkMailketingConnection } from "./lib/services/mailketingTransport";
 import { broadcastJobsQuerySchema, broadcastTemplateSchema, scheduleBroadcastSchema, testBroadcastSchema } from "./lib/validations/broadcastValidation";
 import { processScheduledReminderService } from "./lib/services/reminderService";
 
@@ -1514,6 +1515,13 @@ export const handler: Handler = async (event, _context) => {
     if (path === "/email/broadcast/readiness" && method === "GET") {
       requirePermission(userSession, "email.read");
       return buildSuccessResponse(await getBroadcastTransportStatus(), requestId);
+    }
+    if (path === "/email/broadcast/verify-mailketing" && method === "POST") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "email.send");
+      const limit = checkRateLimit(`mailketing_verify_${session.userId}`, 5, 60000);
+      if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", `Batas pemeriksaan koneksi tercapai. Coba lagi dalam ${limit.retryAfterSeconds} detik.`, requestId, 429);
+      return buildSuccessResponse(await checkMailketingConnection(), requestId);
     }
     if (path === "/email/broadcast/campaigns" && method === "GET") {
       requirePermission(userSession, "email.read");

@@ -33,7 +33,7 @@ Dokumen ini mencatat instruksi penting yang diberikan kepada coding agent agar k
 
 ### Tujuan
 
-Membuat fondasi Sistem Informasi Daurah Asatidz YTS.
+Membuat fondasi Daurah Duat dan Pegiat Dakwah.
 
 ### Instruksi
 

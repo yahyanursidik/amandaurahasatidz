@@ -97,7 +97,7 @@ try {
       return {selector,ratio:(levels[0]+.05)/(levels[1]+.05)}});
   })()`);
   for (const { selector, ratio } of contrastRatios) assert.ok(ratio >= 4.5, `Text contrast ${selector}: ${ratio.toFixed(2)}:1`);
-  assert.match(await evaluate(`document.querySelector('.wa-batch__preview pre').textContent`), /Aman Daurah Asatidz/);
+  assert.match(await evaluate(`document.querySelector('.wa-batch__preview pre').textContent`), /Daurah Duat dan Pegiat Dakwah/);
   await click('Pilih penerima');
   await until(`document.querySelectorAll('.wa-batch__recipient').length===3`, 'recipient directory');
   await click('Pilih hasil'); await click('Mulai 3 penerima');

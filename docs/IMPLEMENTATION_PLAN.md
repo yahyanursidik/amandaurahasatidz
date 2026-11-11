@@ -1,8 +1,8 @@
-# Rencana Implementasi Teknis Sistem Informasi Daurah Asatidz YTS
+# Rencana Implementasi Teknis Daurah Duat dan Pegiat Dakwah
 
 ## 1. Ringkasan Arsitektur Sistem
 
-Sistem Informasi Daurah Asatidz YTS dibangun menggunakan arsitektur **Modular Monolith** dengan pemisahan batas (boundary) yang jelas antara frontend, backend serverless API, dan basis data PostgreSQL serverless.
+Daurah Duat dan Pegiat Dakwah dibangun menggunakan arsitektur **Modular Monolith** dengan pemisahan batas (boundary) yang jelas antara frontend, backend serverless API, dan basis data PostgreSQL serverless.
 
 ### A. Komponen Utama
 1. **Frontend Application**:

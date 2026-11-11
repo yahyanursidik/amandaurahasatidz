@@ -1,6 +1,6 @@
 # Keputusan Terbuka, Analisis Risiko, dan Evaluasi Dokumen
 
-Dokumen ini mendokumentasikan keputusan arsitektur yang belum final (*open decisions*), analisis risiko teknis, serta evaluasi potensi konflik atau kekurangan pada dokumen spesifikasi **Sistem Informasi Daurah Asatidz YTS**.
+Dokumen ini mendokumentasikan keputusan arsitektur yang belum final (*open decisions*), analisis risiko teknis, serta evaluasi potensi konflik atau kekurangan pada dokumen spesifikasi **Daurah Duat dan Pegiat Dakwah**.
 
 ---
 

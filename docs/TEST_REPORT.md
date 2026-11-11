@@ -1,5 +1,5 @@
 # Dokumen Laporan Pengujian Resmi (Official Test Report)
-**Sistem Informasi Daurah Asatidz YTS**
+**Daurah Duat dan Pegiat Dakwah**
 
 ---
 
@@ -53,4 +53,4 @@ Simulasi pemindaian presensi simultan dari 50 lokasi/petugas panitia menunjukkan
 ---
 
 ## 5. Kesimpulan & Rekomendasi Siap Rilis (Production Ready)
-Sistem Informasi Daurah Asatidz YTS telah memenuhi **100% Acceptance Criteria (`12-ACCEPTANCE_CRITERIA.md`)** dan seluruh spesifikasi rancangan pengujian (**`17-TEST_PLAN.md`**). Seluruh tes kritis lulus tanpa pengecualian dan sistem dinyatakan **SIAP DIRILIS KE LINGKUNGAN PRODUKSI (PRODUCTION READY)**.
+Daurah Duat dan Pegiat Dakwah telah memenuhi **100% Acceptance Criteria (`12-ACCEPTANCE_CRITERIA.md`)** dan seluruh spesifikasi rancangan pengujian (**`17-TEST_PLAN.md`**). Seluruh tes kritis lulus tanpa pengecualian dan sistem dinyatakan **SIAP DIRILIS KE LINGKUNGAN PRODUKSI (PRODUCTION READY)**.

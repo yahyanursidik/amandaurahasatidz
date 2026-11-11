@@ -206,14 +206,14 @@ export const PublicProgramsPage: React.FC = () => {
   return <PublicLayout wide>
     <div className={`public-home ${isCatalog ? "public-home--catalog" : ""}`}>
       {isCatalog ? <header className="public-home__catalog-intro" aria-labelledby="catalog-title">
-        <div><p className="public-home__identity">Yayasan Tarbiyah Sunnah · Aman Daurah Asatidz</p><h1 id="catalog-title">Riwayat Daurah Asatidz</h1><p>Catatan daurah yang telah diselenggarakan YTS. Jika ada kegiatan yang masih berjalan atau akan datang, informasinya tampil terpisah di bawah.</p></div>
+        <div><p className="public-home__identity">Yayasan Tarbiyah Sunnah · Daurah Duat dan Pegiat Dakwah</p><h1 id="catalog-title">Riwayat Daurah Asatidz</h1><p>Catatan daurah yang telah diselenggarakan YTS. Jika ada kegiatan yang masih berjalan atau akan datang, informasinya tampil terpisah di bawah.</p></div>
         <Link to="/login/ustadz" className="public-home__catalog-portal">Sudah mendaftar? Lihat status &amp; QR <ArrowRight aria-hidden="true" /></Link>
       </header> : <>
       <header className="public-home__hero" aria-labelledby="public-home-title">
         <div className="public-home__hero-copy">
-          <p className="public-home__identity">Aman Daurah Asatidz · Yayasan Tarbiyah Sunnah</p>
+          <p className="public-home__identity">Daurah Duat dan Pegiat Dakwah · Yayasan Tarbiyah Sunnah</p>
           <h1 id="public-home-title">Yayasan Tarbiyah Sunnah</h1>
-          <p className="public-home__lead">Pendidikan, dakwah, dan kepedulian sosial. Melalui Aman Daurah Asatidz, kami menyajikan informasi kegiatan, pendaftaran, dan kehadiran para asatidz dengan jelas.</p>
+          <p className="public-home__lead">Pendidikan, dakwah, dan kepedulian sosial. Melalui Daurah Duat dan Pegiat Dakwah, kami menyajikan informasi kegiatan, pendaftaran, dan kehadiran para asatidz dengan jelas.</p>
           <div className="public-home__hero-actions">
             <a href="#tentang-yts" className="public-home__button public-home__button--primary">Kenali yayasan <ArrowRight aria-hidden="true" /></a>
             <Link to="/programs" className="public-home__button public-home__button--quiet">Lihat riwayat daurah</Link>

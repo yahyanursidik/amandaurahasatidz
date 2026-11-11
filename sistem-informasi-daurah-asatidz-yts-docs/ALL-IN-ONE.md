@@ -1,4 +1,4 @@
-# Sistem Informasi Daurah Asatidz YTS — Dokumentasi Lengkap
+# Daurah Duat dan Pegiat Dakwah — Dokumentasi Lengkap
 
 > Dokumen gabungan. Untuk pengembangan aktif, gunakan file modular agar perubahan lebih mudah ditelusuri.
 
@@ -8,11 +8,11 @@
 
 <!-- SOURCE: 00-README.md -->
 
-# Dokumentasi Sistem Informasi Daurah Asatidz YTS
+# Dokumentasi Daurah Duat dan Pegiat Dakwah
 
 ## Ringkasan
 
-Repositori dokumentasi ini menjadi sumber acuan produk dan pengembangan **Sistem Informasi Daurah Asatidz Yayasan Tarbiyah Sunnah (YTS)**.
+Repositori dokumentasi ini menjadi sumber acuan produk dan pengembangan **Daurah Duat dan Pegiat Dakwah** milik Yayasan Tarbiyah Sunnah (YTS).
 
 Sistem dirancang untuk mengelola:
 
@@ -122,8 +122,7 @@ Sistem dirancang untuk mengelola:
 
 ## 1. Identitas Produk
 
-- **Nama kerja:** Sistem Informasi Daurah Asatidz YTS
-- **Alternatif nama:** DaurahHub YTS
+- **Nama produk:** Daurah Duat dan Pegiat Dakwah
 - **Jenis:** Web application responsif
 - **Pemilik:** Yayasan Tarbiyah Sunnah
 - **Pengguna utama:** Admin YTS, panitia, ustadz, dan perwakilan lembaga
@@ -3270,7 +3269,7 @@ Setelah dipakai, file darurat harus dihapus sesuai SOP.
 
 ## Peran Agent
 
-Anda adalah coding agent untuk Sistem Informasi Daurah Asatidz YTS.
+Anda adalah coding agent untuk Daurah Duat dan Pegiat Dakwah.
 
 Prioritas:
 
@@ -3420,7 +3419,7 @@ Dokumen ini mencatat instruksi penting yang diberikan kepada coding agent agar k
 
 ### Tujuan
 
-Membuat fondasi Sistem Informasi Daurah Asatidz YTS.
+Membuat fondasi Daurah Duat dan Pegiat Dakwah.
 
 ### Instruksi
 

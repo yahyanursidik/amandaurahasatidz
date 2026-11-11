@@ -1,11 +1,11 @@
 # Dokumen Laporan Peninjauan & Audit Keamanan Resmi (Official Security Review)
-**Sistem Informasi Daurah Asatidz YTS**
+**Daurah Duat dan Pegiat Dakwah**
 
 ---
 
 ## 1. Ringkasan Eksekutif Keamanan
 
-Audit Keamanan dan Privasi komprehensif telah dilaksanakan terhadap **Sistem Informasi Daurah Asatidz YTS** berdasarkan pedoman spesifikasi `10-SECURITY_PRIVACY.md` dan `17-TEST_PLAN.md`. Audit ini mengevaluasi 20 checkpoint keamanan vital mencakup arsitektur autentikasi, enkripsi token, kontrol akses berbasis peran (RBAC), pencegahan kebocoran PII pada QR code, mitigasi IDOR, sanitasi XSS, ketahanan SQL injection, rate limiting, serta penanganan error pada lingkungan produksi.
+Audit Keamanan dan Privasi komprehensif telah dilaksanakan terhadap **Daurah Duat dan Pegiat Dakwah** berdasarkan pedoman spesifikasi `10-SECURITY_PRIVACY.md` dan `17-TEST_PLAN.md`. Audit ini mengevaluasi 20 checkpoint keamanan vital mencakup arsitektur autentikasi, enkripsi token, kontrol akses berbasis peran (RBAC), pencegahan kebocoran PII pada QR code, mitigasi IDOR, sanitasi XSS, ketahanan SQL injection, rate limiting, serta penanganan error pada lingkungan produksi.
 
 Hasil evaluasi menunjukkan bahwa seluruh 20 checkpoint keamanan telah memenuhi atau melampaui standar industri dengan status **LULUS (PASSED)**.
 
@@ -97,4 +97,4 @@ export function sanitizeRichText(dirtyHtml: string): string {
 
 ## 5. Kesimpulan Audit
 
-Sistem Informasi Daurah Asatidz YTS telah memenuhi **100% Standar Keamanan & Privasi (`10-SECURITY_PRIVACY.md`)**. Seluruh mekanisme pertahanan (*defense in depth*) aktif dan sistem dinyatakan **AMAN & SIAP DIRILIS KE PRODUKSI**.
+Daurah Duat dan Pegiat Dakwah telah memenuhi **100% Standar Keamanan & Privasi (`10-SECURITY_PRIVACY.md`)**. Seluruh mekanisme pertahanan (*defense in depth*) aktif dan sistem dinyatakan **AMAN & SIAP DIRILIS KE PRODUKSI**.

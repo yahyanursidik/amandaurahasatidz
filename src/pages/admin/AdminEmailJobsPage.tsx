@@ -26,6 +26,8 @@ type BroadcastTemplate = { id: string; name: string; subjectTemplate: string; bo
 type Audience = { recipientCount: number; withoutValidEmail: number; duplicateEmails: number };
 type Campaign = { campaignId: string; templateName: string | null; dailyLimit: number | null; total: number; queued: number; sent: number; delivered: number; failed: number; processing: number; cancelled: number; testSent: number; testFailed: number; lastTestAt: string | null; firstScheduledAt: string; lastScheduledAt: string; createdAt: string };
 type Readiness = { workerEnabled: boolean; provider: string; configured: boolean; lastTest: { status: string; recipientEmail: string; attemptedAt: string; lastError: string | null; provider: string | null } | null };
+type MailketingConnectionCheck = { checkedAt: string; senderEmail: string; authenticated: boolean; senderListed: boolean;
+  credits: number | null; readyToSend: boolean; issue: "TOKEN_MISSING" | "SENDER_MISSING" | "TOKEN_INVALID" | "SENDER_NOT_LISTED" | "NO_CREDITS" | "PROVIDER_ERROR" | "UNREACHABLE" | null };
 type CampaignJob = { id: string; recipientEmail: string; recipientName: string | null; status: string; scheduledAt: string; updatedAt: string; attemptCount: number; lastError: string | null; deliveryStatus: string | null; provider: string | null };
 type CampaignJobPage = { total: number; page: number; pageSize: number; items: CampaignJob[] };
 
@@ -39,6 +41,17 @@ const formatTime = (value: string) => new Intl.DateTimeFormat("id-ID", {
   timeStyle: "short",
   timeZone: "Asia/Jakarta",
 }).format(new Date(value));
+
+const mailketingStatusText = (check: MailketingConnectionCheck) => {
+  if (check.readyToSend) return `API terhubung. ${check.senderEmail} terdaftar sebagai pengirim; kredit tersedia: ${check.credits}. Uji kirim ke alamat sendiri sebelum mengirim massal.`;
+  if (check.issue === "TOKEN_MISSING") return "Token belum disetel pada MAILKETING_API_TOKEN di server.";
+  if (check.issue === "SENDER_MISSING") return "Setel MAILKETING_FROM_EMAIL=no-reply@yts.web.id di server.";
+  if (check.issue === "TOKEN_INVALID") return "Token ditolak Mailketing. Buat token baru dan perbarui variabel server.";
+  if (check.issue === "SENDER_NOT_LISTED") return `${check.senderEmail} belum terlihat pada daftar sender terverifikasi di Mailketing.`;
+  if (check.issue === "NO_CREDITS") return "Token valid dan sender terdaftar, tetapi kredit Mailketing habis.";
+  if (check.issue === "UNREACHABLE") return "Mailketing belum dapat dihubungi. Periksa jaringan server lalu coba lagi.";
+  return "Respons Mailketing belum dapat diverifikasi. Periksa status penyedia dan coba lagi.";
+};
 
 export const AdminEmailJobsPage: React.FC<{ mode?: "broadcast" | "queue" }> = ({ mode = "queue" }) => {
   const { data: identity, isLoading: identityLoading } = useGetIdentity<AuthIdentity>();
@@ -67,6 +80,7 @@ export const AdminEmailJobsPage: React.FC<{ mode?: "broadcast" | "queue" }> = ({
   const [audience, setAudience] = useState<Audience | null>(null);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [readiness, setReadiness] = useState<Readiness | null>(null);
+  const [connectionCheck, setConnectionCheck] = useState<MailketingConnectionCheck | null>(null);
   const pendingCampaignId = useRef<string>(crypto.randomUUID());
   const savedTemplate = templates.find((item) => item.id === templateId);
   const templateIsSaved = Boolean(savedTemplate && savedTemplate.name === name && savedTemplate.subjectTemplate === subject && savedTemplate.bodyTemplate === body);
@@ -91,6 +105,18 @@ export const AdminEmailJobsPage: React.FC<{ mode?: "broadcast" | "queue" }> = ({
       setError(loadError instanceof Error ? loadError.message : "Antrean email gagal dimuat.");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const verifyMailketing = async () => {
+    if (busy) return;
+    setBusy("verify"); setError(""); setConnectionCheck(null);
+    try {
+      setConnectionCheck(await eventApi<MailketingConnectionCheck>("/email/broadcast/verify-mailketing", { method: "POST" }));
+    } catch (verifyError) {
+      setError(verifyError instanceof Error ? verifyError.message : "Koneksi Mailketing belum dapat diperiksa.");
+    } finally {
+      setBusy("");
     }
   };
 
@@ -235,6 +261,11 @@ export const AdminEmailJobsPage: React.FC<{ mode?: "broadcast" | "queue" }> = ({
         <strong>{readiness.provider === "MAILKETING" ? "Koneksi Mailketing" : "Koneksi SMTP"}: {readiness.configured ? "konfigurasi tersedia" : "konfigurasi belum lengkap"}</strong> · Worker otomatis {readiness.workerEnabled ? "aktif" : "nonaktif"}.
         {readiness.lastTest ? <p className="mt-2">Uji kirim terakhir {formatTime(readiness.lastTest.attemptedAt)} ke {readiness.lastTest.recipientEmail} via {readiness.lastTest.provider || "penyedia"}: {readiness.lastTest.status === "SENT" ? "diterima penyedia" : "gagal"}{readiness.lastTest.lastError ? ` — ${readiness.lastTest.lastError}` : ""}.</p> : <p className="mt-2">Belum ada bukti penerimaan email uji oleh penyedia. Konfigurasi terisi bukan berarti koneksi sudah teruji.</p>}
         {!readiness.workerEnabled && <p className="mt-2">Agar BC terkirim otomatis, atur EMAIL_WORKER_ENABLED=true pada server terjadwal. Pada localhost proses email yang jatuh tempo dari halaman antrean.</p>}
+        {readiness.provider === "MAILKETING" && <div className="mt-3 border-t border-current/20 pt-3">
+          <button type="button" onClick={() => void verifyMailketing()} disabled={Boolean(busy)} className="inline-flex min-h-11 items-center rounded-lg border border-emerald-700 bg-white px-4 font-bold text-emerald-900 hover:bg-emerald-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50">{busy === "verify" ? "Memeriksa koneksi…" : "Periksa koneksi Mailketing"}</button>
+          <p className="mt-2">Pemeriksaan ini hanya membaca kredit dan daftar sender; tidak mengirim email.</p>
+          {connectionCheck && <p role="status" className={`mt-2 rounded-lg border p-3 font-medium ${connectionCheck.readyToSend ? "border-emerald-200 bg-white text-emerald-950" : "border-amber-300 bg-white text-amber-950"}`}>{mailketingStatusText(connectionCheck)}</p>}
+        </div>}
       </div>}
       <div className="mb-5 grid gap-3 sm:grid-cols-3">
         <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4"><Users className="h-5 w-5 text-emerald-700" /><strong className="mt-2 block text-2xl text-emerald-950">{audience?.recipientCount ?? "—"}</strong><p className="text-sm text-emerald-900">Email unik siap menerima BC</p></div>

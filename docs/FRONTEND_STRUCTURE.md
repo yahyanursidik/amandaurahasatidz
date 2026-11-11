@@ -1,6 +1,6 @@
 # Dokumentasi Struktur Frontend dan Alasan Desain
 
-Dokumen ini menjelaskan arsitektur folder frontend, prinsip UI/UX, serta alasan pemilihan komponen pada **Sistem Informasi Daurah Asatidz YTS**.
+Dokumen ini menjelaskan arsitektur folder frontend, prinsip UI/UX, serta alasan pemilihan komponen pada **Daurah Duat dan Pegiat Dakwah**.
 
 ---
 

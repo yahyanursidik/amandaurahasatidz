@@ -161,7 +161,7 @@ export function buildParticipantMessage(
   },
 ) {
   const { participant, senderRole, senderName, event } = context;
-  const roleLabel = senderRole === "committee" ? "Panitia Aman Daurah Asatidz" : "Admin Aman Daurah Asatidz";
+  const roleLabel = senderRole === "committee" ? "Panitia Daurah Duat dan Pegiat Dakwah" : "Admin Daurah Duat dan Pegiat Dakwah";
   const identity = cleanLine(senderName)
     ? `${cleanLine(senderName)} dari ${roleLabel}`
     : roleLabel;

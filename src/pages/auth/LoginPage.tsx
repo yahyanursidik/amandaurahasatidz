@@ -243,11 +243,11 @@ export const LoginPage: React.FC = () => {
           <Link
             to="/"
             className="login-brand"
-            aria-label="Aman Daurah Asatidz, kembali ke beranda"
+            aria-label="Daurah Duat dan Pegiat Dakwah, kembali ke beranda"
           >
             <span className="login-brand__mark"><img src="/images/tarbiyah-sunnah-mark.svg" alt="" width="36" height="32" /></span>
             <span className="login-brand__copy">
-              <strong>Aman Daurah Asatidz</strong>
+              <strong>Daurah Duat<br />dan Pegiat Dakwah</strong>
               <span>Program Tarbiyah Sunnah</span>
             </span>
           </Link>

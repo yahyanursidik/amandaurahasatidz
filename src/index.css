@@ -246,7 +246,7 @@
 
   .login-brand__copy strong {
     font-size: var(--text-login-body);
-    line-height: 1;
+    line-height: 1.15;
   }
 
   .login-brand__copy span {
@@ -7042,6 +7042,7 @@
 .public-site__bar--wide { max-width: 76rem; }
 .public-site__brand { display: inline-flex; min-width: 0; width: fit-content; align-items: center; gap: var(--space-public-sm); color: var(--color-public-ink); text-decoration: none; }
 .public-site__brand img { width: clamp(5.5rem, 26vw, 8.25rem); height: auto; flex: none; }
+.public-site__brand .public-site__brand-mark { display: none; width: 2.25rem; }
 .public-site__brand span { min-width: 0; border-inline-start: 1px solid var(--color-public-rule); padding-inline-start: var(--space-public-sm); font-family: var(--font-public-display); font-size: var(--text-public-small); font-weight: 800; line-height: 1.2; }
 .public-site__nav { display: none; align-items: center; justify-content: center; gap: var(--space-public-xs); }
 .public-site__nav-link { display: inline-flex; min-height: 2.75rem; align-items: center; justify-content: center; border-radius: var(--radius-public-control); color: var(--color-public-muted); padding-inline: var(--space-public-sm); font-size: var(--text-public-small); font-weight: 700; text-decoration: none; white-space: nowrap; }
@@ -7169,6 +7170,8 @@
   .public-site__footer-inner { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
 }
 @media (max-width: 25rem) {
+  .public-site__brand .public-site__brand-logo { display: none; }
+  .public-site__brand .public-site__brand-mark { display: block; }
   .public-home__hero-actions { width: 100%; }
   .public-home__button { width: 100%; }
   .public-home__program-actions { align-items: stretch; flex-direction: column; width: 100%; }

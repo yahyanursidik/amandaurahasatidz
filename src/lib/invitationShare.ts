@@ -38,10 +38,10 @@ export const buildInvitationShareText = (context: InvitationShareContext) =>
     "",
     `Yth. ${context.institutionName},`,
     context.recipientType === "INDIVIDUAL"
-      ? `Kami panitia Aman Daurah Asatidz mengundang Anda secara pribadi untuk menghadiri ${context.eventName}.`
+      ? `Kami panitia Daurah Duat dan Pegiat Dakwah mengundang Anda secara pribadi untuk menghadiri ${context.eventName}.`
       : context.registrationMode === "INDIVIDUAL_SELF"
-        ? `Kami panitia Aman Daurah Asatidz mengundang para asatidz dari ${context.institutionName} untuk menghadiri ${context.eventName}.`
-        : `Kami panitia Aman Daurah Asatidz mengundang perwakilan lembaga untuk menghadiri ${context.eventName}.`,
+        ? `Kami panitia Daurah Duat dan Pegiat Dakwah mengundang para asatidz dari ${context.institutionName} untuk menghadiri ${context.eventName}.`
+        : `Kami panitia Daurah Duat dan Pegiat Dakwah mengundang perwakilan lembaga untuk menghadiri ${context.eventName}.`,
     "",
     context.recipientType === "INDIVIDUAL"
       ? "Silakan konfirmasi kehadiran melalui tautan pribadi berikut:"

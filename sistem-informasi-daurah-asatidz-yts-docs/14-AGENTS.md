@@ -2,7 +2,7 @@
 
 ## Peran Agent
 
-Anda adalah coding agent untuk Sistem Informasi Daurah Asatidz YTS.
+Anda adalah coding agent untuk Daurah Duat dan Pegiat Dakwah.
 
 Prioritas:
 

@@ -16,7 +16,7 @@ describe("admin sequential WhatsApp workbench", () => {
     expect(whatsappBatchTemplates.map(({ id }) => id)).toEqual(["PROFILE_GREETING", "CONTACT_CHECK", "CUSTOM"]);
     const template = whatsappBatchTemplateMessage("PROFILE_GREETING");
     expect(validateWhatsAppBatchMessage(template)).toBeNull();
-    expect(template).toContain("Aman Daurah Asatidz");
+    expect(template).toContain("Daurah Duat dan Pegiat Dakwah");
     const message = renderWhatsAppBatchMessage(template, "Ustadz Yahya", "Admin Hasan");
     expect(message).toContain("Ustadz Yahya");
     expect(message).toContain("Admin Hasan");

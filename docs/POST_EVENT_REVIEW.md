@@ -1,5 +1,5 @@
 # Tinjauan Pasca-Acara & Pengelompokan Umpan Balik (Post-Event Review & Feedback Classification)
-**Sistem Informasi Daurah Asatidz YTS**
+**Daurah Duat dan Pegiat Dakwah**
 
 ---
 

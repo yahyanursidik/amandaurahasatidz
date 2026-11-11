@@ -2,8 +2,7 @@
 
 ## 1. Identitas Produk
 
-- **Nama kerja:** Sistem Informasi Daurah Asatidz YTS
-- **Alternatif nama:** DaurahHub YTS
+- **Nama produk:** Daurah Duat dan Pegiat Dakwah
 - **Jenis:** Web application responsif
 - **Pemilik:** Yayasan Tarbiyah Sunnah
 - **Pengguna utama:** Admin YTS, panitia, ustadz, dan perwakilan lembaga
