@@ -56,7 +56,9 @@ export interface InstitutionInvitationHistory {
   id: string;
   invitationNumber: string;
   status: string;
+  registrationMode?: "DELEGATION" | "INDIVIDUAL_SELF";
   quota?: number | null;
+  registeredCount?: number;
   responseDeadline?: string | null;
   sentAt?: string | null;
   respondedAt?: string | null;

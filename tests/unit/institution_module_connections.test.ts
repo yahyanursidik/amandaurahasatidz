@@ -14,13 +14,15 @@ beforeEach(() => {
 });
 
 describe("relasi lembaga ke event dan peserta", () => {
-  it("hanya menggabungkan respons akhir undangan dan membawa jalur pendaftaran peserta", async () => {
+  it("mengambil respons akhir terbaru tanpa menggandakan undangan mandiri dan membawa jalur peserta", async () => {
     const result = await findInstitutionByIdRepository(id);
     expect(result?.relationSummary).toMatchObject({ invitationCount: 0, participantCount: 0 });
     const queries = mocks.client.mock.calls.map(([query]) => String(query));
     const invitationQuery = queries.find((query) => query.includes('from "invitations"')) || "";
     const participantQuery = queries.find((query) => query.includes('from "event_participants"')) || "";
-    expect(invitationQuery).toContain('"is_final"');
+    expect(invitationQuery).toContain("r.is_final = true");
+    expect(invitationQuery).toContain("order by r.submitted_at desc limit 1");
+    expect(invitationQuery).not.toContain('left join "invitation_responses"');
     expect(participantQuery).toContain('"registration_source"');
     expect(participantQuery).toContain('"invitation_id"');
   });

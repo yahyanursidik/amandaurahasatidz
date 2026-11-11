@@ -24,7 +24,7 @@ const registrationSourceLabels: Record<string, string> = {
   DIRECT_ADMIN_UPLOAD: "Unggahan admin",
   ADMIN_ENTRY: "Entri admin",
   INSTITUTION_DELEGATION: "Undangan lembaga",
-  INSTITUTION_INVITATION: "Undangan lembaga",
+  INSTITUTION_INVITATION: "Undangan lembaga · mandiri",
   INSTITUTION_DELEGATION_REPLACEMENT: "Pengganti delegasi",
   REPLACEMENT: "Peserta pengganti",
   INDIVIDUAL_INVITATION: "Undangan pribadi",

@@ -35,6 +35,7 @@
     "db:migrate:public-contact": "node scripts/apply-public-contact-migration.mjs",
     "db:migrate:event-kiosk": "node scripts/apply-event-kiosk-migration.mjs",
     "db:migrate:performance": "node scripts/apply-performance-indexes.mjs",
+    "db:migrate:institution-self": "node scripts/apply-institution-self-registration-migration.mjs",
     "db:seed": "node scripts/run-seed.mjs"
   },
   "dependencies": {

@@ -1,0 +1,2 @@
+ALTER TABLE invitations
+  ADD COLUMN IF NOT EXISTS registration_mode text NOT NULL DEFAULT 'DELEGATION';

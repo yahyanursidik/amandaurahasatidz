@@ -43,7 +43,7 @@ import { queueRegistrationReceivedEmails } from "./participantCardEmailService";
 import { participantConfirmationPath, signConfirmationForParticipant } from "./participantConfirmationLink";
 import { countApprovedParticipantsBySourceRepository, countApprovedParticipantsForEventRepository } from "../repositories/participantRepository";
 import { logError } from "../utils/logger";
-import { invitationAllowsGroup, invitationParticipantLimit, isInvitationPending } from "../../../../src/lib/institutionInvitation";
+import { invitationAllowsGroup, invitationIsSelfRegistration, invitationParticipantLimit, isInvitationPending } from "../../../../src/lib/institutionInvitation";
 
 function assertInvitationResponseOpen(result: { invitation: any; event: any; link?: any }) {
   if (result.invitation.status === "REVOKED" || result.link?.revokedAt) {
@@ -101,10 +101,10 @@ async function assertIndividualRecipient(eventId: string, ustadzId: string, exce
   return recipient;
 }
 
-function resolveInvitationQuota(data: { quota?: number; allowGroup?: boolean }, fallback: number, individual = false) {
-  if (individual || data.allowGroup === false) return 1;
+function resolveInvitationQuota(data: { quota?: number; allowGroup?: boolean; registrationMode?: string }, fallback: number, individual = false) {
+  if (individual || data.registrationMode !== "INDIVIDUAL_SELF" && data.allowGroup === false) return 1;
   const quota = data.quota ?? fallback;
-  if (data.allowGroup && quota < 2) throw new ValidationError("Undangan rombongan memerlukan kuota minimal 2 peserta, termasuk peserta utama.");
+  if (data.registrationMode !== "INDIVIDUAL_SELF" && data.allowGroup && quota < 2) throw new ValidationError("Undangan rombongan memerlukan kuota minimal 2 peserta, termasuk peserta utama.");
   return quota;
 }
 
@@ -127,11 +127,15 @@ export async function createInvitationService(data: any, actorUserId: string, re
   let recipientInstitution: Awaited<ReturnType<typeof findInstitutionByIdRepository>> | null = null;
   let recipientUstadz: Awaited<ReturnType<typeof findInvitationUstadzRecipientRepository>> | null = null;
   if (data.invitationType === "INSTITUTION") {
+    if (data.registrationMode === "INDIVIDUAL_SELF" && (data.allowGroup || data.quota == null)) {
+      throw new ValidationError("Pendaftaran mandiri memerlukan kuota lembaga dan hanya menerima satu asatidz per pengisian.");
+    }
     recipientInstitution = await findInstitutionByIdRepository(data.institutionId);
     if (!recipientInstitution || recipientInstitution.status !== "ACTIVE" || recipientInstitution.deletedAt) {
       throw new ValidationError("Lembaga penerima tidak aktif. Pilih lembaga aktif dari data master.");
     }
   } else {
+    if (data.registrationMode && data.registrationMode !== "DELEGATION") throw new ValidationError("Pola pendaftaran lembaga tidak berlaku untuk undangan pribadi.");
     if (!data.ustadzId) throw new ValidationError("Pilih asatidz penerima undangan individu.");
     if (data.allowGroup === true || data.quota != null && data.quota !== 1) {
       throw new ValidationError("Undangan individu hanya berlaku untuk satu asatidz.");
@@ -147,11 +151,12 @@ export async function createInvitationService(data: any, actorUserId: string, re
     throw new ValidationError("Batas respons undangan harus berada di masa mendatang.");
   }
   const routeType = data.invitationType === "INDIVIDUAL" ? "individual" : "institution";
-  const tokenInfo = generateSecureToken(routeType === "individual" ? "inv_ind" : "inv_inst");
+  const tokenInfo = generateSecureToken(routeType === "individual" ? "inv_ind" : data.registrationMode === "INDIVIDUAL_SELF" ? "inv_self" : "inv_inst");
 
   const invData = {
     eventId: data.eventId,
     invitationType: data.invitationType,
+    registrationMode: data.invitationType === "INSTITUTION" ? data.registrationMode || "DELEGATION" : "DELEGATION",
     institutionId: data.invitationType === "INSTITUTION" ? data.institutionId : null,
     ustadzId: data.invitationType === "INDIVIDUAL" ? data.ustadzId : null,
     invitationNumber,
@@ -201,7 +206,7 @@ export async function createInvitationService(data: any, actorUserId: string, re
 }
 
 export async function editInvitationService(eventId: string, id: string, data: {
-  institutionId?: string; ustadzId?: string; invitationNumber?: string; quota?: number; allowGroup?: boolean;
+  institutionId?: string; ustadzId?: string; invitationNumber?: string; registrationMode?: "DELEGATION" | "INDIVIDUAL_SELF"; quota?: number; allowGroup?: boolean;
   responseDeadline?: string | null; expectedUpdatedAt?: string;
 }, actorUserId: string, requestId: string) {
   const invitation = await scopedInvitation(eventId, id);
@@ -209,6 +214,9 @@ export async function editInvitationService(eventId: string, id: string, data: {
     throw new ConflictError("Undangan telah diperbarui oleh petugas lain. Muat ulang sebelum mengedit kembali.");
   }
   if (invitation.status === "REVOKED") throw new ValidationError("Undangan yang dicabut tidak dapat diedit.");
+  if (data.registrationMode && data.registrationMode !== invitation.registrationMode) {
+    throw new ConflictError("Pola pendaftaran tidak dapat diganti setelah undangan dibuat. Buat undangan baru agar tautan dan riwayat peserta tetap jelas.");
+  }
   const event = await findEventByIdRepository(eventId);
   if (!event) throw new NotFoundError("Event tidak ditemukan.");
   if (["CANCELLED", "COMPLETED", "ARCHIVED"].includes(event.status)) throw new ValidationError("Pengaturan undangan event ini sudah dikunci.");
@@ -269,7 +277,8 @@ export async function editInvitationService(eventId: string, id: string, data: {
   if (recipientChanged && (!institution || institution.status !== "ACTIVE" || institution.deletedAt)) {
     throw new ValidationError("Pilih lembaga aktif dari data master.");
   }
-  const quota = resolveInvitationQuota(data, invitation.quota || 1);
+  if (invitationIsSelfRegistration(invitation) && data.allowGroup) throw new ValidationError("Pendaftaran mandiri hanya menerima satu asatidz per pengisian.");
+  const quota = resolveInvitationQuota({ ...data, registrationMode: invitation.registrationMode }, invitation.quota || 1);
   if (quota < registeredCount) throw new ConflictError(`Sudah ada ${registeredCount} peserta. Kuota tidak boleh dikurangi di bawah jumlah tersebut.`);
   const number = data.invitationNumber || invitation.invitationNumber;
   const owner = await findInvitationByEventAndNumberRepository(eventId, number);
@@ -346,12 +355,12 @@ export async function regenerateInvitationLinkService(
   if (!isInvitationPending(invitation.status)) throw new ValidationError("Undangan sudah final atau dicabut. Tautan formulir tidak dapat dibuat ulang.");
 
   const tokenInfo = generateSecureToken(
-    invitation.invitationType === "INDIVIDUAL" ? "inv_ind" : "inv_inst",
+    invitation.invitationType === "INDIVIDUAL" ? "inv_ind" : invitationIsSelfRegistration(invitation) ? "inv_self" : "inv_inst",
   );
   const event = await findEventByIdRepository(eventId);
   const deadline = invitation.responseDeadline || event?.invitationResponseDeadline;
   if (deadline && new Date(deadline) < new Date()) throw new ValidationError("Perpanjang batas respons melalui Edit undangan sebelum membuat tautan baru.");
-  const expiresAt = deadline ? new Date(deadline) : new Date(Date.now() + 14 * 86400000);
+  const expiresAt = deadline ? new Date(deadline) : invitationIsSelfRegistration(invitation) ? null : new Date(Date.now() + 14 * 86400000);
   const link = await rotateInvitationLinkRepository(invitation.id, tokenInfo.tokenHash, expiresAt);
 
   await createAuditLog({
@@ -424,6 +433,7 @@ export async function getPublicInstitutionInvitationService(rawToken: string, re
   assertInvitationResponseOpen(result);
 
   await markInvitationOpenedRepository(invitation.id);
+  const registeredCount = await countInvitationParticipantsRepository(invitation.id);
 
   await createAuditLog({
     actorUserId: null,
@@ -439,6 +449,10 @@ export async function getPublicInstitutionInvitationService(rawToken: string, re
     invitation: {
       invitationNumber: invitation.invitationNumber,
       quota: invitationParticipantLimit(invitation),
+      totalQuota: invitation.quota || 1,
+      registeredCount,
+      remainingQuota: Math.max(0, (invitation.quota || 1) - registeredCount),
+      registrationMode: invitation.registrationMode,
       allowGroup: invitationAllowsGroup(invitation),
       status: "OPENED",
       responseDeadline: invitation.responseDeadline || event.invitationResponseDeadline,
@@ -472,7 +486,10 @@ export async function getPublicInvitationPolicyService(rawToken: string, type: "
   const result = await findInvitationPolicyByTokenHashRepository(hashToken(rawToken));
   if (!result || result.invitation.invitationType !== type.toUpperCase()) throw new NotFoundError("Undangan tidak ditemukan.");
   assertInvitationResponseOpen(result);
+  const registeredCount = type === "institution" ? await countInvitationParticipantsRepository(result.invitation.id) : 0;
   return { invitationNumber: result.invitation.invitationNumber, quota: invitationParticipantLimit(result.invitation),
+    totalQuota: result.invitation.quota || 1, registeredCount,
+    remainingQuota: Math.max(0, (result.invitation.quota || 1) - registeredCount), registrationMode: result.invitation.registrationMode,
     allowGroup: invitationAllowsGroup(result.invitation), status: result.invitation.status,
     responseDeadline: result.invitation.responseDeadline || result.event.invitationResponseDeadline,
     updatedAt: result.invitation.updatedAt };
@@ -595,6 +612,9 @@ export async function submitInstitutionResponseService(
   const { invitation, event } = result;
   assertInvitationResponseOpen(result);
   if (invitation.invitationType !== "INSTITUTION") throw new ValidationError("Jalur undangan tidak sesuai.");
+  if (invitationIsSelfRegistration(invitation) && (!payload.isFinal || payload.responseStatus !== "ACCEPTED" || payload.delegates?.length !== 1)) {
+    throw new ValidationError("Tautan lembaga ini hanya untuk pendaftaran mandiri satu asatidz per pengisian.");
+  }
 
   if (payload.captchaToken) {
     const isCaptchaValid = await verifyCaptcha(payload.captchaToken);
@@ -603,9 +623,9 @@ export async function submitInstitutionResponseService(
     }
   }
 
-  if (payload.delegates && payload.delegates.length > (invitation.quota || 1)) {
+  if (payload.delegates && payload.delegates.length > invitationParticipantLimit(invitation)) {
     throw new ValidationError(
-      `Jumlah delegasi (${payload.delegates.length}) melebihi kuota undangan yang diberikan (${invitation.quota}).`
+      `Jumlah peserta (${payload.delegates.length}) melebihi batas per pengisian (${invitationParticipantLimit(invitation)}).`
     );
   }
   if (payload.isFinal && payload.responseStatus === "ACCEPTED") {
@@ -660,7 +680,9 @@ export async function submitInstitutionResponseService(
     portalAccounts,
     emailQueued,
     message: payload.isFinal
-      ? "Konfirmasi undangan tersimpan. Data perwakilan menunggu persetujuan admin sebelum QR dapat dipakai untuk presensi."
+      ? invitationIsSelfRegistration(invitation)
+        ? "Pendaftaran Anda tersimpan. QR tersedia sebagai bukti; tunggu persetujuan admin sebelum QR dipakai untuk presensi."
+        : "Konfirmasi undangan tersimpan. Data perwakilan menunggu persetujuan admin sebelum QR dapat dipakai untuk presensi."
       : "Draft respon undangan berhasil disimpan sementara.",
   };
 }

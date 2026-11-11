@@ -346,7 +346,9 @@ export const handler: Handler = async (event, _context) => {
     if (pubInvMatch && method === "GET") {
       const rawToken = pubInvMatch[1];
       const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
-      const rateLimitCheck = checkRateLimit(`pub_inv_get_${clientIp}`, 10, 600000);
+      const selfRegistration = rawToken.startsWith("inv_self_");
+      const rateLimitCheck = checkRateLimit(selfRegistration ? `pub_inv_self_get_${rawToken.slice(-12)}_${clientIp}` : `pub_inv_get_${clientIp}`,
+        selfRegistration ? 120 : 10, 600000);
 
       if (!rateLimitCheck.allowed) {
         return buildErrorResponse("TOO_MANY_REQUESTS", "Batas akses terlampaui.", requestId, 429);
@@ -360,7 +362,8 @@ export const handler: Handler = async (event, _context) => {
     const invitationPolicyMatch = path.match(/^\/invitations\/public\/(institution|individual)\/([a-z0-9_]+)\/policy$/i);
     if (invitationPolicyMatch && method === "GET") {
       const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
-      const limit = checkRateLimit(`invitation_policy_${clientIp}_${invitationPolicyMatch[2].slice(-12)}`, 30, 60000);
+      const limit = checkRateLimit(`invitation_policy_${clientIp}_${invitationPolicyMatch[2].slice(-12)}`,
+        invitationPolicyMatch[2].startsWith("inv_self_") ? 120 : 30, 60000);
       if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak pemeriksaan undangan. Coba kembali sebentar.", requestId, 429);
       const response = buildSuccessResponse(await getPublicInvitationPolicyService(invitationPolicyMatch[2], invitationPolicyMatch[1].toLowerCase() as "institution" | "individual"), requestId);
       return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
@@ -436,7 +439,9 @@ export const handler: Handler = async (event, _context) => {
     if (pubInvRespMatch && method === "POST") {
       const rawToken = pubInvRespMatch[1];
       const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
-      const rateLimitCheck = checkRateLimit(`pub_inv_post_${clientIp}`, 5, 600000);
+      const selfRegistration = rawToken.startsWith("inv_self_");
+      const rateLimitCheck = checkRateLimit(selfRegistration ? `pub_inv_self_post_${rawToken.slice(-12)}_${clientIp}` : `pub_inv_post_${clientIp}`,
+        selfRegistration ? 60 : 5, 600000);
 
       if (!rateLimitCheck.allowed) {
         return buildErrorResponse("TOO_MANY_REQUESTS", "Batas submit terlampaui.", requestId, 429);

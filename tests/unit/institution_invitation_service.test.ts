@@ -28,7 +28,7 @@ import { createInvitationService, editInvitationService, getInvitationInstitutio
   getPublicInstitutionInvitationService, getPublicIndividualInvitationService, submitInstitutionResponseService,
 } from "../../netlify/functions/lib/services/invitationService";
 import { createInvitationSchema, updateInvitationSchema } from "../../netlify/functions/lib/validations/invitationValidation";
-import { invitationAllowsGroup, invitationParticipantLimit } from "../../src/lib/institutionInvitation";
+import { invitationAllowsGroup, invitationIsSelfRegistration, invitationParticipantLimit } from "../../src/lib/institutionInvitation";
 
 const eventId = "11111111-1111-4111-8111-111111111111";
 const id = "22222222-2222-4222-8222-222222222222";
@@ -65,6 +65,18 @@ describe("kebijakan rombongan kompatibel dengan undangan lama", () => {
     expect(invitationParticipantLimit({ quota: 99, allowGroup: false })).toBe(1);
     expect(invitationParticipantLimit({ quota: 99, invitationType: "INDIVIDUAL" })).toBe(1);
   });
+  it("memisahkan kuota total lembaga dari satu peserta per pengisian mandiri", () => {
+    const policy = { invitationType: "INSTITUTION", registrationMode: "INDIVIDUAL_SELF", quota: 8 };
+    expect(invitationIsSelfRegistration(policy)).toBe(true);
+    expect(invitationAllowsGroup(policy)).toBe(false);
+    expect(invitationParticipantLimit(policy)).toBe(1);
+    expect(createInvitationSchema.safeParse({ eventId, institutionId, invitationType: "INSTITUTION", invitationNumber: "SELF-1",
+      registrationMode: "INDIVIDUAL_SELF", quota: 8, allowGroup: false }).success).toBe(true);
+    expect(createInvitationSchema.safeParse({ eventId, institutionId, invitationType: "INSTITUTION", invitationNumber: "SELF-1",
+      registrationMode: "INDIVIDUAL_SELF", allowGroup: true, quota: 8 }).success).toBe(false);
+    expect(createInvitationSchema.safeParse({ eventId, institutionId, invitationType: "INSTITUTION", invitationNumber: "SELF-1",
+      registrationMode: "INDIVIDUAL_SELF" }).success).toBe(false);
+  });
   it("memvalidasi PATCH parsial dan menolak penggantian status/type/event melalui payload", () => {
     expect(updateInvitationSchema.parse({ allowGroup: false })).toEqual({ allowGroup: false });
     for (const value of [{}, { quota: 1.5 }, { quota: 1001 }, { responseDeadline: "tanggal-rusak" },
@@ -77,6 +89,14 @@ describe("kebijakan rombongan kompatibel dengan undangan lama", () => {
     const saved = await createInvitationService(input, "actor", "request");
     expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ quota: 1, institutionId }), expect.any(String));
     expect(saved.invitation.allowGroup).toBe(false);
+  });
+  it("membuat tautan lembaga berulang dengan kuota total yang utuh", async () => {
+    const input = createInvitationSchema.parse({ eventId, institutionId, invitationType: "INSTITUTION", invitationNumber: "SELF-2",
+      registrationMode: "INDIVIDUAL_SELF", allowGroup: false, quota: 8 });
+    const saved = await createInvitationService(input, "actor", "request");
+    expect(mocks.create).toHaveBeenCalledWith(expect.objectContaining({ quota: 8, registrationMode: "INDIVIDUAL_SELF", institutionId }), expect.any(String));
+    expect(saved.invitation.allowGroup).toBe(false);
+    expect(saved.publicUrl).toMatch(/^\/invitation\/institution\/[^/]+\/inv_self_/);
   });
   it("menggunakan kuota default event jika tidak dikirim, tetapi menolak rombongan kuota satu", async () => {
     await createInvitationService({ eventId, institutionId, invitationType: "INSTITUTION", invitationNumber: "UND-2" }, "actor", "request");
@@ -106,6 +126,16 @@ describe("edit undangan dan integritas relasi", () => {
     expect(mocks.update).toHaveBeenCalledWith(invitation, expect.objectContaining({ quota: 1, invitationNumber: "UND-02" }), undefined);
     expect(saved).not.toHaveProperty("publicUrl");
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: "INVITATION_UPDATED", eventId, beforeData: invitation }));
+  });
+  it("mengizinkan penyesuaian kuota mandiri tetapi mengunci pola undangan", async () => {
+    mocks.find.mockResolvedValue({ ...invitation, registrationMode: "INDIVIDUAL_SELF", status: "OPENED", respondedAt: new Date() });
+    mocks.count.mockResolvedValue(2);
+    await editInvitationService(eventId, id, { registrationMode: "INDIVIDUAL_SELF", allowGroup: false, quota: 5 }, "actor", "request");
+    expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({ registrationMode: "INDIVIDUAL_SELF" }), expect.objectContaining({ quota: 5 }), undefined);
+    await expect(editInvitationService(eventId, id, { registrationMode: "DELEGATION", quota: 5 }, "actor", "request"))
+      .rejects.toMatchObject({ statusCode: 409 });
+    await expect(editInvitationService(eventId, id, { registrationMode: "INDIVIDUAL_SELF", quota: 1 }, "actor", "request"))
+      .rejects.toMatchObject({ statusCode: 409 });
   });
   it("mengunci lembaga setelah respons final/ada peserta dan mencegah kuota di bawah jumlah peserta", async () => {
     mocks.count.mockResolvedValue(2);
@@ -219,6 +249,23 @@ describe("keamanan lingkup event dan formulir publik", () => {
     expect(result.invitation.status).toBe("OPENED"); expect(mocks.opened).toHaveBeenCalledWith(id);
     expect(result.institution).toEqual({ name: "Ma'had Uji", code: "MU", verificationRequired: false });
     expect(JSON.stringify(result)).not.toContain("private@example.invalid");
+  });
+  it("menampilkan sisa kursi mandiri tanpa membocorkan identitas pendaftar", async () => {
+    mocks.token.mockResolvedValue({ invitation: { ...invitation, registrationMode: "INDIVIDUAL_SELF", quota: 5, status: "OPENED" },
+      event, link: { id: "link", expiresAt: deadline }, institution: { name: "Ma'had Uji", code: "MU" } });
+    mocks.count.mockResolvedValue(2);
+    const result = await getPublicInstitutionInvitationService("inv_inst_token", "request");
+    expect(result.invitation).toMatchObject({ registrationMode: "INDIVIDUAL_SELF", quota: 1, totalQuota: 5,
+      registeredCount: 2, remainingQuota: 3, allowGroup: false });
+    expect(JSON.stringify(result)).not.toContain("private@example.invalid");
+  });
+  it("menolak jawaban seluruh lembaga dan rombongan pada tautan mandiri", async () => {
+    mocks.token.mockResolvedValue({ invitation: { ...invitation, registrationMode: "INDIVIDUAL_SELF", quota: 5, status: "OPENED" }, event, link: {} });
+    await expect(submitInstitutionResponseService("token", { responseStatus: "DECLINED", isFinal: true, delegates: [] }, "request"))
+      .rejects.toMatchObject({ statusCode: 422 });
+    await expect(submitInstitutionResponseService("token", { responseStatus: "ACCEPTED", isFinal: true, delegates: [{}, {}] }, "request"))
+      .rejects.toMatchObject({ statusCode: 422 });
+    expect(mocks.save).not.toHaveBeenCalled();
   });
   it("menolak token yang dibuka melalui tipe undangan yang salah", async () => {
     await expect(getPublicIndividualInvitationService("inv_inst_token", "request")).rejects.toMatchObject({ statusCode: 404 });

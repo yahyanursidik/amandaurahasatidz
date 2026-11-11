@@ -27,8 +27,8 @@ describe("dialog aksi tab peserta", () => {
 
   it("tombol berbagi terikat identitas peserta dan dialog berlabel tanpa memuat token di awal", () => {
     const html = renderToStaticMarkup(<ParticipantShareDialog eventId="event-b" participantId="participant-a" participantName="Ahmad" />);
-    expect(html).toContain("Bagikan QR / kode");
-    expect(html).toContain('aria-label="Bagikan QR dan kode Ahmad"');
+    expect(html).toContain("Bagikan akses");
+    expect(html).toContain('aria-label="Bagikan akses peserta Ahmad"');
     expect(html).toContain('aria-labelledby="participant-share-participant-a"');
     expect(html).not.toContain("pqr_");
     expect(html).not.toContain("wa.me");

@@ -71,11 +71,11 @@ export const ADMIN_GUIDE_STAGES: GuideStage[] = [
     id: "registration",
     title: "Kelola undangan dan peserta",
     shortTitle: "Pendaftaran",
-    description: "Satu pendaftaran rombongan tetap menghasilkan identitas tiap asatidz.",
+    description: "Pilih pengisian rombongan sekali atau mandiri per asatidz dalam kuota lembaga.",
     steps: [
-      "Buat tautan unik per lembaga. Kode unik lembaga dibuat otomatis; bagikan tautan dan kode melalui WhatsApp atau email.",
-      "Pantau respons undangan dan perwakilan lembaga. Untuk peserta reguler, gunakan formulir publik; admin juga dapat menambah manual atau mengimpor CSV dari template.",
-      "Setujui peserta, lalu kirim tautan konfirmasi pribadi dari tombol Bagikan QR / kode. Setiap asatidz—termasuk anggota rombongan—memilih hadir atau berhalangan tanpa login; QR aktif setelah konfirmasi bila diwajibkan.",
+      "Buat tautan unik per lembaga. Pilih perwakilan yang mengisi sekali atau asatidz yang mengisi masing-masing sampai kuota penuh; bagikan tautan melalui WhatsApp atau email.",
+      "Pantau jumlah pendaftar per undangan. Pada pola mandiri, setiap asatidz menerima QR dan akses portal sendiri; admin tetap meninjau persetujuannya. Peserta reguler dapat mendaftar lewat formulir publik atau diimpor admin.",
+      "Setujui peserta, lalu kirim tautan konfirmasi pribadi dari tombol Bagikan akses. Setiap asatidz—termasuk anggota rombongan—memilih hadir atau berhalangan tanpa login; QR aktif setelah konfirmasi bila diwajibkan.",
     ],
     actions: [
       { label: "Undangan", to: "/registrations?view=invitations", eventScoped: true },
