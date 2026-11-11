@@ -7,6 +7,7 @@ export interface InvitationShareContext {
   accessCode?: string | null;
   responseDeadline?: string | null;
   allowGroup?: boolean;
+  registrationMode?: "DELEGATION" | "INDIVIDUAL_SELF";
   quota?: number;
   timezone?: string;
 }
@@ -38,17 +39,22 @@ export const buildInvitationShareText = (context: InvitationShareContext) =>
     `Yth. ${context.institutionName},`,
     context.recipientType === "INDIVIDUAL"
       ? `Kami panitia Aman Daurah Asatidz mengundang Anda secara pribadi untuk menghadiri ${context.eventName}.`
-      : `Kami panitia Aman Daurah Asatidz mengundang perwakilan lembaga untuk menghadiri ${context.eventName}.`,
+      : context.registrationMode === "INDIVIDUAL_SELF"
+        ? `Kami panitia Aman Daurah Asatidz mengundang para asatidz dari ${context.institutionName} untuk menghadiri ${context.eventName}.`
+        : `Kami panitia Aman Daurah Asatidz mengundang perwakilan lembaga untuk menghadiri ${context.eventName}.`,
     "",
     context.recipientType === "INDIVIDUAL"
       ? "Silakan konfirmasi kehadiran melalui tautan pribadi berikut:"
-      : "Silakan konfirmasi kehadiran dan daftarkan para asatidz yang mewakili lembaga melalui tautan khusus berikut:",
+      : context.registrationMode === "INDIVIDUAL_SELF"
+        ? "Silakan bagikan tautan khusus berikut kepada asatidz di lembaga Anda. Setiap asatidz mengisi data dirinya sendiri:"
+        : "Silakan konfirmasi kehadiran dan daftarkan para asatidz yang mewakili lembaga melalui tautan khusus berikut:",
     context.invitationUrl,
     "",
     ...(context.accessCode ? [`Kode unik lembaga: ${context.accessCode}`, ""] : []),
     `Nomor undangan: ${context.invitationNumber}`,
     `Batas konfirmasi: ${formatDeadline(context.responseDeadline, context.timezone)}`,
     ...(context.recipientType === "INDIVIDUAL" ? ["Undangan ini hanya untuk satu asatidz dan tidak dapat dialihkan."]
+      : context.registrationMode === "INDIVIDUAL_SELF" ? [`Kuota lembaga: ${context.quota || 1} asatidz. Tautan dapat dipakai berulang sampai kuota penuh atau batas respons berakhir. Setiap pendaftar menunggu persetujuan admin.`]
       : context.allowGroup !== undefined ? [context.allowGroup
       ? `Boleh membawa rombongan, maksimal ${context.quota || 2} peserta termasuk peserta utama.`
       : "Undangan berlaku untuk satu perwakilan, tanpa peserta tambahan."] : []),

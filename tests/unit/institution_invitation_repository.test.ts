@@ -22,11 +22,13 @@ beforeEach(() => {
   } }));
   mocks.db.insert.mockImplementation((table) => ({ values: (values: unknown) => {
     actions.push({ type: "insert", table, values });
-    return { returning: async () => [{ id: "response" }], then: (resolve: (value: unknown) => unknown) => Promise.resolve([]).then(resolve) };
+    return { returning: async () => [{ id: "response" }], onConflictDoNothing: () => ({ returning: async () => [{ id: "participant", participantCode: "P-TEST" }] }),
+      then: (resolve: (value: unknown) => unknown) => Promise.resolve([]).then(resolve) };
   } }));
-  mocks.db.select.mockImplementation(() => ({ from: () => ({ where: () => ({ limit: () => {
-    const result = selectRows.shift() || []; return Object.assign(Promise.resolve(result), { for: async () => result });
-  } }) }) }));
+  mocks.db.select.mockImplementation(() => ({ from: () => ({ where: () => ({
+    limit: () => { const result = selectRows.shift() || []; return Object.assign(Promise.resolve(result), { for: async () => result }); },
+    then: (resolve: (value: unknown) => unknown) => Promise.resolve(selectRows.shift() || []).then(resolve),
+  }) }) }));
 });
 
 describe("integritas penyimpanan undangan", () => {
@@ -47,6 +49,12 @@ describe("integritas penyimpanan undangan", () => {
     await expect(updateInvitationRepository(invitation as any, { quota: 1 }, { tokenHash: "new-hash", expiresAt: null })).rejects.toMatchObject({ statusCode: 409 });
     expect(mocks.db.insert).not.toHaveBeenCalled();
   });
+  it("menolak penurunan kuota mandiri yang kalah cepat dari pendaftaran baru", async () => {
+    selectRows = [[{ total: 3 }]];
+    await expect(updateInvitationRepository({ ...invitation, registrationMode: "INDIVIDUAL_SELF" } as any, { quota: 2 }))
+      .rejects.toMatchObject({ statusCode: 409 });
+    expect(mocks.db.update).not.toHaveBeenCalled();
+  });
   it.each(["ACCEPTED", "DECLINED", "REVOKED"])("tidak menyimpan respons kedua untuk undangan %s", async (status) => {
     selectRows = [[{ ...invitation, status }]];
     await expect(saveInstitutionDelegationRepository(invitation.id, { responseStatus: "ACCEPTED", isFinal: true, delegates: [] })).rejects.toMatchObject({ statusCode: 409 });
@@ -57,6 +65,24 @@ describe("integritas penyimpanan undangan", () => {
     await expect(saveInstitutionDelegationRepository(invitation.id, { responseStatus: "ACCEPTED", isFinal: true,
       delegates: [{ fullName: "Ustadz Ahmad" }, { fullName: "Ustadz Hasan" }] })).rejects.toMatchObject({ statusCode: 409 });
     expect(mocks.db.insert).not.toHaveBeenCalled();
+  });
+  it("menolak pendaftaran mandiri saat kuota terpakai, di dalam transaksi terkunci", async () => {
+    selectRows = [[{ ...invitation, registrationMode: "INDIVIDUAL_SELF", status: "OPENED" }], [{ total: 3 }]];
+    await expect(saveInstitutionDelegationRepository(invitation.id, { responseStatus: "ACCEPTED", isFinal: true,
+      delegates: [{ fullName: "Ustadz Ahmad" }] })).rejects.toMatchObject({ statusCode: 409 });
+    expect(mocks.db.insert).not.toHaveBeenCalled();
+  });
+  it("menyimpan setiap asatidz mandiri tanpa menutup tautan lembaga", async () => {
+    selectRows = [[{ ...invitation, registrationMode: "INDIVIDUAL_SELF", status: "OPENED" }], [{ total: 1 }],
+      [{ expiresAt: new Date("2099-01-01") }],
+      [{ id: "response", fullName: "Ustadz Ahmad", email: null, profileStatus: "ACTIVE" }], [], []];
+    const saved = await saveInstitutionDelegationRepository(invitation.id, { responseStatus: "ACCEPTED", isFinal: true,
+      delegates: [{ fullName: "Ustadz Ahmad", isLead: true }] });
+    expect(saved.participants).toHaveLength(1);
+    expect(actions.find(({ table }) => table === eventParticipants)?.values).toMatchObject({
+      registrationSource: "INSTITUTION_INVITATION", isDelegationLead: false,
+    });
+    expect(actions.find(({ table }) => table === invitations)?.values).toMatchObject({ status: "OPENED" });
   });
   it("tidak mengambil alih peserta dari pendaftaran reguler atau undangan lain", async () => {
     const profile = { id: "ustadz", fullName: "Ustadz Ahmad", normalizedName: "ustadz ahmad", email: "ahmad@example.invalid", profileStatus: "ACTIVE" };

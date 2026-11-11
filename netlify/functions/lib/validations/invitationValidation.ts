@@ -10,6 +10,7 @@ export const createInvitationSchema = z.object({
   institutionId: z.string().uuid().optional().nullable(),
   ustadzId: z.string().uuid().optional().nullable(),
   invitationNumber,
+  registrationMode: z.enum(["DELEGATION", "INDIVIDUAL_SELF"]).default("DELEGATION"),
   quota: quota.optional(),
   allowGroup: z.boolean().optional(),
   responseDeadline,
@@ -37,12 +38,22 @@ export const createInvitationSchema = z.object({
   if (value.invitationType === "INDIVIDUAL" && (value.allowGroup || value.quota != null && value.quota !== 1)) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ["quota"], message: "Undangan perorangan hanya berlaku untuk satu asatidz" });
   }
+  if (value.invitationType === "INDIVIDUAL" && value.registrationMode !== "DELEGATION") {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["registrationMode"], message: "Pendaftaran mandiri lembaga hanya untuk undangan lembaga" });
+  }
+  if (value.registrationMode === "INDIVIDUAL_SELF" && value.allowGroup) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["allowGroup"], message: "Pendaftaran mandiri menerima satu asatidz per pengisian" });
+  }
+  if (value.registrationMode === "INDIVIDUAL_SELF" && value.quota == null) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["quota"], message: "Tetapkan kuota total lembaga untuk pendaftaran mandiri" });
+  }
 });
 
 export const updateInvitationSchema = z.object({
   institutionId: z.string().uuid("ID lembaga tidak valid").optional(),
   ustadzId: z.string().uuid("ID asatidz tidak valid").optional(),
   invitationNumber: invitationNumber.optional(),
+  registrationMode: z.enum(["DELEGATION", "INDIVIDUAL_SELF"]).optional(),
   quota: quota.optional(),
   allowGroup: z.boolean().optional(),
   responseDeadline,

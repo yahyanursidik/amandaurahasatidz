@@ -51,7 +51,7 @@ import { canApproveParticipant, eligibleApprovalIds } from "@/lib/participantBul
 import { buildInstitutionInvitationPath } from "@/lib/invitationUrl";
 import { parseParticipantCsv } from "@/lib/participantImportCsv";
 import { eventTimezoneLabel, formatEventDateTime, fromEventIso, toEventIso } from "@/lib/eventDateTime";
-import { invitationAllowsGroup, invitationStatusLabel, isInvitationPending, type InstitutionInvitationValues, type InvitationInstitutionOption } from "@/lib/institutionInvitation";
+import { invitationAllowsGroup, invitationIsSelfRegistration, invitationStatusLabel, isInvitationPending, type InstitutionInvitationValues, type InvitationInstitutionOption, type InvitationRegistrationMode } from "@/lib/institutionInvitation";
 import { approvalSelectionCandidate, emptyParticipantSummary, participantApprovalLabel, participantConfirmationLabel, participantSourceCategory, participantSourceLabel, type ParticipantSourceFilter, type ParticipantPageMeta, type ApprovalSelectionCandidate } from "@/lib/participantCatalog";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 
@@ -70,6 +70,7 @@ type Invitation = {
   institutionWhatsapp?: string | null;
   institutionPhone?: string | null;
   invitationNumber: string;
+  registrationMode?: InvitationRegistrationMode;
   quota: number | null;
   allowGroup?: boolean;
   registeredCount?: number;
@@ -407,6 +408,7 @@ export const EventRegistrationsPage: React.FC = () => {
   const [form, setForm] = useState<InstitutionInvitationValues>({
     institutionId: requestedInstitutionId,
     invitationNumber: "",
+    registrationMode: "DELEGATION",
     quota: 1,
     allowGroup: false,
     responseDeadline: "",
@@ -499,6 +501,7 @@ export const EventRegistrationsPage: React.FC = () => {
           setInvitationAudience("INDIVIDUAL");
         }
         setForm({ institutionId: requestedInstitutionId, invitationNumber: "",
+          registrationMode: "DELEGATION",
           quota: deadlineData.defaultInstitutionQuota || 1, allowGroup: (deadlineData.defaultInstitutionQuota || 1) > 1,
           responseDeadline: fromEventIso(deadlineData.invitationResponseDeadline, deadlineData.timezone || "Asia/Jakarta") });
       }
@@ -531,7 +534,7 @@ export const EventRegistrationsPage: React.FC = () => {
     setEditingInvitation(null); setReplacementSource(""); setInvitationNotice(""); setInvitationFormError(""); setEventDeadline(null);
     setInvitationAudience(searchParams.get("type") === "individual" ? "INDIVIDUAL" : "INSTITUTION");
     setLinkBusy(""); setInvitationActionBusy(""); setSubmitting(false);
-    setForm({ institutionId: requestedInstitutionId, invitationNumber: "", quota: 1, allowGroup: false, responseDeadline: "" });
+    setForm({ institutionId: requestedInstitutionId, invitationNumber: "", registrationMode: "DELEGATION", quota: 1, allowGroup: false, responseDeadline: "" });
     setIndividualForm({ ustadzId: "", invitationNumber: "", responseDeadline: "" });
     setSelectedIndividualRecipient(null);
     settingsCache.current = null;
@@ -618,7 +621,7 @@ export const EventRegistrationsPage: React.FC = () => {
     return result;
   };
 
-  const acceptedCount = invitations.filter((item) => item.status === "ACCEPTED").length;
+  const acceptedCount = invitations.filter((item) => item.status === "ACCEPTED" || invitationIsSelfRegistration(item) && (item.registeredCount || 0) > 0).length;
   const awaitingCount = invitations.filter((item) => ["DRAFT", "SENT", "OPENED"].includes(item.status)).length;
   const approvedCount = participantSummary.approved;
   const audienceAllowed = (audience: "INSTITUTION" | "INDIVIDUAL") => !eventDeadline?.audienceMode
@@ -649,6 +652,7 @@ export const EventRegistrationsPage: React.FC = () => {
     invitationNumber: invitation.invitationNumber,
     invitationUrl,
     allowGroup: invitationAllowsGroup(invitation),
+    registrationMode: invitation.registrationMode || "DELEGATION",
     quota: invitation.quota || 1,
     timezone: eventDeadline?.timezone,
     responseDeadline: invitation.responseDeadline || eventDeadline?.invitationResponseDeadline,
@@ -661,7 +665,7 @@ export const EventRegistrationsPage: React.FC = () => {
     setEditingInvitation(null);
     setReplacementSource("");
     setInvitationFormError("");
-    setForm({ institutionId: requestedInstitutionId, invitationNumber: "", quota: eventDeadline?.defaultInstitutionQuota || 1,
+    setForm({ institutionId: requestedInstitutionId, invitationNumber: "", registrationMode: "DELEGATION", quota: eventDeadline?.defaultInstitutionQuota || 1,
       allowGroup: (eventDeadline?.defaultInstitutionQuota || 1) > 1,
       responseDeadline: fromEventIso(eventDeadline?.invitationResponseDeadline, eventDeadline?.timezone || "Asia/Jakarta") });
     setIndividualForm({ ustadzId: "", invitationNumber: "",
@@ -686,7 +690,7 @@ export const EventRegistrationsPage: React.FC = () => {
         responseDeadline: fromEventIso(invitation.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta") });
     }
     else setForm({ institutionId: invitation.institutionId || "", invitationNumber: invitation.invitationNumber,
-      quota: invitation.quota || 1, allowGroup: invitationAllowsGroup(invitation),
+      registrationMode: invitation.registrationMode || "DELEGATION", quota: invitation.quota || 1, allowGroup: invitationAllowsGroup(invitation),
       responseDeadline: fromEventIso(invitation.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta") });
     window.requestAnimationFrame(() => document.getElementById(individual ? "individual-invitation-editor" : "institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" }));
   };
@@ -705,7 +709,7 @@ export const EventRegistrationsPage: React.FC = () => {
         responseDeadline: fromEventIso(usableDeadline, timezone) });
     }
     else setForm({ institutionId: invitation.institutionId || "", invitationNumber: "", quota: invitation.quota || 1,
-      allowGroup: invitationAllowsGroup(invitation), responseDeadline: fromEventIso(usableDeadline, timezone) });
+      registrationMode: invitation.registrationMode || "DELEGATION", allowGroup: invitationAllowsGroup(invitation), responseDeadline: fromEventIso(usableDeadline, timezone) });
     window.requestAnimationFrame(() => {
       document.getElementById(individual ? "individual-invitation-editor" : "institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" });
       document.getElementById(individual ? "individual-invitation-number" : "institution-invitation-number")?.focus({ preventScroll: true });
@@ -729,7 +733,7 @@ export const EventRegistrationsPage: React.FC = () => {
         ? originalDeadline : toEventIso(localDeadline, eventDeadline?.timezone || "Asia/Jakarta");
       const payload = individual ? { ...individualForm, quota: 1, allowGroup: false,
         invitationNumber: individualForm.invitationNumber.trim(), responseDeadline }
-        : { ...form, quota: form.allowGroup ? form.quota : 1, invitationNumber: form.invitationNumber.trim(), responseDeadline };
+        : { ...form, quota: form.registrationMode === "INDIVIDUAL_SELF" || form.allowGroup ? form.quota : 1, invitationNumber: form.invitationNumber.trim(), responseDeadline };
       let created: { invitation: Invitation; publicUrl?: string };
       if (demoMode) {
         const institutionName = institutions.find((institution) => institution.id === form.institutionId)?.name || editing?.institutionName || "Lembaga penerima";
@@ -741,6 +745,7 @@ export const EventRegistrationsPage: React.FC = () => {
           ustadzId: individual ? individualForm.ustadzId : null,
           ustadzName: individual ? editing?.ustadzName || "Asatidz penerima" : null,
           invitationNumber: payload.invitationNumber,
+          registrationMode: individual ? "DELEGATION" : form.registrationMode,
           quota: payload.quota, allowGroup: individual ? false : form.allowGroup,
           status: editing?.status || "DRAFT", sentAt: editing?.sentAt || null, respondedAt: editing?.respondedAt || null,
           responseDeadline: payload.responseDeadline,
@@ -1372,8 +1377,8 @@ export const EventRegistrationsPage: React.FC = () => {
       <section aria-label="Ringkasan registrasi" className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         {[
           { label: "Undangan", value: invitations.length, icon: Building2, color: "border-sky-400 bg-sky-50 text-sky-800" },
-          { label: "Bersedia hadir", value: acceptedCount, icon: CheckCircle2, color: "border-emerald-400 bg-emerald-50 text-emerald-800" },
-          { label: "Menunggu respons", value: awaitingCount, icon: Clock3, color: "border-amber-400 bg-amber-50 text-amber-800" },
+          { label: "Sudah ada respons", value: acceptedCount, icon: CheckCircle2, color: "border-emerald-400 bg-emerald-50 text-emerald-800" },
+          { label: "Tautan terbuka", value: awaitingCount, icon: Clock3, color: "border-amber-400 bg-amber-50 text-amber-800" },
           { label: "Peserta disetujui", value: approvedCount, icon: UserCheck, color: "border-violet-400 bg-violet-50 text-violet-800" },
         ].map((metric) => (
           <div key={metric.label} className={`rounded-xl border-t-2 px-4 py-4 shadow-sm ${metric.color}`}>
@@ -1450,7 +1455,9 @@ export const EventRegistrationsPage: React.FC = () => {
                           </span>
                           <span className="rounded-full bg-slate-100 px-2 py-1 text-xs font-bold text-slate-700">{invitation.invitationType === "INDIVIDUAL" ? "Pribadi" : "Lembaga"}</span>
                           <StatusBadge
-                            label={invitationStatusLabel[invitation.status] || invitation.status}
+                            label={invitationIsSelfRegistration(invitation) && invitation.status === "OPENED"
+                              ? (invitation.registeredCount || 0) >= (invitation.quota || 1) ? "Kuota penuh" : (invitation.registeredCount || 0) > 0 ? "Pendaftaran berjalan" : "Belum ada pendaftar"
+                              : invitationStatusLabel[invitation.status] || invitation.status}
                             variant={invitation.status === "ACCEPTED" ? "success" : ["DECLINED", "REVOKED"].includes(invitation.status) ? "danger" : "info"}
                           />
                           {isInvitationPending(invitation.status) && invitation.responseDeadline && new Date(invitation.responseDeadline) < new Date() && (
@@ -1463,7 +1470,7 @@ export const EventRegistrationsPage: React.FC = () => {
                             : invitation.institutionId ? canOpenMasterData ? <Link to={`/admin/institutions/${invitation.institutionId}`} className="hover:text-emerald-800 hover:underline">{invitation.institutionName || "Lembaga penerima"}</Link> : invitation.institutionName || "Lembaga penerima" : "Lembaga penerima"}
                         </h2>
                         <p className="mt-1 text-sm text-slate-600">
-                          {invitation.registeredCount ?? delegates.length} dari {invitation.invitationType === "INDIVIDUAL" ? 1 : invitation.quota || 1} peserta · {invitation.invitationType === "INDIVIDUAL" ? "Satu asatidz" : invitationAllowsGroup(invitation) ? "Rombongan diizinkan" : "Satu perwakilan"}
+                          {invitation.registeredCount ?? delegates.length} dari {invitation.invitationType === "INDIVIDUAL" ? 1 : invitation.quota || 1} peserta · {invitation.invitationType === "INDIVIDUAL" ? "Satu asatidz" : invitationIsSelfRegistration(invitation) ? "Daftar mandiri per asatidz" : invitationAllowsGroup(invitation) ? "Satu pengisian rombongan" : "Satu perwakilan"}
                         </p>
                         {invitation.responseDeadline && <p className="mt-2 text-sm text-slate-600">Batas respons: {formatEventDateTime(invitation.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta")} {eventTimezoneLabel(eventDeadline?.timezone || "Asia/Jakarta")}</p>}
                       </div>

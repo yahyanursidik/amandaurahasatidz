@@ -7,7 +7,7 @@ describe("jalur peserta lintas modul", () => {
     ["DIRECT_ADMIN_UPLOAD", "REGULAR", "Unggahan admin"],
     ["INSTITUTION_DELEGATION", "INSTITUTION", "Undangan lembaga"],
     ["INSTITUTION_DELEGATION_REPLACEMENT", "INSTITUTION", "Pengganti delegasi"],
-    ["INSTITUTION_INVITATION", "INSTITUTION", "Undangan lembaga"],
+    ["INSTITUTION_INVITATION", "INSTITUTION", "Undangan lembaga · mandiri"],
     ["INDIVIDUAL_INVITATION", "INDIVIDUAL", "Undangan pribadi"],
   ] as const)("menyamakan %s pada filter dan label", (source, category, label) => {
     expect(participantSourceCategory(source)).toBe(category);

@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { ArrowLeft, CalendarDays, CheckCircle2, MapPin } from "lucide-react";
+import { ArrowLeft, CalendarDays, CheckCircle2, MapPin, Users } from "lucide-react";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { InvitationResponseForm, type InvitationResponsePayload } from "@/components/invitations/InvitationResponseForm";
 import { ENV } from "@/config/env";
@@ -8,9 +8,10 @@ import { PublicRegistrationReceipt } from "@/components/public/PublicRegistratio
 import { readRegistrationProof, saveRegistrationProof } from "@/lib/registrationProof";
 import type { ReceiptParticipant } from "@/lib/publicRegistrationReceipt";
 import { formatEventDate, formatEventDateTime, eventTimezoneLabel } from "@/lib/eventDateTime";
+import { invitationIsSelfRegistration, type InvitationRegistrationMode } from "@/lib/institutionInvitation";
 
 type InvitationData = {
-  invitation: { invitationNumber: string; quota?: number | null; allowGroup?: boolean; responseDeadline?: string | null; status: string };
+  invitation: { invitationNumber: string; quota?: number | null; totalQuota?: number; registeredCount?: number; remainingQuota?: number; registrationMode?: InvitationRegistrationMode; allowGroup?: boolean; responseDeadline?: string | null; status: string };
   event: { name: string; slug?: string; timezone?: string; startDate: string; endDate: string; venueName?: string | null; publicContactWhatsapp?: string | null; attendanceConfirmationRequired?: boolean };
   institution?: { name: string; code: string } | null;
   recipient?: { fullName: string } | null;
@@ -52,6 +53,8 @@ export const InvitationRegistrationPage: React.FC = () => {
       temporaryPasswordIssued: account?.temporaryPasswordIssued,
     };
   }) || [];
+  const selfRegistration = Boolean(data && invitationIsSelfRegistration({ ...data.invitation, invitationType: invitationType.toUpperCase() }));
+  const selfRegistrationFull = selfRegistration && (data?.invitation.remainingQuota ?? 1) <= 0;
 
   useEffect(() => {
     const proof = readRegistrationProof<InvitationData, Submission>(proofKey);
@@ -88,8 +91,10 @@ export const InvitationRegistrationPage: React.FC = () => {
         const policy = payload.data as InvitationData["invitation"];
         if (!policy || typeof policy.quota !== "number" || typeof policy.allowGroup !== "boolean") return;
         const previous = current.current.data?.invitation;
-        if (previous && (previous.quota !== policy.quota || previous.allowGroup !== policy.allowGroup || previous.responseDeadline !== policy.responseDeadline)) {
-          setPolicyNotice(`Pengaturan undangan diperbarui oleh panitia. Maksimal ${policy.quota} peserta termasuk peserta utama. Anggota di luar batas baru dibersihkan; periksa data dan persetujuan kembali.`);
+        if (previous && (previous.quota !== policy.quota || previous.allowGroup !== policy.allowGroup || previous.responseDeadline !== policy.responseDeadline || previous.totalQuota !== policy.totalQuota)) {
+          setPolicyNotice(policy.registrationMode === "INDIVIDUAL_SELF"
+            ? `Kuota atau tenggat undangan telah diperbarui. Periksa sisa kursi sebelum mengirim.`
+            : `Pengaturan undangan diperbarui oleh panitia. Maksimal ${policy.quota} peserta termasuk peserta utama. Anggota di luar batas baru dibersihkan; periksa data dan persetujuan kembali.`);
         }
         if (current.current.policyBlocked) setError("");
         setPolicyBlocked(false);
@@ -129,14 +134,18 @@ export const InvitationRegistrationPage: React.FC = () => {
       {loading ? <p role="status" className="rounded-xl bg-white p-8 text-sm">Memuat formulir undangan…</p> : !data ?
         <section role="alert" className="rounded-xl border border-rose-200 bg-white p-6"><h1 className="text-xl font-black">Undangan tidak tersedia</h1><p className="mt-2 text-sm">{error}</p></section> : <>
           <header className="rounded-2xl bg-emerald-950 p-6 text-white sm:p-8">
-            <p className="text-sm font-bold text-emerald-200">{invitationType === "individual" ? "Undangan pribadi" : "Undangan lembaga"} · {data.invitation.invitationNumber}</p>
+            <p className="text-sm font-bold text-emerald-200">{invitationType === "individual" ? "Undangan pribadi" : selfRegistration ? "Undangan lembaga · pendaftaran mandiri" : "Undangan lembaga"} · {data.invitation.invitationNumber}</p>
             <h1 className="mt-3 text-2xl font-black">{data.event.name}</h1>
+            {selfRegistration && data.institution && <p className="mt-2 text-base font-semibold text-emerald-100">Ahlan wa sahlan, asatidz {data.institution.name}</p>}
             {invitationType === "individual" && data.recipient && <p className="mt-2 text-base font-semibold text-emerald-100">Untuk {data.recipient.fullName}</p>}
             <p className="mt-3 flex items-start gap-2 text-sm text-emerald-100"><CalendarDays className="h-4 w-4 shrink-0" />{formatEventDate(data.event.startDate)}{data.event.startDate !== data.event.endDate ? ` – ${formatEventDate(data.event.endDate)}` : ""}</p>
             <p className="mt-2 flex items-start gap-2 text-sm text-emerald-100"><MapPin className="h-4 w-4 shrink-0" />{data.event.venueName || "Lokasi menyusul"}</p>
             {data.invitation.responseDeadline && !submission && <p className="mt-4 border-t border-emerald-800 pt-3 text-sm text-emerald-200">Konfirmasi sebelum {formatEventDateTime(data.invitation.responseDeadline, data.event.timezone || "Asia/Jakarta")} {eventTimezoneLabel(data.event.timezone || "Asia/Jakarta")}</p>}
           </header>
-           {submission ? receiptParticipants.length > 0 ? <PublicRegistrationReceipt event={data.event} participants={receiptParticipants} emailQueued={submission.emailQueued || 0} approvalStatus={submission.participants?.[0]?.approvalStatus} /> : <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-6" aria-live="polite"><CheckCircle2 className="h-8 w-8 text-emerald-700" /><h2 className="mt-3 text-xl font-black">Jawaban undangan tersimpan</h2><p className="mt-2 text-sm">{submission.message}</p><p className="mt-3 text-sm">Karena berhalangan hadir, tidak ada QR atau akses portal baru.</p></section> : <InvitationResponseForm key={`${invitationType}:${token}`} data={data} invitationType={invitationType} saving={saving} error={error} policyNotice={policyNotice} unavailable={policyBlocked} onSubmit={(payload) => void submit(payload)} />}
+           {submission ? <>
+             {receiptParticipants.length > 0 ? <PublicRegistrationReceipt event={data.event} participants={receiptParticipants} emailQueued={submission.emailQueued || 0} approvalStatus={submission.participants?.[0]?.approvalStatus} /> : <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-6" aria-live="polite"><CheckCircle2 className="h-8 w-8 text-emerald-700" /><h2 className="mt-3 text-xl font-black">Jawaban undangan tersimpan</h2><p className="mt-2 text-sm">{submission.message}</p><p className="mt-3 text-sm">Karena berhalangan hadir, tidak ada QR atau akses portal baru.</p></section>}
+             {selfRegistration && receiptParticipants.length > 0 && <section className="rounded-2xl border border-sky-200 bg-sky-50 p-5"><h2 className="font-black text-sky-950">Asatidz lain dari lembaga ini?</h2><p className="mt-1 text-sm text-sky-900">Simpan dahulu QR dan akses portal Anda. Setelah itu, formulir dapat dibuka lagi untuk satu asatidz berikutnya.</p><button type="button" onClick={() => { try { window.sessionStorage.removeItem(proofKey); } catch { /* The current receipt is still visible. */ } window.location.reload(); }} className="mt-3 inline-flex min-h-12 items-center gap-2 rounded-xl bg-sky-800 px-5 font-bold text-white hover:bg-sky-900"><Users className="h-5 w-5" /> Daftarkan asatidz lain</button></section>}
+           </> : selfRegistrationFull ? <section className="rounded-2xl border border-amber-200 bg-amber-50 p-6" role="status"><h2 className="text-xl font-black text-amber-950">Kuota lembaga sudah penuh</h2><p className="mt-2 text-sm text-amber-900">Seluruh {data.invitation.totalQuota || 1} kursi telah terisi atau sedang menunggu persetujuan admin. Hubungi panitia bila ada perubahan peserta.</p><button type="button" onClick={() => window.location.reload()} className="mt-4 min-h-11 rounded-lg border border-amber-700 px-4 text-sm font-bold text-amber-950">Periksa kuota lagi</button></section> : <InvitationResponseForm key={`${invitationType}:${token}`} data={data} invitationType={invitationType} saving={saving} error={error} policyNotice={policyNotice} unavailable={policyBlocked} onSubmit={(payload) => void submit(payload)} />}
         </>}
     </div>
   </PublicLayout>;

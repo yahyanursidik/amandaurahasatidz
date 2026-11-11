@@ -1,8 +1,13 @@
-/** A quota of one is the persisted single-delegate policy; no second source of truth. */
-export type InvitationPolicy = { invitationType?: string; quota?: number | null; allowGroup?: boolean };
+/** Legacy institution invitations stay single-response; self registration reserves one seat per submission. */
+export type InvitationRegistrationMode = "DELEGATION" | "INDIVIDUAL_SELF";
+export type InvitationPolicy = { invitationType?: string; registrationMode?: string; quota?: number | null; allowGroup?: boolean };
+
+export function invitationIsSelfRegistration(invitation: InvitationPolicy): boolean {
+  return invitation.invitationType !== "INDIVIDUAL" && invitation.registrationMode === "INDIVIDUAL_SELF";
+}
 
 export function invitationAllowsGroup(invitation: InvitationPolicy): boolean {
-  return invitation.invitationType !== "INDIVIDUAL" && invitation.allowGroup !== false && (invitation.quota || 1) > 1;
+  return !invitationIsSelfRegistration(invitation) && invitation.invitationType !== "INDIVIDUAL" && invitation.allowGroup !== false && (invitation.quota || 1) > 1;
 }
 
 export function invitationParticipantLimit(invitation: InvitationPolicy): number {
@@ -25,6 +30,7 @@ export type InvitationInstitutionOption = {
 export type InstitutionInvitationValues = {
   institutionId: string;
   invitationNumber: string;
+  registrationMode: InvitationRegistrationMode;
   allowGroup: boolean;
   quota: number;
   responseDeadline: string;

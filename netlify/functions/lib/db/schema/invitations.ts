@@ -10,6 +10,7 @@ export const invitations = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
     invitationType: text("invitation_type").notNull(),
+    registrationMode: text("registration_mode").notNull().default("DELEGATION"),
     institutionId: uuid("institution_id").references(() => institutions.id),
     ustadzId: uuid("ustadz_id").references(() => ustadzProfiles.id),
     invitationNumber: text("invitation_number").notNull(),

@@ -4,7 +4,6 @@ import {
   institutions,
   institutionRepresentatives,
   invitations,
-  invitationResponses,
   eventParticipants,
   events,
   ustadzProfiles,
@@ -153,7 +152,9 @@ export async function findInstitutionByIdRepository(id: string) {
         id: invitations.id,
         invitationNumber: invitations.invitationNumber,
         status: invitations.status,
+        registrationMode: invitations.registrationMode,
         quota: invitations.quota,
+        registeredCount: sql<number>`(select count(*)::int from event_participants p where p.invitation_id = ${invitations.id} and p.confirmation_status not in ('CANCELLED', 'REPLACED') and p.approval_status not in ('REJECTED', 'DECLINED'))`,
         responseDeadline: invitations.responseDeadline,
         sentAt: invitations.sentAt,
         respondedAt: invitations.respondedAt,
@@ -162,12 +163,11 @@ export async function findInstitutionByIdRepository(id: string) {
         eventCode: events.code,
         eventStartDate: events.startDate,
         eventStatus: events.status,
-        responseStatus: invitationResponses.responseStatus,
-        responseSubmittedAt: invitationResponses.submittedAt,
+        responseStatus: sql<string | null>`(select r.response_status from invitation_responses r where r.invitation_id = ${invitations.id} and r.is_final = true order by r.submitted_at desc limit 1)`,
+        responseSubmittedAt: sql<Date | null>`(select r.submitted_at from invitation_responses r where r.invitation_id = ${invitations.id} and r.is_final = true order by r.submitted_at desc limit 1)`,
       })
       .from(invitations)
       .innerJoin(events, eq(invitations.eventId, events.id))
-      .leftJoin(invitationResponses, and(eq(invitationResponses.invitationId, invitations.id), eq(invitationResponses.isFinal, true)))
       .where(eq(invitations.institutionId, id))
       .orderBy(desc(events.startDate)),
     db
