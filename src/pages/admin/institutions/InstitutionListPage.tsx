@@ -65,7 +65,7 @@ export const InstitutionListPage: React.FC = () => {
     <AdminLayout>
       <PageHeader
         title="Master Data Lembaga"
-        description="Kelola profil lembaga dakwah, pesantren, dan perwakilan organisasi mitra Aman Daurah Asatidz."
+        description="Kelola profil lembaga dakwah, pesantren, dan perwakilan organisasi mitra Daurah Duat dan Pegiat Dakwah."
         breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Master Lembaga" }]}
         actions={
           <Link

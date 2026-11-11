@@ -1,6 +1,6 @@
 /**
  * emailHtmlTemplates.ts
- * Template email HTML Aman Daurah Asatidz.
+ * Template email HTML Daurah Duat dan Pegiat Dakwah.
  * Inline CSS untuk kompatibilitas maksimal (Gmail, Outlook, Apple Mail).
  * Mobile responsive dengan max-width 600px.
  */
@@ -60,7 +60,7 @@ function wrapHtmlLayout(title: string, bodyContent: string): string {
           <!-- Footer -->
           <tr>
             <td style="background-color:#f8faf8;border-top:1px solid #e8f0e8;padding:24px 40px;text-align:center;">
-              <p style="margin:0 0 6px 0;font-size:13px;color:#5a6b5c;font-weight:600;">Aman Daurah Asatidz</p>
+              <p style="margin:0 0 6px 0;font-size:13px;color:#5a6b5c;font-weight:600;">Daurah Duat dan Pegiat Dakwah</p>
               <p style="margin:0 0 4px 0;font-size:12px;color:#8a9b8a;">no-reply@yts.web.id</p>
               <p style="margin:12px 0 0 0;font-size:11px;color:#aaaaaa;line-height:1.5;">
                 Email ini dikirim secara otomatis oleh sistem. Mohon tidak membalas email ini.<br/>
@@ -79,7 +79,7 @@ function wrapHtmlLayout(title: string, bodyContent: string): string {
 </html>`;
 }
 
-export function renderBrandedTextEmailHtml(text: string, title = "Aman Daurah Asatidz", cardLink?: string,
+export function renderBrandedTextEmailHtml(text: string, title = "Daurah Duat dan Pegiat Dakwah", cardLink?: string,
   actionLabel = "Buka kartu QR pribadi", secondaryLink?: string, secondaryLabel = "Buka tautan pribadi") {
   const safeText = text.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
@@ -180,7 +180,7 @@ export function renderInvitationInstitutionHtml(vars: {
     <td style="padding:0 40px 32px;">
       <p style="margin:0;font-size:13px;color:#5a6b5c;line-height:1.7;">
         Jazakumullah Khairan atas perhatian dan kerjasama Bapak/Ibu.<br/>
-        <strong style="color:${BRAND_PRIMARY};">Panitia Aman Daurah Asatidz</strong>
+        <strong style="color:${BRAND_PRIMARY};">Panitia Daurah Duat dan Pegiat Dakwah</strong>
       </p>
     </td>
   </tr>`;
@@ -239,7 +239,7 @@ export function renderRegistrationConfirmedHtml(vars: {
     <td style="padding:0 40px 32px;">
       <p style="margin:0;font-size:13px;color:#5a6b5c;line-height:1.7;">
         Jazakumullah Khairan. Semoga kegiatan ini memberikan keberkahan dan manfaat yang besar.<br/>
-        <strong style="color:${BRAND_PRIMARY};">Panitia Aman Daurah Asatidz</strong>
+        <strong style="color:${BRAND_PRIMARY};">Panitia Daurah Duat dan Pegiat Dakwah</strong>
       </p>
     </td>
   </tr>`;
@@ -287,7 +287,7 @@ export function renderThankYouConfirmedHtml(vars: {
     <td style="padding:0 40px 32px;">
       <p style="margin:0;font-size:13px;color:#5a6b5c;line-height:1.7;">
         Jazakumullah Khairan atas komitmen dan semangat Ustadz dalam menuntut ilmu.<br/>
-        <strong style="color:${BRAND_PRIMARY};">Panitia Aman Daurah Asatidz</strong>
+        <strong style="color:${BRAND_PRIMARY};">Panitia Daurah Duat dan Pegiat Dakwah</strong>
       </p>
     </td>
   </tr>`;
@@ -331,7 +331,7 @@ export function renderThankYouAttendedHtml(vars: {
     <td style="padding:8px 40px 32px;">
       <p style="margin:0;font-size:13px;color:#5a6b5c;line-height:1.7;">
         Wassalamu'alaikum Warahmatullah Wabarakatuh,<br/>
-        <strong style="color:${BRAND_PRIMARY};">Panitia Aman Daurah Asatidz</strong>
+        <strong style="color:${BRAND_PRIMARY};">Panitia Daurah Duat dan Pegiat Dakwah</strong>
       </p>
     </td>
   </tr>`;
@@ -411,7 +411,7 @@ export function renderEventReminderHtml(vars: {
     <td style="padding:0 40px 32px;">
       <p style="margin:0;font-size:13px;color:#5a6b5c;line-height:1.7;">
         Baarakallahu fiikum. Semoga Allah memudahkan perjalanan dan memberikan keberkahan.<br/>
-        <strong style="color:${BRAND_PRIMARY};">Panitia Aman Daurah Asatidz</strong>
+        <strong style="color:${BRAND_PRIMARY};">Panitia Daurah Duat dan Pegiat Dakwah</strong>
       </p>
     </td>
   </tr>`;
@@ -431,7 +431,7 @@ export function renderOtpCodeHtml(vars: {
       <div style="text-align:center;margin-bottom:24px;">
         <div style="font-size:36px;">🔐</div>
         <h2 style="margin:12px 0 4px;font-size:20px;color:${BRAND_PRIMARY};font-weight:700;">Kode Verifikasi</h2>
-        <p style="margin:0;font-size:13px;color:#8a9b8a;">Aman Daurah Asatidz</p>
+        <p style="margin:0;font-size:13px;color:#8a9b8a;">Daurah Duat dan Pegiat Dakwah</p>
       </div>
 
       <p style="margin:0 0 24px;font-size:14px;color:${BRAND_TEXT};line-height:1.6;text-align:center;">
@@ -455,7 +455,7 @@ export function renderOtpCodeHtml(vars: {
 
       <div style="background-color:#fff8f8;border:1px solid #ffcccc;border-radius:8px;padding:12px 20px;text-align:center;">
         <p style="margin:0;font-size:12px;color:#cc0000;">
-          🚫 <strong>Jangan bagikan kode ini kepada siapa pun.</strong> Panitia Aman Daurah Asatidz tidak pernah meminta kode OTP Anda.
+          🚫 <strong>Jangan bagikan kode ini kepada siapa pun.</strong> Panitia Daurah Duat dan Pegiat Dakwah tidak pernah meminta kode OTP Anda.
         </p>
       </div>
     </td>
@@ -468,7 +468,7 @@ export function renderOtpCodeHtml(vars: {
     </td>
   </tr>`;
 
-  return wrapHtmlLayout("Kode OTP — Aman Daurah Asatidz", body);
+  return wrapHtmlLayout("Kode OTP — Daurah Duat dan Pegiat Dakwah", body);
 }
 
 // ─── Dispatcher: render by template code ─────────────────────────────────────
@@ -542,9 +542,9 @@ export function renderHtmlByTemplateCode(
 
     default:
       // Fallback: plain text wrapper
-      return wrapHtmlLayout("Notifikasi Aman Daurah Asatidz", `
+      return wrapHtmlLayout("Notifikasi Daurah Duat dan Pegiat Dakwah", `
         <tr><td style="padding:40px;">
-          <p style="font-size:14px;color:${BRAND_TEXT};line-height:1.7;">${variables.body || "Notifikasi dari Panitia Aman Daurah Asatidz."}</p>
+          <p style="font-size:14px;color:${BRAND_TEXT};line-height:1.7;">${variables.body || "Notifikasi dari Panitia Daurah Duat dan Pegiat Dakwah."}</p>
         </td></tr>`);
   }
 }

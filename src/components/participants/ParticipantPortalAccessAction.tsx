@@ -80,7 +80,7 @@ export const ParticipantPortalAccessAction: React.FC<Props> = ({
     : "";
   const credentialText = credential
     ? [
-        "Akses Portal Peserta Aman Daurah Asatidz",
+        "Akses Portal Peserta Daurah Duat dan Pegiat Dakwah",
         `Nama: ${credential.participantName}`,
         `Email: ${credential.email}`,
         ...(credential.temporaryPassword ? [`Password sementara: ${credential.temporaryPassword}`] : []),

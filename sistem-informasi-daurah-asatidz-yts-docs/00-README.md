@@ -1,8 +1,8 @@
-# Dokumentasi Sistem Informasi Daurah Asatidz YTS
+# Dokumentasi Daurah Duat dan Pegiat Dakwah
 
 ## Ringkasan
 
-Repositori dokumentasi ini menjadi sumber acuan produk dan pengembangan **Sistem Informasi Daurah Asatidz Yayasan Tarbiyah Sunnah (YTS)**.
+Repositori dokumentasi ini menjadi sumber acuan produk dan pengembangan **Daurah Duat dan Pegiat Dakwah** milik Yayasan Tarbiyah Sunnah (YTS).
 
 Sistem dirancang untuk mengelola:
 

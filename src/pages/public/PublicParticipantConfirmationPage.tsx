@@ -74,7 +74,7 @@ export function PublicParticipantConfirmationPage() {
   const qrToken = details?.cardUrl ? new URL(details.cardUrl, window.location.origin).searchParams.get("token") : null;
 
   return <PublicLayout><div className="public-confirm" aria-labelledby="public-confirm-title">
-    <div className="public-confirm__eyebrow"><CheckCircle2 aria-hidden="true" /> Aman Daurah Asatidz · respons pribadi</div>
+    <div className="public-confirm__eyebrow"><CheckCircle2 aria-hidden="true" /> Daurah Duat dan Pegiat Dakwah · respons pribadi</div>
     <h1 id="public-confirm-title">Konfirmasi kehadiran</h1>
     {loading ? <p className="public-confirm__feedback" role="status">Memuat status pendaftaran…</p> : !details ?
       <div className="public-confirm__feedback" role="alert"><strong>Tautan tidak dapat dibuka</strong><p>{error}</p><Link to="/programs">Lihat informasi acara</Link></div> : <>

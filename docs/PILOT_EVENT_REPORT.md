@@ -1,11 +1,11 @@
 # Laporan Operasional Pilot Event (Official Pilot Event Report)
-**Sistem Informasi Daurah Asatidz YTS**
+**Daurah Duat dan Pegiat Dakwah**
 
 ---
 
 ## 1. Ringkasan Eksekutif Pilot Event
 
-Pilot Event pelaksanaan **Daurah Asatidz Nasional 2026** telah selesai dilaksanakan secara sukses menggunakan **Sistem Informasi Daurah Asatidz YTS**. Pelaksanaan pilot ini melibatkan **300 Ustadz Peserta**, **25 Lembaga Afiliasi Terundang**, dan **10 Petugas Panitia On-Site**. 
+Pilot Event pelaksanaan **Daurah Asatidz Nasional 2026** telah selesai dilaksanakan secara sukses menggunakan **Daurah Duat dan Pegiat Dakwah**. Pelaksanaan pilot ini melibatkan **300 Ustadz Peserta**, **25 Lembaga Afiliasi Terundang**, dan **10 Petugas Panitia On-Site**.
 
 Selama periode persiapan hingga pelaksanaan (Feature Freeze aktif), sistem beroperasi dengan tingkat stabilitas **100% Uptime** tanpa terjadi *down-time*, kebocoran PII, atau kegagalan presensi.
 

@@ -221,7 +221,7 @@ export const UstadzShowPage: React.FC = () => {
   const whatsappDigits = (profile?.whatsapp || profile?.phone || "").replace(/\D/g, "").replace(/^0/, "62");
   const whatsappHref = profile && whatsappDigits
     ? `https://wa.me/${whatsappDigits}?text=${encodeURIComponent(
-        `Assalamu'alaikum warahmatullahi wabarakatuh, Ustadz ${profile.fullName}. Saya admin Aman Daurah Asatidz.`,
+        `Assalamu'alaikum warahmatullahi wabarakatuh, Ustadz ${profile.fullName}. Saya admin Daurah Duat dan Pegiat Dakwah.`,
       )}`
     : "";
 

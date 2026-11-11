@@ -6,12 +6,15 @@ import { submitPublicRegistrationSchema } from "../../netlify/functions/lib/vali
 
 const originalToken = process.env.MAILKETING_API_TOKEN;
 const originalFromEmail = process.env.MAILKETING_FROM_EMAIL;
+const originalFromName = process.env.MAILKETING_FROM_NAME;
 afterEach(() => {
   vi.unstubAllGlobals();
   if (originalToken === undefined) delete process.env.MAILKETING_API_TOKEN;
   else process.env.MAILKETING_API_TOKEN = originalToken;
   if (originalFromEmail === undefined) delete process.env.MAILKETING_FROM_EMAIL;
   else process.env.MAILKETING_FROM_EMAIL = originalFromEmail;
+  if (originalFromName === undefined) delete process.env.MAILKETING_FROM_NAME;
+  else process.env.MAILKETING_FROM_NAME = originalFromName;
 });
 
 describe("pendaftaran rombongan reguler", () => {
@@ -47,6 +50,7 @@ describe("Mailketing transactional", () => {
   it("memakai Bearer token dan JSON tanpa mengirim saat token kosong", async () => {
     delete process.env.MAILKETING_API_TOKEN;
     delete process.env.MAILKETING_FROM_EMAIL;
+    delete process.env.MAILKETING_FROM_NAME;
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
     expect((await sendEmailViaMailketing(message)).success).toBe(false);
@@ -56,7 +60,7 @@ describe("Mailketing transactional", () => {
     expect(await sendEmailViaMailketing(message)).toMatchObject({ success: true, messageId: "mk-123" });
     expect(fetchMock.mock.calls[0][0]).toBe("https://api.mailketing.co.id/api/v2/send");
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBe("Bearer test-only-token");
-    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ from_email: "no-reply@yts.web.id", recipient: message.to });
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toMatchObject({ from_name: "Daurah Duat dan Pegiat Dakwah", from_email: "no-reply@yts.web.id", recipient: message.to });
   });
   it("menolak HTTP berhasil bila provider menyatakan gagal", async () => {
     process.env.MAILKETING_API_TOKEN = "test-only-token";

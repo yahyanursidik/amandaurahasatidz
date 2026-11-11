@@ -1,5 +1,5 @@
 # Laporan Simulasi Operasional Hari-H Daurah (Official Event Simulation Report)
-**Sistem Informasi Daurah Asatidz YTS**
+**Daurah Duat dan Pegiat Dakwah**
 
 ---
 

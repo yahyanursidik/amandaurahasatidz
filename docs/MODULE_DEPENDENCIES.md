@@ -1,6 +1,6 @@
 # Pemetaan Modul dan Matriks Ketergantungan
 
-Dokumen ini memetakan seluruh modul backend dan frontend beserta ketergantungan (dependencies), batas kepemilikan data (data ownership), dan transaksi lintas modul pada **Sistem Informasi Daurah Asatidz YTS**.
+Dokumen ini memetakan seluruh modul backend dan frontend beserta ketergantungan (dependencies), batas kepemilikan data (data ownership), dan transaksi lintas modul pada **Daurah Duat dan Pegiat Dakwah**.
 
 ---
 

@@ -1184,7 +1184,7 @@ export const ParticipantPortalPage: React.FC = () => {
       {activeTab === "QR" && selectedParticipation && (
         <section className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
           <div className="border border-slate-200 bg-white p-5 text-center sm:p-8 print:border-0">
-            <p className="mx-auto mb-5 text-sm font-black tracking-tight text-emerald-900">Aman Daurah Asatidz</p>
+            <p className="mx-auto mb-5 text-sm font-black tracking-tight text-emerald-900">Daurah Duat dan Pegiat Dakwah</p>
             <StatusBadge
               label={checkinReady ? "QR kehadiran individu" : "Kartu pendaftaran peserta"}
               variant={checkinReady ? "success" : "neutral"}

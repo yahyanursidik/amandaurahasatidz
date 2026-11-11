@@ -27,7 +27,7 @@ export const whatsappBatchTemplates: Array<{ id: WhatsAppBatchTemplate; label: s
 ];
 
 export function whatsappBatchTemplateMessage(template: WhatsAppBatchTemplate): string {
-  const opening = "Assalamu’alaikum warahmatullahi wabarakatuh, {{nama}}.\n\nPerkenalkan, saya {{pengirim}} dari Aman Daurah Asatidz.";
+  const opening = "Assalamu’alaikum warahmatullahi wabarakatuh, {{nama}}.\n\nPerkenalkan, saya {{pengirim}} dari Daurah Duat dan Pegiat Dakwah.";
   const closing = "\n\nJazakumullahu khairan.\nWassalamu’alaikum warahmatullahi wabarakatuh.";
   if (template === "PROFILE_GREETING") return `${opening}\n\nSemoga antum senantiasa sehat. Kami ingin menjaga silaturahmi dan berbagi informasi daurah mendatang. Silakan kabari jika data kontak antum perlu diperbarui.${closing}`;
   if (template === "CONTACT_CHECK") return `${opening}\n\nKami sedang memperbarui data kontak asatidz. Mohon balas pesan ini untuk mengonfirmasi bahwa nomor WhatsApp antum masih aktif. Jika ada perubahan data, silakan sampaikan kepada kami.${closing}`;

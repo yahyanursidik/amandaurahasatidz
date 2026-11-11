@@ -27,6 +27,7 @@ const fixture = {
         import {MemoryRouter} from 'react-router-dom';
         import {PublicProgramsPage} from '/src/pages/public/PublicProgramsPage.tsx';
         import {RuangAsatidzPublicPage} from '/src/pages/public/RuangAsatidzPublicPage.tsx';
+        import {LoginPage} from '/src/pages/auth/LoginPage.tsx';
         import '/src/index.css';
         window.fetch = async () => ({ok:true,json:async () => ({data:[
           {slug:'daurah-bandung',code:'DB-27',name:'Daurah Asatidz Bandung',subtitle:'Kajian dan silaturahmi asatidz',posterUrl:null,posterAlt:null,startDate:'2027-02-10',endDate:'2027-02-12',venueName:'Bandung',audienceMode:'MIXED',status:'REGISTRATION_OPEN',regularQuota:40,registrationOpenAt:null,registrationCloseAt:null},
@@ -34,7 +35,7 @@ const fixture = {
           {slug:'daurah-lalu',code:'DL-26',name:'Daurah Asatidz Sebelumnya',subtitle:null,posterUrl:null,posterAlt:null,startDate:'2026-02-10',endDate:'2026-02-10',venueName:'Bandung',audienceMode:'PUBLIC_OPEN',status:'COMPLETED',regularQuota:40,registrationOpenAt:null,registrationCloseAt:null}
         ]})});
         const route = location.pathname.replace('/public-page-preview', '') || '/';
-        createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:[route]},React.createElement(route === '/ruang-asatidz' ? RuangAsatidzPublicPage : PublicProgramsPage)));
+        createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:[route]},React.createElement(route.startsWith('/login/') ? LoginPage : route === '/ruang-asatidz' ? RuangAsatidzPublicPage : PublicProgramsPage)));
       </script></body></html>`));
     });
   },
@@ -83,7 +84,7 @@ try {
   await send('Runtime.enable');
   await send('Page.enable');
   const screenshots = [];
-  for (const route of ['/', '/programs', '/ruang-asatidz']) {
+  for (const route of ['/', '/programs', '/ruang-asatidz', '/login/admin', '/login/committee', '/login/ustadz']) {
     await send('Page.navigate', { url: `http://127.0.0.1:${port}/public-page-preview${route}` });
     for (let i = 0; i < 100 && !(await evaluate(`!!document.querySelector('main h1')`)); i++) {
       await new Promise((resolve) => setTimeout(resolve, 100));
@@ -103,6 +104,13 @@ try {
       await send('Emulation.setDeviceMetricsOverride', { width, height: 850, deviceScaleFactor: 1, mobile: width < 768 });
       await new Promise((resolve) => setTimeout(resolve, 100));
       assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`), true, `${route}: no horizontal overflow at ${width}px`);
+      if (route.startsWith('/login/')) {
+        assert.equal(await evaluate(`document.querySelector('.login-brand__copy strong')?.textContent === 'Daurah Duatdan Pegiat Dakwah'`), true, `${route}: new name visible`);
+        assert.equal(await evaluate(`document.querySelector('.login-brand').getBoundingClientRect().right <= document.querySelector('.login-nav__portal').getBoundingClientRect().left`), true, `${route}: header items do not overlap at ${width}px`);
+      } else {
+        assert.equal(await evaluate(`document.querySelector('.public-site__brand')?.textContent === 'Daurah Duatdan Pegiat Dakwah'`), true, `${route}: new name visible`);
+        if (width < 880) assert.equal(await evaluate(`document.querySelector('.public-site__brand').getBoundingClientRect().right <= document.querySelector('.public-site__mobile').getBoundingClientRect().left`), true, `${route}: header items do not overlap at ${width}px`);
+      }
       assert.equal(await evaluate(`Array.from(document.querySelectorAll('.public-home__button, .public-home__program-action, .public-home__program-detail, .public-ruang__path a')).every(el => el.getBoundingClientRect().height <= 56)`), true, `${route}: action labels stay on one line at ${width}px`);
       if (width === 375 || width === 1280) {
         const screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
@@ -128,7 +136,7 @@ try {
     }
   }
   assert.deepEqual(failures, [], 'no browser errors');
-  console.log(JSON.stringify({ result: 'PASS', routes: ['/', '/programs', '/ruang-asatidz'], widths: [320, 375, 414, 768, 1280], screenshots }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', routes: ['/', '/programs', '/ruang-asatidz', '/login/admin', '/login/committee', '/login/ustadz'], widths: [320, 375, 414, 768, 1280], screenshots }, null, 2));
 } finally {
   socket?.close(); browser?.kill(); await server.close();
   await new Promise((resolve) => setTimeout(resolve, 300));

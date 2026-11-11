@@ -36,7 +36,7 @@ export const Header: React.FC<HeaderProps> = ({
           )}
           <img src="/images/tarbiyah-sunnah-mark.svg" alt="Tarbiyah Sunnah" width="40" height="36" className="h-9 w-10 shrink-0 object-contain" />
           <div className="min-w-0">
-            <h1 className="hidden text-sm font-semibold leading-none min-[380px]:block sm:text-lg">Aman Daurah Asatidz</h1>
+            <h1 className="hidden max-w-[11rem] text-xs font-semibold leading-tight min-[380px]:block sm:max-w-none sm:text-base">Daurah Duat <span className="block">dan Pegiat Dakwah</span></h1>
             <span className="block max-w-[9rem] truncate text-xs font-medium text-emerald-300 sm:max-w-none">Tarbiyah Sunnah · {portalName}</span>
           </div>
         </div>

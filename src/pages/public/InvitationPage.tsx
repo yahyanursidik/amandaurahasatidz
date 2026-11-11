@@ -650,7 +650,7 @@ export const InvitationPage: React.FC = () => {
             </div>
             <h2 className="text-lg font-bold text-slate-900">Konfirmasi Final Berhasil Disimpan!</h2>
             <p className="text-xs text-slate-600 max-w-md mx-auto">
-              Terima kasih. Respons konfirmasi delegasi untuk <strong>{mockData.institutionName}</strong> telah berhasil dicatat oleh panitia Aman Daurah Asatidz.
+              Terima kasih. Respons konfirmasi delegasi untuk <strong>{mockData.institutionName}</strong> telah berhasil dicatat oleh panitia Daurah Duat dan Pegiat Dakwah.
             </p>
           </div>
         )}

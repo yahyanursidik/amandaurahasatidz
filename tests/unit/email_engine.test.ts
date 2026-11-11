@@ -166,5 +166,7 @@ describe("Email Engine, Queue & Template Whitelist Unit Tests", () => {
     expect(result.subject).toContain("Terima Kasih");
     expect(result.htmlBody).toContain("<!DOCTYPE html>");
     expect(result.textBody).toContain("Ustadz Salim");
+    expect(result.htmlBody).toContain("Daurah Duat dan Pegiat Dakwah");
+    expect(result.textBody).not.toContain("Aman Daurah");
   });
 });

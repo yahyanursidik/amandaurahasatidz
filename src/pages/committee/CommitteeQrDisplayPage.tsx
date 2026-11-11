@@ -91,7 +91,7 @@ export const CommitteeQrDisplayPage: React.FC = () => {
 
       {/* Footer Instructions */}
       <div className="text-center text-xs text-slate-400 space-y-1">
-        <p className="font-mono text-emerald-400/90">Aman Daurah Asatidz • Panitia On-Site Display</p>
+        <p className="font-mono text-emerald-400/90">Daurah Duat dan Pegiat Dakwah • Panitia On-Site Display</p>
         <p className="text-[11px] text-slate-400">Token lokasi kedaluwarsa secara otomatis setiap 30 detik untuk menjamin kehadiran nyata di tempat acara.</p>
       </div>
     </div>

@@ -1,4 +1,4 @@
-# Design — Aman Daurah Asatidz
+# Design — Daurah Duat dan Pegiat Dakwah
 
 Sistem visual bersama untuk halaman masuk, halaman program, formulir, dan portal peserta. Perubahan halaman lain mengikuti token yang sudah ada di `tokens.css`; jangan membuat palet baru per portal.
 
@@ -30,7 +30,7 @@ Modern-minimal, tenang, jelas, dan hormat. Kalimat operasional yang langsung men
 
 ## Konsistensi lintas halaman
 
-- Nama produk: Aman Daurah Asatidz.
+- Nama produk: Daurah Duat dan Pegiat Dakwah.
 - Navigasi menunjukkan konteks jalur masuk saat ini; jangan mencampur pilihan ketiga portal di satu halaman login.
 - Setiap program memakai poster sendiri bila disediakan, atau gambar interior perpustakaan bawaan tanpa figur.
 - Jalur reguler dan undangan harus diberi label berbeda. Jangan menjanjikan kursi sampai persetujuan admin/panitia.
