@@ -199,6 +199,8 @@ import {
 import { processWebhookIdempotentService } from "./lib/services/webhookService";
 import { cancelBroadcastCampaign, getBroadcastAudienceSummary, getBroadcastCampaignJobs, getBroadcastTransportStatus, listBroadcastCampaigns, listBroadcastTemplates, saveBroadcastTemplate, scheduleBroadcast, sendBroadcastTest } from "./lib/services/broadcastService";
 import { checkMailketingConnection } from "./lib/services/mailketingTransport";
+import { updateTransactionalEmailCopySchema } from "./lib/services/transactionalEmailCopy";
+import { getTransactionalEmailSettings, saveTransactionalEmailSettings } from "./lib/services/transactionalEmailSettingsService";
 import { broadcastJobsQuerySchema, broadcastTemplateSchema, scheduleBroadcastSchema, testBroadcastSchema } from "./lib/validations/broadcastValidation";
 import { processScheduledReminderService } from "./lib/services/reminderService";
 
@@ -1497,6 +1499,17 @@ export const handler: Handler = async (event, _context) => {
     }
 
     // Email Engine & Queue Endpoints
+    if (path === "/email/transactional-copy" && method === "GET") {
+      requirePermission(userSession, "email.read");
+      return buildSuccessResponse(await getTransactionalEmailSettings(), requestId);
+    }
+    if (path === "/email/transactional-copy" && method === "PUT") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "email.manage_templates");
+      const input = validateRequestData(updateTransactionalEmailCopySchema, event.body ? JSON.parse(event.body) : {});
+      return buildSuccessResponse(await saveTransactionalEmailSettings(input.settings, input.expectedVersion,
+        session.userId, requestId), requestId);
+    }
     if (path === "/email/broadcast/templates" && method === "GET") {
       requirePermission(userSession, "email.read");
       return buildSuccessResponse(await listBroadcastTemplates(), requestId);

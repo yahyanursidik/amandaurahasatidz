@@ -80,7 +80,7 @@ describe("Email Engine, Queue & Template Whitelist Unit Tests", () => {
 
     expect(rendered.subject).toContain("Daurah Asatidz Nasional 2026");
     expect(rendered.subject).toContain("7 Hari Lagi");
-    expect(rendered.body).toContain("Ustadz Ahmad Faiz");
+    expect(rendered.body).toContain("Al Ustadz Al Faadhil Ahmad Faiz");
     expect(rendered.body).toContain("PAR-2026-0042");
   });
 
@@ -165,7 +165,7 @@ describe("Email Engine, Queue & Template Whitelist Unit Tests", () => {
 
     expect(result.subject).toContain("Terima Kasih");
     expect(result.htmlBody).toContain("<!DOCTYPE html>");
-    expect(result.textBody).toContain("Ustadz Salim");
+    expect(result.textBody).toContain("Al Ustadz Al Faadhil Salim");
     expect(result.htmlBody).toContain("Daurah Duat dan Pegiat Dakwah");
     expect(result.textBody).not.toContain("Aman Daurah");
   });

@@ -47,8 +47,8 @@ function wrapHtmlLayout(title: string, bodyContent: string): string {
           <tr>
             <td style="background:linear-gradient(135deg,${BRAND_PRIMARY} 0%,${BRAND_SECONDARY} 100%);padding:32px 40px;text-align:center;">
               <div style="display:inline-block;max-width:100%;background:#ffffff;border-radius:10px;padding:10px 16px;margin:0 auto 16px;">${emailLogo()}</div>
-              <p style="margin:0 0 8px 0;font-size:11px;letter-spacing:3px;color:#a8d5b5;text-transform:uppercase;font-weight:600;">بسم الله الرحمن الرحيم</p>
-              <h1 style="margin:0 0 4px 0;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">Daurah Asatidz</h1>
+              <p style="margin:0 0 8px 0;font-size:11px;letter-spacing:3px;color:#a8d5b5;text-transform:uppercase;font-weight:600;">INFORMASI RESMI DAURAH</p>
+              <h1 style="margin:0 0 4px 0;font-size:22px;font-weight:700;color:#ffffff;letter-spacing:0.5px;">Daurah Duat dan Pegiat Dakwah</h1>
               <p style="margin:0;font-size:13px;color:#a8d5b5;font-weight:400;">Yayasan Tarbiyah Sunnah</p>
               <div style="margin:16px auto 0;width:40px;height:3px;background-color:${BRAND_ACCENT};border-radius:2px;"></div>
             </td>
@@ -80,10 +80,16 @@ function wrapHtmlLayout(title: string, bodyContent: string): string {
 }
 
 export function renderBrandedTextEmailHtml(text: string, title = "Daurah Duat dan Pegiat Dakwah", cardLink?: string,
-  actionLabel = "Buka kartu QR pribadi", secondaryLink?: string, secondaryLabel = "Buka tautan pribadi") {
-  const safeText = text.replace(/[&<>"']/g, (character) => ({
+  actionLabel = "Buka kartu QR pribadi", secondaryLink?: string, secondaryLabel = "Buka tautan pribadi",
+  arabicOpening?: string) {
+  const opening = arabicOpening?.trim();
+  const remainingText = opening && text.startsWith(`${opening}\n\n`) ? text.slice(opening.length + 2) : text;
+  const safeText = remainingText.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[character] || character);
+  const safeOpening = opening && remainingText !== text ? opening.replace(/[&<>"']/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+  })[character] || character) : "";
   const safeActionLabel = actionLabel.replace(/[&<>"']/g, (character) => ({
     "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
   })[character] || character);
@@ -92,7 +98,7 @@ export function renderBrandedTextEmailHtml(text: string, title = "Daurah Duat da
   })[character] || character);
   const url = cardLink && /^https?:\/\//.test(cardLink) ? cardLink.replace(/[&<>"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[character] || character) : null;
   const secondaryUrl = secondaryLink && /^https?:\/\//.test(secondaryLink) ? secondaryLink.replace(/[&<>"]/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[character] || character) : null;
-  return wrapHtmlLayout(title, `<tr><td style="padding:28px 36px;color:${BRAND_TEXT};font-size:15px;line-height:1.7;"><div style="white-space:pre-wrap;overflow-wrap:break-word;">${safeText}</div>${url ? `<p><a href="${url}" style="display:inline-block;background:${BRAND_PRIMARY};color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">${safeActionLabel}</a></p>` : ""}${secondaryUrl ? `<p><a href="${secondaryUrl}" style="display:inline-block;border:1px solid ${BRAND_PRIMARY};color:${BRAND_PRIMARY};padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">${safeSecondaryLabel}</a></p>` : ""}</td></tr>`);
+  return wrapHtmlLayout(title, `<tr><td style="padding:28px 36px;color:${BRAND_TEXT};font-size:15px;line-height:1.7;">${safeOpening ? `<div dir="rtl" lang="ar" style="white-space:pre-wrap;text-align:right;font-size:17px;line-height:1.9;margin-bottom:24px;color:${BRAND_PRIMARY};">${safeOpening}</div>` : ""}<div style="white-space:pre-wrap;overflow-wrap:break-word;">${safeText}</div>${url ? `<p><a href="${url}" style="display:inline-block;background:${BRAND_PRIMARY};color:#ffffff;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">${safeActionLabel}</a></p>` : ""}${secondaryUrl ? `<p><a href="${secondaryUrl}" style="display:inline-block;border:1px solid ${BRAND_PRIMARY};color:${BRAND_PRIMARY};padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">${safeSecondaryLabel}</a></p>` : ""}</td></tr>`);
 }
 
 // ─── Utility: Info Badge ──────────────────────────────────────────────────────

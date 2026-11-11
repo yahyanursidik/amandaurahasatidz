@@ -7,6 +7,8 @@ import { logInfo, logError } from "../utils/logger";
 import { createAuditLog } from "./auditService";
 import { ConflictError, NotFoundError } from "../utils/errors";
 import { broadcastHtml } from "./broadcastService";
+import { getTransactionalEmailSettings } from "./transactionalEmailSettingsService";
+import type { TransactionalEmailCopy } from "./transactionalEmailCopy";
 
 export function nextBroadcastDay(now = new Date()) {
   // 08:00 WIB tomorrow, independent of the server's own timezone.
@@ -132,6 +134,7 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
     .limit(batchSize);
 
   const processedResults = [];
+  let emailCopy: TransactionalEmailCopy | undefined;
 
   for (const job of jobsToProcess) {
     const payloadObj = (job.payload as Record<string, unknown>) || {};
@@ -179,8 +182,10 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
         textBody = String(payloadObj.bodyText || "");
         htmlBody = broadcastHtml(textBody);
       } else {
+        // Baca hanya saat email transaksi benar-benar akan dikirim; BC tertunda tidak perlu query tambahan.
+        if (!emailCopy && templateCode !== "OTP_CODE") emailCopy = (await getTransactionalEmailSettings()).settings;
         try {
-          const rendered = renderHtmlEmailTemplate(templateCode, variables);
+          const rendered = renderHtmlEmailTemplate(templateCode, variables, emailCopy);
           subjectStr = rendered.subject;
           htmlBody = rendered.htmlBody;
           textBody = rendered.textBody;

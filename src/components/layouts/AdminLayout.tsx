@@ -131,6 +131,7 @@ export const getAdminNavItems = (pathname: string, canManageUstadz = true, canMe
       keywords: ["bc", "broadcast", "kampanye", "sapaan", "template", "email"],
       children: [
         { label: "Buat & jadwalkan BC", href: "/admin/broadcast", icon: <Megaphone />, exact: true, keywords: ["sapaan", "template", "jadwal"] },
+        { label: "Pembuka email transaksi", href: "/admin/email-templates", icon: <FileText />, exact: true, keywords: ["arab", "sapaan", "template", "transaksional"] },
         { label: "Antrean & email gagal", href: "/admin/email-jobs", icon: <Mail />, exact: true, keywords: ["pengiriman", "retry"] },
       ],
     },
