@@ -1,5 +1,13 @@
 [
   {
+    "date": "2026-11-11",
+    "scope": "app/admin/events/invitations new and edit",
+    "macrostructure": "Workbench (dedicated invitation editor)",
+    "theme": "existing emerald-slate",
+    "enrichment": "none",
+    "brief": "Spacious mobile-friendly institution and individual invitation editor, with a clear reversible-mode safety matrix and connected sharing after save"
+  },
+  {
     "date": "2026-11-10",
     "scope": "app/public participant confirmation and registration receipt",
     "macrostructure": "Narrative Workflow",
@@ -150,19 +158,5 @@
     "theme": "existing emerald-slate",
     "enrichment": "existing faceless library interior",
     "brief": "Mobile login, program landing, registration, and asatidz portal"
-  },
-  {
-    "date": "2026-08-01",
-    "macrostructure": "Feature Stack",
-    "theme": "existing emerald-slate system",
-    "enrichment": "none",
-    "brief": "Committee participant operations with actionable triage, bulk decisions, export, portal access, communication, and responsive filters"
-  },
-  {
-    "date": "2026-08-01",
-    "macrostructure": "Ecosystem Index",
-    "theme": "existing emerald-slate system",
-    "enrichment": "none",
-    "brief": "Admin operational dashboard with contextual submenus, active-event shortcuts, command search, priorities, and responsive navigation"
   }
 ]

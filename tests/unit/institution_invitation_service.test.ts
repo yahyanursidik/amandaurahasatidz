@@ -127,7 +127,7 @@ describe("edit undangan dan integritas relasi", () => {
     expect(saved).not.toHaveProperty("publicUrl");
     expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: "INVITATION_UPDATED", eventId, beforeData: invitation }));
   });
-  it("mengizinkan penyesuaian kuota mandiri tetapi mengunci pola undangan", async () => {
+  it("mengizinkan penyesuaian kuota mandiri, tetapi menolak kembali ke perwakilan setelah ada pendaftar", async () => {
     mocks.find.mockResolvedValue({ ...invitation, registrationMode: "INDIVIDUAL_SELF", status: "OPENED", respondedAt: new Date() });
     mocks.count.mockResolvedValue(2);
     await editInvitationService(eventId, id, { registrationMode: "INDIVIDUAL_SELF", allowGroup: false, quota: 5 }, "actor", "request");
@@ -136,6 +136,28 @@ describe("edit undangan dan integritas relasi", () => {
       .rejects.toMatchObject({ statusCode: 409 });
     await expect(editInvitationService(eventId, id, { registrationMode: "INDIVIDUAL_SELF", quota: 1 }, "actor", "request"))
       .rejects.toMatchObject({ statusCode: 409 });
+  });
+  it("membuka kembali undangan perwakilan final untuk pendaftaran mandiri tanpa menghapus peserta atau memutar tautan", async () => {
+    mocks.find.mockResolvedValue({ ...invitation, registrationMode: "DELEGATION", status: "ACCEPTED", respondedAt: new Date() });
+    mocks.count.mockResolvedValue(1);
+    const saved = await editInvitationService(eventId, id, { registrationMode: "INDIVIDUAL_SELF", allowGroup: false, quota: 15 }, "actor", "request");
+    expect(mocks.update).toHaveBeenCalledWith(expect.objectContaining({ status: "ACCEPTED" }),
+      expect.objectContaining({ registrationMode: "INDIVIDUAL_SELF", quota: 15, status: "OPENED" }), undefined);
+    expect(saved.invitation).toMatchObject({ registrationMode: "INDIVIDUAL_SELF", status: "OPENED", quota: 15, allowGroup: false });
+    expect(saved).not.toHaveProperty("publicUrl");
+    expect(mocks.save).not.toHaveBeenCalled();
+  });
+  it("mengizinkan kembali ke pola perwakilan sebelum ada pendaftar mandiri", async () => {
+    mocks.find.mockResolvedValue({ ...invitation, registrationMode: "INDIVIDUAL_SELF", status: "OPENED" });
+    const saved = await editInvitationService(eventId, id, { registrationMode: "DELEGATION", allowGroup: true, quota: 4 }, "actor", "request");
+    expect(saved.invitation).toMatchObject({ registrationMode: "DELEGATION", status: "OPENED", quota: 4, allowGroup: true });
+  });
+  it("meminta tenggat baru ketika pola mandiri dibuka setelah batas respons", async () => {
+    mocks.find.mockResolvedValue({ ...invitation, registrationMode: "DELEGATION", status: "ACCEPTED", responseDeadline: new Date("2000-01-01") });
+    mocks.event.mockResolvedValue({ ...event, invitationResponseDeadline: new Date("2000-01-01") });
+    await expect(editInvitationService(eventId, id, { registrationMode: "INDIVIDUAL_SELF", allowGroup: false, quota: 3 }, "actor", "request"))
+      .rejects.toMatchObject({ statusCode: 422 });
+    expect(mocks.update).not.toHaveBeenCalled();
   });
   it("mengunci lembaga setelah respons final/ada peserta dan mencegah kuota di bawah jumlah peserta", async () => {
     mocks.count.mockResolvedValue(2);

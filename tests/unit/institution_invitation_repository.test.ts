@@ -44,6 +44,21 @@ describe("integritas penyimpanan undangan", () => {
     expect(actions).toHaveLength(2); expect(actions[1]).toMatchObject({ type: "update", table: invitationLinks, values: { expiresAt: deadline } });
     expect(mocks.db.insert).not.toHaveBeenCalled();
   });
+  it("membuka masa berlaku tautan yang sama saat pola berubah menjadi mandiri", async () => {
+    selectRows = [[{ total: 1 }]];
+    await updateInvitationRepository({ ...invitation, registrationMode: "DELEGATION", status: "ACCEPTED" } as any,
+      { registrationMode: "INDIVIDUAL_SELF", status: "OPENED", quota: 15 });
+    expect(actions).toHaveLength(2);
+    expect(actions[0].values).toMatchObject({ registrationMode: "INDIVIDUAL_SELF", status: "OPENED", quota: 15 });
+    expect(actions[1]).toMatchObject({ table: invitationLinks, values: { expiresAt: null } });
+    expect(mocks.db.insert).not.toHaveBeenCalled();
+  });
+  it("menolak pindah ke perwakilan bila pendaftar mandiri baru masuk sebelum transaksi edit", async () => {
+    selectRows = [[{ total: 1 }]];
+    await expect(updateInvitationRepository({ ...invitation, registrationMode: "INDIVIDUAL_SELF", status: "OPENED" } as any,
+      { registrationMode: "DELEGATION", quota: 3 })).rejects.toMatchObject({ statusCode: 409 });
+    expect(mocks.db.update).not.toHaveBeenCalled();
+  });
   it("tidak mengeluarkan tautan pengganti jika revisi penyimpanan konflik", async () => {
     updatedRows = [];
     await expect(updateInvitationRepository(invitation as any, { quota: 1 }, { tokenHash: "new-hash", expiresAt: null })).rejects.toMatchObject({ statusCode: 409 });

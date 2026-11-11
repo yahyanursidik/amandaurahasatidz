@@ -397,12 +397,16 @@ export async function updateInvitationRepository(
 ) {
   return withTransaction(async (tx) => {
     await lockRegistrationEvent(tx, existing.eventId);
-    if (existing.registrationMode === "INDIVIDUAL_SELF" && changes.quota != null) {
+    const nextMode = changes.registrationMode || existing.registrationMode;
+    if (nextMode === "INDIVIDUAL_SELF" || existing.registrationMode === "INDIVIDUAL_SELF" && nextMode === "DELEGATION") {
       const [usage] = await tx.select({ total: sql<number>`count(*)::int` }).from(eventParticipants)
         .where(and(eq(eventParticipants.invitationId, existing.id),
           notInArray(eventParticipants.confirmationStatus, ["CANCELLED", "REPLACED"]),
           notInArray(eventParticipants.approvalStatus, ["REJECTED", "DECLINED"])));
-      if (Number(usage?.total || 0) > changes.quota) {
+      if (nextMode === "DELEGATION" && Number(usage?.total || 0) > 0) {
+        throw new ConflictError("Ada pendaftar mandiri baru. Muat ulang; pola perwakilan hanya dapat dipilih saat belum ada pendaftar aktif.");
+      }
+      if (changes.quota != null && Number(usage?.total || 0) > changes.quota) {
         throw new ConflictError("Kuota berubah saat formulir dibuka. Muat ulang; kuota tidak boleh di bawah jumlah pendaftar aktif.");
       }
     }
@@ -425,8 +429,8 @@ export async function updateInvitationRepository(
       await tx.update(invitationLinks).set({ revokedAt: new Date() })
         .where(and(eq(invitationLinks.invitationId, existing.id), isNull(invitationLinks.revokedAt)));
       await tx.insert(invitationLinks).values({ invitationId: existing.id, ...replacementLink });
-    } else if ("responseDeadline" in changes) {
-      await tx.update(invitationLinks).set({ expiresAt: changes.responseDeadline || (existing.registrationMode === "INDIVIDUAL_SELF" ? null : new Date(Date.now() + 14 * 86400000)) })
+    } else if ("responseDeadline" in changes || "registrationMode" in changes) {
+      await tx.update(invitationLinks).set({ expiresAt: changes.responseDeadline || (nextMode === "INDIVIDUAL_SELF" ? null : new Date(Date.now() + 14 * 86400000)) })
         .where(and(eq(invitationLinks.invitationId, existing.id), isNull(invitationLinks.revokedAt)));
     }
     return rows[0];

@@ -166,6 +166,8 @@ export const App: React.FC = () => {
               </ProtectedRoute>
             }
           />
+          <Route path="/admin/events/:id/invitations/new" element={<ProtectedRoute><EventRegistrationsPage /></ProtectedRoute>} />
+          <Route path="/admin/events/:id/invitations/:invitationId/edit" element={<ProtectedRoute><EventRegistrationsPage /></ProtectedRoute>} />
           <Route
             path="/admin/events/:id/schedule"
             element={

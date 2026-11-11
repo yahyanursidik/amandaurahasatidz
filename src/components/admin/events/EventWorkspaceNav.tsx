@@ -42,7 +42,7 @@ export const EventWorkspaceNav: React.FC<Props> = ({ eventId }) => {
   const current = items.find((item) => {
     const targetPath = item.href.split("?")[0];
     if (item.label === "Undangan") {
-      return location.pathname.includes("/registrations") && !location.search.includes("view=participants");
+      return location.pathname.includes("/invitations/") || location.pathname.includes("/registrations") && !location.search.includes("view=participants");
     }
     if (item.label === "Peserta") {
       return location.pathname.includes("/registrations") && location.search.includes("view=participants");
