@@ -69,6 +69,25 @@ describe("formulir undangan lembaga", () => {
     expect(html).toContain("kontak@example.invalid"); expect(html).toContain("PIC Lembaga");
     expect(html).toContain("/admin/institutions/i"); expect(html).toContain('type="datetime-local"'); expect(html).toContain("WITA");
     expect(html).not.toContain('type="number"');
+    expect(html).not.toContain('name="registrationMode" value="INDIVIDUAL_SELF" checked="" disabled=""');
+  });
+  it("edit perwakilan yang sudah punya peserta tetap dapat memilih pendaftaran mandiri", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><InstitutionInvitationForm institutions={[{ id: "i", code: "MU", name: "Ma'had Uji" }]}
+      value={{ institutionId: "i", invitationNumber: "UND-1", registrationMode: "INDIVIDUAL_SELF", quota: 15, allowGroup: false, responseDeadline: "2027-01-01T12:00" }}
+      originalMode="DELEGATION" onChange={() => {}} onSubmit={() => {}} onCancel={() => {}} editing recipientLocked
+      registeredCount={1} timezone="Asia/Jakarta" busy={false} disabled={false} /></MemoryRouter>);
+    expect(html).toContain("peserta lama tetap tercatat");
+    expect(html).toContain("Setelah disimpan, undangan dibuka lagi");
+    expect(html).toMatch(/name="registrationMode"[^>]*value="INDIVIDUAL_SELF"/);
+    expect(html).not.toMatch(/name="registrationMode"[^>]*disabled=""[^>]*value="INDIVIDUAL_SELF"/);
+  });
+  it("edit pendaftaran mandiri dengan peserta tidak menawarkan perubahan ke perwakilan", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><InstitutionInvitationForm institutions={[{ id: "i", code: "MU", name: "Ma'had Uji" }]}
+      value={{ institutionId: "i", invitationNumber: "UND-1", registrationMode: "INDIVIDUAL_SELF", quota: 5, allowGroup: false, responseDeadline: "" }}
+      originalMode="INDIVIDUAL_SELF" onChange={() => {}} onSubmit={() => {}} onCancel={() => {}} editing recipientLocked
+      registeredCount={2} timezone="Asia/Jakarta" busy={false} disabled={false} /></MemoryRouter>);
+    expect(html).toContain("Pola perwakilan belum dapat dipilih");
+    expect(html).toMatch(/name="registrationMode"[^>]*disabled=""[^>]*value="DELEGATION"/);
   });
   it("menjelaskan undangan pengganti tanpa mengaktifkan kembali undangan dicabut", () => {
     const html = renderToStaticMarkup(<MemoryRouter><InstitutionInvitationForm institutions={[{ id: "i", code: "MU", name: "Ma'had Uji" }]}

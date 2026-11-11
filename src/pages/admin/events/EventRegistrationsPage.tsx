@@ -1,9 +1,9 @@
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V4
- * Hallmark · genre: editorial · tone: utilitarian · macrostructure: Workbench
+ * Hallmark · genre: modern-minimal · tone: utilitarian · macrostructure: Workbench
  * audience: event administrators · use: manage institution invitations and individual attendance readiness
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useGetIdentity } from "@refinedev/core";
 import {
   AlertTriangle,
@@ -332,8 +332,12 @@ const participantTemplateRows = [
 const escapeCsvCell = (value: string) => `"${value.replaceAll('"', '""')}"`;
 
 export const EventRegistrationsPage: React.FC = () => {
-  const { id = "" } = useParams<{ id: string }>();
+  const { id = "", invitationId } = useParams<{ id: string; invitationId?: string }>();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const editorRoute = location.pathname.startsWith(`/admin/events/${id}/invitations/`);
+  const replacementId = searchParams.get("replace") || "";
   const { data: identity, isLoading: identityLoading } = useGetIdentity<AuthIdentity>();
   const canOpenMasterData = identity?.assignments.some((assignment) => ROLE_PERMISSIONS[assignment.roleCode as RoleCode]?.includes("institutions.read")) || false;
   const staffPermissions = participantStaffPermissions(identity?.assignments, id);
@@ -400,6 +404,8 @@ export const EventRegistrationsPage: React.FC = () => {
   const [replacementSource, setReplacementSource] = useState("");
   const [invitationNotice, setInvitationNotice] = useState("");
   const [invitationFormError, setInvitationFormError] = useState("");
+  const [editorSaved, setEditorSaved] = useState(false);
+  const editorInitialized = useRef("");
   const defaultsApplied = useRef("");
   const [eventDeadline, setEventDeadline] = useState<EventDeadline | null>(null);
   const readController = useRef<AbortController | null>(null);
@@ -532,6 +538,7 @@ export const EventRegistrationsPage: React.FC = () => {
     setInstitutions([]);
     setCreatedLink(""); setCreatedInvitation(null); setInvitationLinks({});
     setEditingInvitation(null); setReplacementSource(""); setInvitationNotice(""); setInvitationFormError(""); setEventDeadline(null);
+    setEditorSaved(false); editorInitialized.current = "";
     setInvitationAudience(searchParams.get("type") === "individual" ? "INDIVIDUAL" : "INSTITUTION");
     setLinkBusy(""); setInvitationActionBusy(""); setSubmitting(false);
     setForm({ institutionId: requestedInstitutionId, invitationNumber: "", registrationMode: "DELEGATION", quota: 1, allowGroup: false, responseDeadline: "" });
@@ -722,6 +729,10 @@ export const EventRegistrationsPage: React.FC = () => {
     const individual = invitationAudience === "INDIVIDUAL";
     if (editing && (individual ? individualForm.ustadzId !== editing.ustadzId : form.institutionId !== editing.institutionId)
       && !window.confirm(`Ganti ${individual ? "asatidz" : "lembaga"} penerima? Tautan lama akan dicabut dan tautan baru perlu dibagikan kembali.`)) return;
+    if (editing && !individual && form.registrationMode !== (editing.registrationMode || "DELEGATION") &&
+      !window.confirm(form.registrationMode === "INDIVIDUAL_SELF"
+        ? `Buka lagi undangan ${editing.invitationNumber} untuk pendaftaran mandiri? ${editing.registeredCount || 0} peserta lama tetap tercatat dan tautan lama tetap berlaku.`
+        : `Ubah ke pengisian perwakilan? Tautan akan menerima satu respons final; pastikan belum ada pendaftar mandiri.`)) return;
     setSubmitting(true);
     setError("");
     setInvitationNotice("");
@@ -747,7 +758,8 @@ export const EventRegistrationsPage: React.FC = () => {
           invitationNumber: payload.invitationNumber,
           registrationMode: individual ? "DELEGATION" : form.registrationMode,
           quota: payload.quota, allowGroup: individual ? false : form.allowGroup,
-          status: editing?.status || "DRAFT", sentAt: editing?.sentAt || null, respondedAt: editing?.respondedAt || null,
+          status: editing && !individual && form.registrationMode === "INDIVIDUAL_SELF" && editing.registrationMode !== "INDIVIDUAL_SELF"
+            ? "OPENED" : editing?.status || "DRAFT", sentAt: editing?.sentAt || null, respondedAt: editing?.respondedAt || null,
           responseDeadline: payload.responseDeadline,
         };
         created = { invitation, ...(!editing || (individual ? editing.ustadzId !== individualForm.ustadzId : editing.institutionId !== form.institutionId)
@@ -762,16 +774,20 @@ export const EventRegistrationsPage: React.FC = () => {
         await loadData();
       }
       if (!mounted.current || activeEventId.current !== id) return;
+      setCreatedInvitation(created.invitation);
       if (created.publicUrl) {
         const absoluteUrl = toAbsoluteInvitationUrl(created.publicUrl);
         setCreatedLink(absoluteUrl);
-        setCreatedInvitation(created.invitation);
         setInvitationLinks((current) => ({ ...current, [created.invitation.id]: absoluteUrl }));
-      } else if (createdInvitation?.id === created.invitation.id) {
-        setCreatedInvitation(created.invitation);
-      }
-      resetInvitationForm();
-      setInvitationNotice(editing ? created.publicUrl ? "Perubahan tersimpan. Bagikan tautan baru; tautan lama sudah dicabut." : "Undangan berhasil diperbarui. Tautan yang sudah dibagikan tetap berlaku."
+      } else setCreatedLink("");
+      if (editorRoute) setEditorSaved(true);
+      else resetInvitationForm();
+      setInvitationNotice(editing ? created.publicUrl ? "Perubahan tersimpan. Bagikan tautan baru; tautan lama sudah dicabut."
+        : !individual && form.registrationMode !== (editing.registrationMode || "DELEGATION")
+          ? form.registrationMode === "INDIVIDUAL_SELF"
+            ? "Pola pendaftaran diperbarui. Tautan lama berlaku lagi sampai kuota atau tenggat habis; peserta lama tetap tercatat."
+            : "Pola perwakilan disimpan. Tautan tetap sama dan siap menerima satu respons final."
+          : "Undangan berhasil diperbarui. Tautan yang sudah dibagikan tetap berlaku."
         : replacing ? `Undangan pengganti untuk ${replacing} berhasil dibuat. Undangan lama tetap dicabut; bagikan tautan baru.`
           : "Undangan berhasil dibuat. Tautan siap dibagikan.");
     } catch (submitError) {
@@ -832,6 +848,24 @@ export const EventRegistrationsPage: React.FC = () => {
       setLinkBusy("");
     }
   };
+
+  useEffect(() => {
+    if (!editorRoute) { editorInitialized.current = ""; return; }
+    if (loading || !eventDeadline) return;
+    const editorKey = `${id}:${invitationId || "new"}:${replacementId}:${searchParams.get("type") || "institution"}`;
+    if (editorInitialized.current === editorKey) return;
+    const target = invitationId || replacementId;
+    const invitation = target ? invitations.find((item) => item.id === target) : null;
+    if (target && !invitation) {
+      if (!error) setInvitationFormError("Undangan tidak ditemukan pada event ini. Kembali ke daftar undangan.");
+      return;
+    }
+    editorInitialized.current = editorKey;
+    setEditorSaved(false); setCreatedLink(""); setCreatedInvitation(null);
+    if (invitationId && invitation) startEditingInvitation(invitation);
+    else if (replacementId && invitation) startReplacementInvitation(invitation);
+    else { resetInvitationForm(); setInvitationAudience(searchParams.get("type") === "individual" ? "INDIVIDUAL" : "INSTITUTION"); }
+  }, [editorRoute, id, invitationId, replacementId, searchParams, loading, eventDeadline, invitations, error]);
 
   const approveParticipants = async (participantIds: string[]) => {
     if (participantIds.length !== 1 || approvalBusyRef.current || loading || approvalRequiresRefresh) return;
@@ -1031,6 +1065,83 @@ export const EventRegistrationsPage: React.FC = () => {
       setParticipantImportBusy("");
     }
   };
+
+  if (editorRoute) {
+    const backHref = `/admin/events/${id}/registrations?view=invitations${invitationAudience === "INDIVIDUAL" ? "&type=individual" : ""}`;
+    const savedInvitation = createdInvitation || editingInvitation;
+    const savedPending = savedInvitation && isInvitationPending(savedInvitation.status);
+    return <AdminLayout>
+      <PageHeader
+        title={editorSaved ? "Undangan tersimpan" : invitationId ? "Edit undangan" : replacementId ? "Buat undangan pengganti" : "Buat undangan"}
+        description={eventDeadline?.name || "Atur penerima, pola pendaftaran, kuota, dan batas respons dalam satu halaman."}
+        breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Event", href: "/admin/events" },
+          { label: "Undangan", href: backHref }, { label: invitationId ? "Edit" : "Buat" }]}
+        actions={<Link to={backHref} className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"><ArrowLeft className="h-4 w-4" /> Daftar undangan</Link>}
+      />
+      <EventWorkspaceNav eventId={id} />
+      <div className="mx-auto max-w-6xl space-y-5 pb-10">
+        {demoMode && <p className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">Mode pratinjau: perubahan tidak disimpan ke database.</p>}
+        {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-950">{error}</p>}
+        {!identityLoading && !canCreateInvitations && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-950">Akun Anda tidak memiliki izin mengelola undangan event ini.</p>}
+        {canCreateInvitations && !editorSaved && <>
+          <div className="flex flex-wrap items-center gap-2 text-sm text-slate-700">
+            <span className="rounded-lg border border-slate-200 bg-white px-3 py-2 font-bold">{invitationAudience === "INDIVIDUAL" ? "Undangan pribadi" : "Undangan lembaga"}</span>
+            {editingInvitation && <span className="rounded-lg border border-slate-200 bg-white px-3 py-2 tabular-nums">{editingRegisteredCount} peserta tercatat</span>}
+            {eventDeadline?.timezone && <span className="rounded-lg border border-slate-200 bg-white px-3 py-2">Waktu {eventTimezoneLabel(eventDeadline.timezone)}</span>}
+          </div>
+          {invitationEventLocked && <p role="alert" className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">Jalur undangan ini belum dibuka atau event sudah ditutup. <Link to={`/admin/events/${id}/edit`} className="font-bold underline">Periksa pengaturan event</Link>.</p>}
+          <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_19rem] xl:items-start">
+            <div className="min-w-0">
+              {loading || !eventDeadline || invitationId && !editingInvitation || replacementId && !replacementSource
+                ? <div role="status" className="rounded-2xl border border-slate-200 bg-white p-8 text-sm text-slate-700">{invitationFormError || "Memuat formulir undangan…"}</div>
+                : invitationAudience === "INSTITUTION"
+                  ? <InstitutionInvitationForm key={`${id}:${editingInvitation?.id || replacementSource || "new"}`}
+                      institutions={editorInstitutions} value={form} onChange={setForm} onSubmit={() => void createInvitation()}
+                      onCancel={() => navigate(backHref)} editing={Boolean(editingInvitation)}
+                      originalMode={editingInvitation?.registrationMode || "DELEGATION"}
+                      replacementNumber={replacementSource} registeredCount={editingRegisteredCount}
+                      recipientLocked={Boolean(editingInvitation && (editingInvitation.respondedAt || editingRegisteredCount > 0 || !isInvitationPending(editingInvitation.status)))}
+                      timezone={eventDeadline.timezone || "Asia/Jakarta"} busy={submitting} disabled={invitationEditorDisabled}
+                      canOpenMasterData={canOpenMasterData} error={invitationFormError || pickerError} />
+                  : <IndividualInvitationForm key={`${id}:${editingInvitation?.id || replacementSource || "new"}`}
+                      value={individualForm} onChange={setIndividualForm} onSubmit={() => void createInvitation()}
+                      onCancel={() => navigate(backHref)} loadOptions={loadIndividualOptions} selectedRecipient={selectedIndividualRecipient}
+                      editing={Boolean(editingInvitation)} replacementNumber={replacementSource}
+                      recipientLocked={Boolean(editingInvitation && (editingInvitation.respondedAt || (editingInvitation.registeredCount || 0) > 0 || !isInvitationPending(editingInvitation.status)))}
+                      timezone={eventDeadline.timezone || "Asia/Jakarta"} busy={submitting} disabled={invitationEditorDisabled}
+                      canOpenProfile={canOpenUstadzData} canCreateProfile={canCreateUstadzData} error={invitationFormError} />}
+            </div>
+            <aside className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 text-sm leading-6 text-slate-700 xl:sticky xl:top-36">
+              <h2 className="text-base font-black text-slate-950">Sebelum menyimpan</h2>
+              <ul className="mt-3 list-disc space-y-2 pl-5">
+                <li>Pastikan penerima dan kuota sesuai undangan yayasan.</li>
+                <li>Setiap pendaftar baru tetap menunggu persetujuan admin.</li>
+                <li>{editingInvitation ? "Peserta dan QR lama tidak dihapus saat pengaturan berubah." : "Tautan dan kode lembaga dibuat setelah undangan disimpan."}</li>
+              </ul>
+              {editingInvitation && <Link to={`/admin/events/${id}/registrations?view=participants&invitationId=${editingInvitation.id}`} className="mt-4 inline-flex min-h-11 items-center font-bold text-emerald-800 underline">Lihat peserta undangan →</Link>}
+            </aside>
+          </div>
+        </>}
+        {canCreateInvitations && editorSaved && savedInvitation && <section className="max-w-4xl rounded-2xl border border-emerald-200 bg-white p-5 shadow-sm sm:p-8" aria-live="polite">
+          <CheckCircle2 className="h-9 w-9 text-emerald-700" />
+          <h2 className="mt-3 text-xl font-black text-slate-950">{savedInvitation.invitationNumber} tersimpan</h2>
+          <p className="mt-1 break-words text-base font-bold text-slate-900">{savedInvitation.invitationType === "INDIVIDUAL" ? savedInvitation.ustadzName : savedInvitation.institutionName}</p>
+          <p role="status" className="mt-2 text-sm leading-6 text-slate-700">{invitationNotice}</p>
+          {createdLink && <div className="mt-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4">
+            <p className="font-bold text-emerald-950">Tautan siap dibagikan</p>
+            <p className="mt-2 break-all text-sm leading-6 text-emerald-950">{createdLink}</p>
+            <button type="button" onClick={() => void copyText(createdLink, "editor-link")} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-lg bg-emerald-800 px-4 text-sm font-bold text-white hover:bg-emerald-900 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"><Clipboard className="h-4 w-4" />{copied === "editor-link" ? "Tersalin" : "Salin tautan"}</button>
+            <InvitationShareActions context={shareContextFor(savedInvitation, createdLink)} recipientWhatsapp={contactForInvitation(savedInvitation).whatsapp} recipientEmail={contactForInvitation(savedInvitation).email} />
+          </div>}
+          {!createdLink && savedPending && <div className="mt-5 rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+            <p>Tautan yang sudah dibagikan tetap berlaku. Jika tautannya tidak tersimpan, buat ulang lalu bagikan yang baru.</p>
+            <button type="button" disabled={Boolean(linkBusy)} onClick={() => void regenerateInvitationLink(savedInvitation)} className="mt-3 inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 bg-white px-4 font-bold text-slate-900 hover:bg-slate-100 disabled:opacity-50"><Link2 className="h-4 w-4" />{linkBusy ? "Menyiapkan tautan…" : "Buat ulang tautan"}</button>
+          </div>}
+          <div className="mt-6 flex flex-wrap gap-3"><Link to={backHref} className="inline-flex min-h-11 items-center rounded-lg bg-emerald-800 px-4 text-sm font-bold text-white">Kembali ke undangan</Link><Link to={`/admin/events/${id}/invitations/new?type=${invitationAudience === "INDIVIDUAL" ? "individual" : "institution"}`} className="inline-flex min-h-11 items-center rounded-lg border border-slate-300 px-4 text-sm font-bold text-slate-800">Buat undangan lain</Link></div>
+        </section>}
+      </div>
+    </AdminLayout>;
+  }
 
   if (participantView) {
     return (
@@ -1336,7 +1447,7 @@ export const EventRegistrationsPage: React.FC = () => {
           { label: "Undangan" },
         ]}
         actions={
-          <div className="flex flex-wrap gap-2">{canCreateInvitations && <button type="button" disabled={submitting || invitationEventLocked} onClick={() => { resetInvitationForm(); window.requestAnimationFrame(() => document.getElementById(invitationAudience === "INDIVIDUAL" ? "individual-invitation-editor" : "institution-invitation-editor")?.scrollIntoView({ block: "center", behavior: "smooth" })); }} className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"><Plus className="h-4 w-4" /> {invitationAudience === "INDIVIDUAL" ? "Undang asatidz" : "Undang lembaga"}</button>}<Link
+          <div className="flex flex-wrap gap-2">{canCreateInvitations && !invitationEventLocked && <Link to={`/admin/events/${id}/invitations/new?type=${invitationAudience === "INDIVIDUAL" ? "individual" : "institution"}${requestedInstitutionId ? `&institutionId=${encodeURIComponent(requestedInstitutionId)}` : ""}`} className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"><Plus className="h-4 w-4" /> {invitationAudience === "INDIVIDUAL" ? "Undang asatidz" : "Undang lembaga"}</Link>}<Link
             to={`/admin/events/${id}`}
             className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
           >
@@ -1398,7 +1509,7 @@ export const EventRegistrationsPage: React.FC = () => {
         </div>
       )}
 
-      <div className="mt-6 grid min-w-0 gap-6 xl:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="mt-6 min-w-0">
         <section aria-label="Daftar undangan" className="min-w-0">
           <div className="mb-4 flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-center">
             <div className="relative min-w-0 flex-1">
@@ -1476,15 +1587,13 @@ export const EventRegistrationsPage: React.FC = () => {
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {canCreateInvitations && (invitation.institutionId || invitation.ustadzId) && invitation.status !== "REVOKED" && (
-                          <button
-                            type="button"
-                            onClick={() => startEditingInvitation(invitation)}
-                            disabled={submitting || Boolean(invitationActionBusy)}
+                          <Link
+                            to={`/admin/events/${id}/invitations/${invitation.id}/edit`}
                             className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                           >
                             <PencilLine className="h-4 w-4" />
                             Edit undangan
-                          </button>
+                          </Link>
                         )}
                         {isInvitationPending(invitation.status) && (
                           <button
@@ -1522,14 +1631,16 @@ export const EventRegistrationsPage: React.FC = () => {
                     {invitation.status === "REVOKED" && <div className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                       <p>Undangan ini sudah dicabut. Tautan lama tidak dapat digunakan atau diaktifkan lewat edit.</p>
                       {canCreateInvitations && (invitation.institutionId || invitation.ustadzId) && <>
-                        <button type="button" onClick={() => startReplacementInvitation(invitation)}
-                          disabled={submitting || loading || Boolean(invitationActionBusy)
-                            || Boolean(eventDeadline?.status && ["CANCELLED", "COMPLETED", "ARCHIVED"].includes(eventDeadline.status))
+                        <Link to={`/admin/events/${id}/invitations/new?replace=${invitation.id}&type=${invitation.invitationType === "INDIVIDUAL" ? "individual" : "institution"}`}
+                          aria-disabled={Boolean(eventDeadline?.status && ["CANCELLED", "COMPLETED", "ARCHIVED"].includes(eventDeadline.status))
                             || !audienceAllowed(invitation.invitationType === "INDIVIDUAL" ? "INDIVIDUAL" : "INSTITUTION")
                             || invitation.invitationType !== "INDIVIDUAL" && !institutions.some((institution) => institution.id === invitation.institutionId)}
+                          onClick={(event) => { if (Boolean(eventDeadline?.status && ["CANCELLED", "COMPLETED", "ARCHIVED"].includes(eventDeadline.status))
+                            || !audienceAllowed(invitation.invitationType === "INDIVIDUAL" ? "INDIVIDUAL" : "INSTITUTION")
+                            || invitation.invitationType !== "INDIVIDUAL" && !institutions.some((institution) => institution.id === invitation.institutionId)) event.preventDefault(); }}
                           className="mt-2 inline-flex min-h-11 items-center gap-2 rounded-lg border border-amber-700 bg-white px-3 text-sm font-bold text-amber-950 hover:bg-amber-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-amber-800 disabled:cursor-not-allowed disabled:opacity-50">
                           <Plus className="h-4 w-4" /> Buat undangan pengganti
-                        </button>
+                        </Link>
                         {invitation.invitationType !== "INDIVIDUAL" && !institutions.some((institution) => institution.id === invitation.institutionId) && <p className="mt-2">Lembaga ini tidak aktif. Aktifkan kembali di data lembaga sebelum membuat undangan pengganti.</p>}
                         {!audienceAllowed(invitation.invitationType === "INDIVIDUAL" ? "INDIVIDUAL" : "INSTITUTION") && <p className="mt-2">Jalur undangan event ini sedang dikunci. Periksa pengaturan event sebelum membuat pengganti.</p>}
                       </>}
@@ -1596,53 +1707,6 @@ export const EventRegistrationsPage: React.FC = () => {
             </div>
           )}
         </section>
-
-        <aside className="min-w-0 space-y-4 self-start xl:sticky xl:top-36">
-          {invitationNotice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-950">{invitationNotice}</p>}
-          {canCreateInvitations && invitationAudience === "INSTITUTION" && <InstitutionInvitationForm key={`${id}:${editingInvitation?.id || (replacementSource ? `replacement:${replacementSource}` : "new")}`} institutions={editorInstitutions}
-            canOpenMasterData={canOpenMasterData}
-            error={invitationFormError || pickerError}
-            value={form} onChange={setForm} onSubmit={() => void createInvitation()} onCancel={resetInvitationForm}
-            editing={Boolean(editingInvitation)} replacementNumber={replacementSource} registeredCount={editingRegisteredCount}
-            recipientLocked={Boolean(editingInvitation && (editingInvitation.respondedAt || editingRegisteredCount > 0 || !isInvitationPending(editingInvitation.status)))}
-            timezone={eventDeadline?.timezone || "Asia/Jakarta"} busy={submitting}
-            disabled={invitationEditorDisabled} />}
-          {canCreateInvitations && invitationAudience === "INDIVIDUAL" && <IndividualInvitationForm
-            key={`${id}:${editingInvitation?.id || (replacementSource ? `replacement:${replacementSource}` : "new")}`}
-            value={individualForm} onChange={setIndividualForm} onSubmit={() => void createInvitation()} onCancel={resetInvitationForm}
-            loadOptions={loadIndividualOptions} selectedRecipient={selectedIndividualRecipient}
-            editing={Boolean(editingInvitation)} replacementNumber={replacementSource}
-            recipientLocked={Boolean(editingInvitation && (editingInvitation.respondedAt || (editingInvitation.registeredCount || 0) > 0 || !isInvitationPending(editingInvitation.status)))}
-            timezone={eventDeadline?.timezone || "Asia/Jakarta"} busy={submitting} disabled={invitationEditorDisabled}
-            canOpenProfile={canOpenUstadzData} canCreateProfile={canCreateUstadzData} error={invitationFormError} />}
-
-          {createdLink && createdInvitation && !filtered.some((invitation) => invitation.id === createdInvitation.id)
-            && (createdInvitation.invitationType || "INSTITUTION") === invitationAudience
-            && isInvitationPending(invitations.find((invitation) => invitation.id === createdInvitation.id)?.status || createdInvitation.status) && (
-            <div className="mt-4 rounded-lg border border-emerald-200 bg-emerald-50 p-3">
-              <div className="flex items-center gap-2 text-[11px] font-black text-emerald-900">
-                <CheckCircle2 className="h-4 w-4" />
-                Tautan siap dibagikan
-              </div>
-              <p className="mt-2 break-all font-mono text-[10px] leading-relaxed text-emerald-950">{createdLink}</p>
-              <button
-                type="button"
-                onClick={() => void copyText(createdLink, "new-link")}
-                className="mt-3 inline-flex min-h-[44px] w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-emerald-300 bg-white px-3 text-xs font-bold text-emerald-900 hover:bg-emerald-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"
-              >
-                {copied === "new-link" ? <Check className="h-4 w-4" /> : <Clipboard className="h-4 w-4" />}
-                {copied === "new-link" ? "Tersalin" : "Salin tautan"}
-              </button>
-              {createdInvitation ? (
-                <InvitationShareActions
-                  context={shareContextFor(createdInvitation, createdLink)}
-                  recipientWhatsapp={contactForInvitation(createdInvitation).whatsapp}
-                  recipientEmail={contactForInvitation(createdInvitation).email}
-                />
-              ) : null}
-            </div>
-          )}
-        </aside>
       </div>
     </AdminLayout>
   );

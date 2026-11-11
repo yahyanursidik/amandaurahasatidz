@@ -29,7 +29,7 @@ const event = { id: eventId, name: 'Daurah Uji Undangan Lembaga', slug: 'daurah-
 const institution = { id: institutionId, code: 'MU-01', name: "Ma'had Ilmu dan Dakwah Nusantara", contactName: 'PIC Lembaga', email: 'kontak@example.invalid', whatsapp: '081234567890' };
 const ustadz = { id: '88888888-8888-4888-8888-888888888888', fullName: 'Ustadz Ahmad Uji', email: 'ahmad@example.invalid', whatsapp: '081234500000', phone: null };
 let invitations = [{ id, invitationType: 'INSTITUTION', institutionId, institutionName: institution.name, invitationNumber: 'UND-01',
-  quota: 3, allowGroup: true, status: 'SENT', sentAt: null, respondedAt: null, responseDeadline: event.invitationResponseDeadline }];
+  registrationMode: 'DELEGATION', quota: 3, allowGroup: true, registeredCount: 0, status: 'SENT', sentAt: null, respondedAt: null, responseDeadline: event.invitationResponseDeadline }];
 const browserParticipants = [
   { id: 'a0000000-0000-4000-8000-000000000001', ustadzId: ustadz.id, ustadzName: 'Ustadz Reguler',
     participantCode: 'P-REG', institutionId, institutionName: institution.name, invitationId: null,
@@ -52,6 +52,9 @@ const fixture = {
         const entry = url.searchParams.get('mode') === 'commands' ? '/qa/participants'
           : url.searchParams.get('mode') === 'individual' ? '/invitation/individual/personal'
           : url.searchParams.get('mode') === 'participant' ? `/admin/events/${eventId}/registrations?view=participants`
+          : url.searchParams.get('mode') === 'editor' ? `/admin/events/${eventId}/invitations/${id}/edit`
+          : url.searchParams.get('mode') === 'personal-editor' ? `/admin/events/${eventId}/invitations/${invitations.find((item) => item.invitationType === 'INDIVIDUAL')?.id}/edit`
+          : url.searchParams.get('mode') === 'new' ? `/admin/events/${eventId}/invitations/new`
           : url.searchParams.get('mode') === 'admin' ? `/admin/events/${eventId}/registrations?view=invitations`
           : `/invitation/institution/${url.searchParams.get('token') || 'group'}`;
         response.setHeader('Content-Type', 'text/html');
@@ -69,6 +72,8 @@ const fixture = {
               onCompleted:async()=>{setLoading(true);await new Promise(resolve=>setTimeout(resolve,30));const response=await fetch('/api/v1/events/${eventId}/participants');const result=await response.json();setParticipant(result.data[0]);setLoading(false);return true;}}));}
           createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:[${JSON.stringify(entry)}]},React.createElement(Refine,{authProvider,options:{disableTelemetry:true}},React.createElement(Routes,null,
             React.createElement(Route,{path:'/admin/events/:id/registrations',element:React.createElement(EventRegistrationsPage)}),
+            React.createElement(Route,{path:'/admin/events/:id/invitations/new',element:React.createElement(EventRegistrationsPage)}),
+            React.createElement(Route,{path:'/admin/events/:id/invitations/:invitationId/edit',element:React.createElement(EventRegistrationsPage)}),
             React.createElement(Route,{path:'/invitation/institution/:token',element:React.createElement(InvitationRegistrationPage)}),
             React.createElement(Route,{path:'/invitation/individual/:token',element:React.createElement(InvitationRegistrationPage)}),
             React.createElement(Route,{path:'/qa/participants',element:React.createElement(CommandFixture)})))));
@@ -100,7 +105,8 @@ const fixture = {
       else if (route.startsWith(`/events/${eventId}/invitations/`) && method === 'PATCH') {
         const index = invitations.findIndex((invitation) => invitation.id === route.split('/').at(-1));
         if (index < 0) throw new Error('Missing fixture invitation');
-        invitations[index] = { ...invitations[index], ...body }; data = { invitation: invitations[index] };
+        const reopening = invitations[index].status === 'ACCEPTED' && body.registrationMode === 'INDIVIDUAL_SELF';
+        invitations[index] = { ...invitations[index], ...body, ...(reopening ? { status: 'OPENED' } : {}) }; data = { invitation: invitations[index] };
       } else if (route === `/events/${eventId}/invitations` && method === 'POST') {
         const personal = body.invitationType === 'INDIVIDUAL';
         const invitation = { ...body, id: crypto.randomUUID(), institutionName: personal ? null : institution.name,
@@ -164,6 +170,7 @@ try {
     throw new Error(`Timeout ${label}; page=${await evaluate('document.body.innerText.slice(0,3000)')}; errors=${JSON.stringify(failures)}`);
   };
   const click = (label) => evaluate(`(()=>{const element=[...document.querySelectorAll('button')].find(el=>el.textContent.trim()===${JSON.stringify(label)});if(!element||element.disabled)throw new Error('Unavailable button: ${label}');element.click()})()`);
+  const clickLink = (label) => evaluate(`(()=>{const element=[...document.querySelectorAll('a')].find(el=>el.textContent.trim()===${JSON.stringify(label)});if(!element||element.getAttribute('aria-disabled')==='true')throw new Error('Unavailable link: ${label}');element.click()})()`);
   const fill = (selector, value) => evaluate(`(()=>{const el=document.querySelector(${JSON.stringify(selector)});if(!el)throw new Error('Missing input');const prototype=el.tagName==='SELECT'?HTMLSelectElement.prototype:el.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(prototype,'value').set.call(el,${JSON.stringify(value)});el.dispatchEvent(new Event(el.tagName==='SELECT'?'change':'input',{bubbles:true}));})()`);
   const navigate = (query) => send('Page.navigate', { url: `http://127.0.0.1:${port}/__invitation_smoke?${query}` });
   const checkWidths = async (label) => {
@@ -183,8 +190,9 @@ try {
   await send('Runtime.enable'); await send('Page.enable');
   await navigate('mode=admin');
   await until(`document.querySelector('article h2')?.textContent===${JSON.stringify(institution.name)}`, 'admin invitation list');
-  await click('Edit undangan');
+  await clickLink('Edit undangan');
   await until(`document.querySelector('form[aria-label="Edit undangan lembaga"]')`, 'edit form');
+  await checkWidths('dedicated editor'); await screenshot('editor-desktop');
   assert.equal(await evaluate(`document.querySelector('#institution-invitation-editor input[type="datetime-local"]').value`), '2099-01-20T16:25');
   assert.match(await evaluate(`document.querySelector('[aria-label="Data lembaga terpilih"]').textContent`), /kontak@example.invalid/);
   await evaluate(`document.querySelector('#institution-invitation-editor input[type="checkbox"]').click()`);
@@ -195,16 +203,20 @@ try {
   assert.equal(patch.body.allowGroup, false); assert.equal(patch.body.quota, 1);
   assert.equal(patch.body.responseDeadline, event.invitationResponseDeadline, 'unchanged deadlines preserve seconds and timezone');
   await checkWidths('admin'); await screenshot('admin-desktop');
+  await navigate('mode=new');
+  await until(`document.querySelector('form[aria-label="Buat undangan lembaga"]')`, 'new invitation form');
   await fill('#institution-invitation-editor select', institutionId);
   await fill('#institution-invitation-editor input[placeholder="INV/2027/001"]', 'UND-02');
   await click('Buat tautan undangan');
-  await until(`document.querySelectorAll('article').length===2`, 'new invitation');
+  await until(`document.querySelector('h2')?.textContent.includes('tersimpan')`, 'new invitation saved');
   assert.equal(requests.filter((item) => item.method === 'POST').length, 1, 'one create request');
   assert.equal(await evaluate(`document.body.textContent.includes('Kode unik lembaga')`), false, 'no unused code verification UI');
 
   // Reproduce the reported limit explicitly, through the real admin editor and
   // public page backed by the same invitation (not the event's default quota).
-  await click('Edit undangan');
+  await navigate('mode=admin');
+  await until(`document.querySelectorAll('article').length===2`, 'new invitation in list');
+  await clickLink('Edit undangan');
   await until(`document.querySelector('form[aria-label="Edit undangan lembaga"]')`, 'edit the existing invitation quota');
   await evaluate(`document.querySelector('#institution-invitation-editor input[type="checkbox"]').click()`);
   await fill('#institution-invitation-editor input[type="number"]', '2');
@@ -230,7 +242,7 @@ try {
 
   await navigate('mode=admin');
   await until(`document.querySelector('article h2')?.textContent===${JSON.stringify(institution.name)}`, 'return to invitation admin');
-  await click('Edit undangan');
+  await clickLink('Edit undangan');
   await until(`document.querySelector('form[aria-label="Edit undangan lembaga"]')`, 'disable group for the same invitation');
   await evaluate(`document.querySelector('#institution-invitation-editor input[type="checkbox"]').click()`);
   await click('Simpan perubahan');
@@ -315,7 +327,7 @@ try {
   await navigate('mode=admin');
   await until(`document.body.textContent.includes('UND-OLD')`, 'revoked institution invitation');
   assert.equal(await evaluate(`Array.from(document.querySelectorAll('article')).find(el=>el.textContent.includes('UND-OLD'))?.textContent.includes('Undangan ini sudah dicabut')`), true);
-  await click('Buat undangan pengganti');
+  await clickLink('Buat undangan pengganti');
   await until(`document.querySelector('form[aria-label="Buat undangan pengganti"]')`, 'replacement invitation form');
   assert.equal(await evaluate(`document.querySelector('#institution-invitation-number').value`), '', 'replacement requires a new invitation number');
   assert.equal(await evaluate(`document.querySelector('#institution-invitation-editor select').value`), institutionId, 'institution is preselected');
@@ -330,7 +342,10 @@ try {
   assert.equal(invitations.find((invitation) => invitation.id === revokedId).status, 'REVOKED', 'revoked invitation stays revoked');
   await checkWidths('revoked invitation replacement');
 
+  await navigate('mode=admin');
+  await until(`document.querySelector('nav[aria-label="Jenis undangan"]')`, 'return to invitation list');
   await evaluate(`Array.from(document.querySelectorAll('nav[aria-label="Jenis undangan"] button')).find(el=>el.textContent.includes('Perorangan')).click()`);
+  await clickLink('Undang asatidz');
   await until(`document.querySelector('#individual-invitation-editor select option[value="${ustadz.id}"]')`, 'personal recipient picker');
   await fill('#individual-invitation-editor select', ustadz.id);
   await fill('#individual-invitation-number', 'PR-01');
@@ -343,7 +358,7 @@ try {
   await checkWidths('personal admin invitation'); await screenshot('personal-admin');
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 850, deviceScaleFactor: 1, mobile: true });
   await screenshot('personal-admin-mobile');
-  await click('Edit undangan');
+  await navigate('mode=personal-editor');
   await until(`document.querySelector('form[aria-label="Formulir undangan pribadi"]')`, 'personal invitation edit');
   await fill('#individual-invitation-number', 'PR-02'); await click('Simpan perubahan');
   await until(`document.body.textContent.includes('PR-02')`, 'personal invitation edited');
@@ -383,8 +398,27 @@ try {
   await until(`document.querySelectorAll('.event-participants-table tbody tr').length===1`, 'personal participant filter');
   assert.equal(await evaluate(`document.querySelector('.event-participants-table tbody tr')?.textContent.includes('P-IND')`), true);
   assert.equal(requests.some((item) => item.route === `/events/${eventId}/participants` && item.query.includes('source=INDIVIDUAL')), true);
+  invitations[0] = { ...invitations[0], registrationMode: 'DELEGATION', status: 'ACCEPTED', respondedAt: '2026-11-10T08:00:00Z',
+    registeredCount: 1, quota: 15, allowGroup: true };
+  await navigate('mode=editor');
+  await until(`document.querySelector('form[aria-label="Edit undangan lembaga"]')`, 'edit accepted institution invitation');
+  assert.equal(await evaluate(`document.querySelector('input[value="INDIVIDUAL_SELF"]').disabled`), false, 'foundation can switch accepted delegation to self sign-up');
+  await evaluate(`document.querySelector('input[value="INDIVIDUAL_SELF"]').click()`);
+  await until(`document.body.textContent.includes('1 peserta lama tetap tercatat')`, 'conversion consequence shown');
+  await checkWidths('converted invitation editor'); await screenshot('converted-editor-desktop');
+  await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 850, deviceScaleFactor: 1, mobile: true });
+  await screenshot('converted-editor-mobile');
+  await click('Simpan perubahan');
+  await until(`document.body.textContent.includes('Pola pendaftaran diperbarui')`, 'conversion saved');
+  assert.equal(requests.filter((item) => item.method === 'PATCH').at(-1).body.registrationMode, 'INDIVIDUAL_SELF');
+  assert.equal(invitations[0].status, 'OPENED'); assert.equal(invitations[0].quota, 15);
+  await navigate('token=managed');
+  await until(`document.querySelector('form[aria-label="Formulir konfirmasi undangan"]')`, 'converted public form');
+  assert.equal(await evaluate(`document.body.textContent.includes('pendaftaran mandiri')`), true);
+  assert.equal(await evaluate(`document.body.textContent.includes('Saya membawa rombongan')`), false);
+  await checkWidths('converted public form');
   assert.deepEqual(failures, [], 'no browser exceptions or unexpected API requests');
-  console.log(JSON.stringify({ result: 'PASS', widths: [320, 375, 390, 414, 768, 1280], checks: ['master institution picker', 'edit persists group policy', 'quota two from admin to same public invitation', 'unchecked group hides add button and clears members', 'admin disables public group controls', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection', 'revoked invitation replacement keeps old link disabled', 'personal picker and share', 'personal edit', 'personal public RSVP and QR', 'participant route filters', 'participant mobile cards'], screenshots }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', widths: [320, 375, 390, 414, 768, 1280], checks: ['master institution picker', 'dedicated create/edit pages', 'edit persists group policy', 'quota two from admin to same public invitation', 'unchecked group hides add button and clears members', 'admin disables public group controls', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection', 'revoked invitation replacement keeps old link disabled', 'personal picker and share', 'personal edit', 'personal public RSVP and QR', 'participant route filters', 'participant mobile cards', 'accepted delegation converted to reusable institution invitation'], screenshots }, null, 2));
 } finally {
   socket?.close(); browser?.kill(); await server.close();
   await new Promise((resolve) => setTimeout(resolve, 400));

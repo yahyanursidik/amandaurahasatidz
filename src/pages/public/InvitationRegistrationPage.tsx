@@ -57,6 +57,21 @@ export const InvitationRegistrationPage: React.FC = () => {
   const selfRegistrationFull = selfRegistration && (data?.invitation.remainingQuota ?? 1) <= 0;
 
   useEffect(() => {
+    // A representative may reopen the same link after the foundation converts it
+    // to individual sign-up. Keep their old QR proof, but reveal the next-person action.
+    if (!submission || !data || invitationType !== "institution" || selfRegistration) return;
+    const controller = new AbortController();
+    void fetch(`${ENV.API_BASE_URL}/invitations/public/institution/${encodeURIComponent(token)}/policy`, {
+      signal: controller.signal, cache: "no-store",
+    }).then(async (response) => response.ok ? response.json() : null).then((payload) => {
+      if (!controller.signal.aborted && payload?.data?.registrationMode === "INDIVIDUAL_SELF") {
+        setData((existing) => existing ? { ...existing, invitation: { ...existing.invitation, ...payload.data } } : existing);
+      }
+    }).catch(() => { /* Preserve the saved receipt if policy cannot be refreshed. */ });
+    return () => controller.abort();
+  }, [submission, data?.invitation.registrationMode, invitationType, token, selfRegistration]);
+
+  useEffect(() => {
     const proof = readRegistrationProof<InvitationData, Submission>(proofKey);
     if (proof) { setData(proof.event); setSubmission(proof.result); setLoading(false); setError(""); return; }
     const controller = new AbortController();

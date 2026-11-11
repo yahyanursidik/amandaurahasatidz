@@ -214,13 +214,13 @@ export async function editInvitationService(eventId: string, id: string, data: {
     throw new ConflictError("Undangan telah diperbarui oleh petugas lain. Muat ulang sebelum mengedit kembali.");
   }
   if (invitation.status === "REVOKED") throw new ValidationError("Undangan yang dicabut tidak dapat diedit.");
-  if (data.registrationMode && data.registrationMode !== invitation.registrationMode) {
-    throw new ConflictError("Pola pendaftaran tidak dapat diganti setelah undangan dibuat. Buat undangan baru agar tautan dan riwayat peserta tetap jelas.");
-  }
   const event = await findEventByIdRepository(eventId);
   if (!event) throw new NotFoundError("Event tidak ditemukan.");
   if (["CANCELLED", "COMPLETED", "ARCHIVED"].includes(event.status)) throw new ValidationError("Pengaturan undangan event ini sudah dikunci.");
   if (invitation.invitationType === "INDIVIDUAL") {
+    if (data.registrationMode && data.registrationMode !== "DELEGATION") {
+      throw new ValidationError("Pola pendaftaran lembaga tidak berlaku untuk undangan pribadi.");
+    }
     if (data.institutionId || data.allowGroup === true || data.quota != null && data.quota !== 1) {
       throw new ValidationError("Undangan individu hanya berlaku untuk satu asatidz.");
     }
@@ -268,6 +268,11 @@ export async function editInvitationService(eventId: string, id: string, data: {
   if (invitation.invitationType !== "INSTITUTION") throw new ValidationError("Jenis undangan tidak dikenal.");
   if (data.ustadzId) throw new ValidationError("Undangan lembaga tidak memakai penerima perorangan.");
   const registeredCount = await countInvitationParticipantsRepository(id);
+  const nextMode = data.registrationMode || invitation.registrationMode;
+  const modeChanged = nextMode !== invitation.registrationMode;
+  if (nextMode === "DELEGATION" && invitation.registrationMode === "INDIVIDUAL_SELF" && registeredCount > 0) {
+    throw new ConflictError("Pola perwakilan tidak dapat dipakai karena sudah ada pendaftar mandiri. Peserta tetap aman; buat undangan baru bila perlu alur perwakilan.");
+  }
   const institutionId = data.institutionId || invitation.institutionId;
   const recipientChanged = institutionId !== invitation.institutionId;
   if (recipientChanged && (registeredCount > 0 || invitation.respondedAt || !isInvitationPending(invitation.status))) {
@@ -277,13 +282,14 @@ export async function editInvitationService(eventId: string, id: string, data: {
   if (recipientChanged && (!institution || institution.status !== "ACTIVE" || institution.deletedAt)) {
     throw new ValidationError("Pilih lembaga aktif dari data master.");
   }
-  if (invitationIsSelfRegistration(invitation) && data.allowGroup) throw new ValidationError("Pendaftaran mandiri hanya menerima satu asatidz per pengisian.");
-  const quota = resolveInvitationQuota({ ...data, registrationMode: invitation.registrationMode }, invitation.quota || 1);
+  if (nextMode === "INDIVIDUAL_SELF" && data.allowGroup) throw new ValidationError("Pendaftaran mandiri hanya menerima satu asatidz per pengisian.");
+  const quota = resolveInvitationQuota({ ...data, registrationMode: nextMode }, invitation.quota || 1);
   if (quota < registeredCount) throw new ConflictError(`Sudah ada ${registeredCount} peserta. Kuota tidak boleh dikurangi di bawah jumlah tersebut.`);
   const number = data.invitationNumber || invitation.invitationNumber;
   const owner = await findInvitationByEventAndNumberRepository(eventId, number);
   if (owner && owner.id !== id) throw new ConflictError("Nomor undangan sudah digunakan pada event ini.");
-  const changes: Parameters<typeof updateInvitationRepository>[1] = { invitationNumber: number, quota, institutionId };
+  const changes: Parameters<typeof updateInvitationRepository>[1] = { invitationNumber: number, quota, institutionId,
+    registrationMode: nextMode };
   if (data.responseDeadline !== undefined) {
     const deadline = data.responseDeadline ? new Date(data.responseDeadline) : event.invitationResponseDeadline;
     const previous = invitation.responseDeadline || event.invitationResponseDeadline;
@@ -295,6 +301,12 @@ export async function editInvitationService(eventId: string, id: string, data: {
   const token = recipientChanged ? generateSecureToken("inv_inst") : null;
   if (recipientChanged) { changes.status = "DRAFT"; changes.sentAt = null; }
   const deadline = changes.responseDeadline === undefined ? invitation.responseDeadline || event.invitationResponseDeadline : changes.responseDeadline;
+  if (modeChanged && nextMode === "INDIVIDUAL_SELF") {
+    if (deadline && new Date(deadline) <= new Date()) {
+      throw new ValidationError("Perpanjang batas respons sebelum membuka pendaftaran mandiri.");
+    }
+    if (["ACCEPTED", "DECLINED"].includes(invitation.status)) changes.status = "OPENED";
+  }
   let updated;
   try {
     updated = await updateInvitationRepository(invitation, changes, token ? { tokenHash: token.tokenHash, expiresAt: deadline ? new Date(deadline) : new Date(Date.now() + 14 * 86400000) } : undefined);
