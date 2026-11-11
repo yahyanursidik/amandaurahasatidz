@@ -26,6 +26,8 @@ export async function seedDatabase() {
     { code: "DATA_STEWARD", name: "Data Steward", description: "Pengelola master data lembaga dan asatidz" },
     { code: "REPORT_VIEWER", name: "Report Viewer", description: "Akses melihat laporan lintas event" },
     { code: "EVENT_ADMIN", name: "Event Admin", description: "Admin pengelola event tertentu" },
+    { code: "COMMITTEE_ADMIN", name: "Admin Panitia Event", description: "Keputusan dan penyelesaian kasus peserta pada event yang ditugaskan" },
+    { code: "COMMITTEE_ORGANIZER", name: "Admin Panitia Semua Event", description: "Membuat dan mengelola semua event daurah" },
     { code: "COMMITTEE_LEAD", name: "Ketua Panitia", description: "Pengawas event dan operasional" },
     { code: "REGISTRATION_OFFICER", name: "Petugas Registrasi", description: "Petugas pendaftaran lokasi" },
     { code: "CHECKIN_OFFICER", name: "Petugas Check-in", description: "Petugas scanner QR dan kode" },

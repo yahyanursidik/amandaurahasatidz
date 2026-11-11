@@ -20,8 +20,10 @@ type ChallengePayload = {
 };
 
 const PORTAL_ROLES: Record<PortalCode, RoleCode[]> = {
-  admin: ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD", "REPORT_VIEWER", "EVENT_ADMIN"],
+  admin: ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD", "REPORT_VIEWER", "EVENT_ADMIN", "COMMITTEE_ORGANIZER"],
   committee: [
+    "COMMITTEE_ORGANIZER",
+    "COMMITTEE_ADMIN",
     "COMMITTEE_LEAD",
     "REGISTRATION_OFFICER",
     "CHECKIN_OFFICER",
@@ -87,12 +89,15 @@ async function findPortalAccount(email: string, portal: PortalCode) {
   const user = (await db.select().from(users).where(eq(users.email, normalizedEmail)).limit(1))[0];
   if (!user || user.status !== "ACTIVE") return null;
   const assignments = await db
-    .select({ roleCode: roles.code })
+    .select({ roleCode: roles.code, startsAt: userRoleAssignments.startsAt, endsAt: userRoleAssignments.endsAt })
     .from(userRoleAssignments)
     .innerJoin(roles, eq(userRoleAssignments.roleId, roles.id))
     .where(eq(userRoleAssignments.userId, user.id));
+  const now = Date.now();
   const allowed = assignments.some((assignment) =>
-    PORTAL_ROLES[portal].includes(assignment.roleCode as RoleCode),
+    PORTAL_ROLES[portal].includes(assignment.roleCode as RoleCode)
+    && (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= now)
+    && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > now),
   );
   return allowed ? user : null;
 }

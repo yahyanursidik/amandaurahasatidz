@@ -10,8 +10,11 @@ import {
 import {
   evaluatePermission,
   getEffectivePermissions,
+  readableEventIds,
   requireAuth,
+  requireGlobalPermission,
   requirePermission,
+  requireReportAccess,
 } from "./lib/middleware/rbac";
 import { createAuditLog, getAuditLogsService } from "./lib/services/auditService";
 import { getDbClient } from "./lib/db/client";
@@ -107,6 +110,8 @@ import {
 import { getPublicEventPosterService } from "./lib/services/eventPosterService";
 import {
   createCommitteeMemberSchema,
+  committeeDashboardQuerySchema,
+  committeeGlobalAccessSchema,
   queryCommitteeSchema,
   updateCommitteeMemberSchema,
 } from "./lib/validations/committeeValidation";
@@ -115,8 +120,10 @@ import {
   createCommitteeMemberService,
   endCommitteeAssignmentService,
   getCommitteeContextService,
+  getCommitteeCandidatesService,
   getCommitteeDirectoryService,
   getCommitteeMemberService,
+  setCommitteeGlobalAccessService,
   updateCommitteeAssignmentService,
   updateCommitteeMemberService,
 } from "./lib/services/committeeService";
@@ -706,7 +713,7 @@ export const handler: Handler = async (event, _context) => {
     // Event workspace CRUD and command endpoints
     if (path === "/events/options" && method === "GET") {
       requirePermission(userSession, "events.read");
-      return buildSuccessResponse(await getEventOptionsService(), requestId);
+      return buildSuccessResponse(await getEventOptionsService(readableEventIds(requireAuth(userSession))), requestId);
     }
     if (path === "/events/catalog" && method === "GET") {
       requirePermission(userSession, "events.read");
@@ -714,7 +721,7 @@ export const handler: Handler = async (event, _context) => {
       return buildSuccessResponse(await getEventCatalogService({
         page: input.page || 1, pageSize: input.pageSize || 20,
         search: input.search || "", status: input.status || "ALL",
-      }), requestId);
+      }, readableEventIds(requireAuth(userSession))), requestId);
     }
     if (path === "/events" && method === "POST") {
       const session = requireAuth(userSession);
@@ -852,9 +859,24 @@ export const handler: Handler = async (event, _context) => {
       return buildSuccessResponse(await updateCommitteeMemberService(committeeMemberMatch[1], validated, session.userId, requestId), requestId);
     }
 
+    const committeeGlobalAccessMatch = path.match(/^\/committee-members\/([a-f0-9-]+)\/global-access$/i);
+    if (committeeGlobalAccessMatch && method === "PUT") {
+      const session = requireAuth(userSession);
+      requirePermission(session, "users.manage");
+      const { enabled } = validateRequestData(committeeGlobalAccessSchema, event.body ? JSON.parse(event.body) : {});
+      return buildSuccessResponse(await setCommitteeGlobalAccessService(committeeGlobalAccessMatch[1], enabled,
+        session.userId, requestId), requestId);
+    }
+
     if (path === "/committee/context" && method === "GET") {
       const session = requireAuth(userSession);
-      return buildSuccessResponse(await getCommitteeContextService(session.userId), requestId);
+      return buildSuccessResponse(await getCommitteeContextService(session.userId, session.assignments), requestId);
+    }
+
+    const committeeCandidatesMatch = path.match(/^\/events\/([a-f0-9-]+)\/committee-candidates$/i);
+    if (committeeCandidatesMatch && method === "GET") {
+      requirePermission(userSession, "events.update", committeeCandidatesMatch[1]);
+      return buildSuccessResponse(await getCommitteeCandidatesService(), requestId);
     }
 
     const eventCommitteeMatch = path.match(/^\/events\/([a-f0-9-]+)\/committee$/i);
@@ -1245,7 +1267,7 @@ export const handler: Handler = async (event, _context) => {
     // Standard CRUD Endpoints
     if (path === "/events" && method === "GET") {
       requirePermission(userSession, "events.read");
-      const data = await getEventsService();
+      const data = await getEventsService(undefined, undefined, readableEventIds(requireAuth(userSession)));
       return buildSuccessResponse(data, requestId);
     }
 
@@ -1486,7 +1508,7 @@ export const handler: Handler = async (event, _context) => {
     }
 
     if (path === "/audit-logs" && method === "GET") {
-      requirePermission(userSession, "audit.read");
+      requireGlobalPermission(userSession, "audit.read");
       const requestedLimit = Number(event.queryStringParameters?.limit || 50);
       const limit = Number.isFinite(requestedLimit) ? requestedLimit : 50;
       const data = await getAuditLogsService(limit);
@@ -1866,13 +1888,13 @@ export const handler: Handler = async (event, _context) => {
 
     // Dashboard & Report Endpoints
     if (path === "/dashboard/admin" && method === "GET") {
-      requirePermission(userSession, "reports.read");
+      requireGlobalPermission(userSession, "reports.read");
       const metrics = await getAdminDashboardMetricsService();
       return buildSuccessResponse(metrics, requestId);
     }
 
     if (path === "/dashboard/committee" && method === "GET") {
-      const eventId = event.queryStringParameters?.eventId;
+      const { eventId } = validateRequestData(committeeDashboardQuerySchema, event.queryStringParameters || {});
       requirePermission(userSession, "attendance.read", eventId);
       const metrics = await getCommitteeDashboardMetricsService(eventId);
       return buildSuccessResponse(metrics, requestId);
@@ -1882,8 +1904,8 @@ export const handler: Handler = async (event, _context) => {
     if (reportTypeMatch && method === "GET") {
       const reportType = reportTypeMatch[1];
       if (reportType !== "export") {
-        requirePermission(userSession, "reports.read");
         const query = event.queryStringParameters || {};
+        requireReportAccess(userSession, "reports.read", reportType, query.eventId);
         const report = await getPaginatedReportService(reportType, {
           page: Number(query.page || 1),
           pageSize: Number(query.pageSize || 15),
@@ -1895,8 +1917,8 @@ export const handler: Handler = async (event, _context) => {
 
     if (path === "/reports/export" && method === "POST") {
       const session = requireAuth(userSession);
-      requirePermission(session, "reports.export");
       const body = event.body ? JSON.parse(event.body) : {};
+      requireReportAccess(session, "reports.export", body.reportType || "no-show", body.eventId);
       const exportResult = await generateReportExportService(
         {
           reportType: body.reportType || "no-show",

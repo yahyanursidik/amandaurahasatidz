@@ -2,6 +2,7 @@
  * genre: modern-minimal · macrostructure: Workbench · design-system: design.md · designed-as-app
  */
 import React, { useEffect, useState } from "react";
+import { useGetIdentity } from "@refinedev/core";
 import { Link, useParams } from "react-router-dom";
 import {
   CheckCircle2,
@@ -16,6 +17,7 @@ import { StatusBadge } from "@/components/common/StatusBadge";
 import { EventWorkspaceNav } from "@/components/admin/events/EventWorkspaceNav";
 import { EventCommunicationCenter } from "@/components/admin/events/EventCommunicationCenter";
 import { eventApi } from "@/lib/eventApi";
+import type { AuthIdentity } from "@/lib/refine/authProvider";
 
 type Mode = "attendance" | "communications" | "reports";
 type Props = { mode: Mode };
@@ -67,6 +69,11 @@ const attendanceStatusLabel: Record<string, string> = {
 };
 
 export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
+  const { data: identity } = useGetIdentity<AuthIdentity>();
+  const canViewCrossEventReports = identity?.assignments.some((assignment) =>
+    ["SUPER_ADMIN", "REPORT_VIEWER", "COMMITTEE_ORGANIZER"].includes(assignment.roleCode) && !assignment.eventId
+    && (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= Date.now())
+    && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > Date.now())) ?? false;
   const { id = "" } = useParams<{ id: string }>();
   const previewMode = import.meta.env.DEV && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
   const [loading, setLoading] = useState(true);
@@ -252,7 +259,7 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
       {mode === "reports" && (
         <div className="space-y-5">
           <div className="grid gap-3 border border-slate-200 bg-white p-4 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <label><span className="mb-1.5 block text-sm font-bold text-slate-700">Jenis laporan</span><select value={reportType} onChange={(event) => { setReportType(event.target.value); setReportPage(1); setReport(null); }} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold">{reportTypes.map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
+            <label><span className="mb-1.5 block text-sm font-bold text-slate-700">Jenis laporan</span><select value={reportType} onChange={(event) => { setReportType(event.target.value); setReportPage(1); setReport(null); }} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold">{reportTypes.filter((type) => type.value !== "returning-participants" || canViewCrossEventReports).map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
             <button type="button" onClick={() => void exportReport()} disabled={busy} className="mt-auto inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" /> Ekspor CSV</button>
           </div>
           <div className="overflow-x-auto border border-slate-200 bg-white">

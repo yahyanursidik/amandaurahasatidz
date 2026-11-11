@@ -26,12 +26,12 @@ import { and, eq, isNull } from "drizzle-orm";
 import { normalizePhone } from "../utils/normalization";
 import type { PublicProgramQuery } from "../validations/eventValidation";
 
-export async function getEventsService(search?: string, status?: string) {
-  return await findEventsRepository(search, status);
+export async function getEventsService(search?: string, status?: string, allowedEventIds: string[] | null = null) {
+  return await findEventsRepository(search, status, allowedEventIds);
 }
 
-export async function getEventCatalogService(query: { page: number; pageSize: number; search: string; status: string }) {
-  return findEventCatalogRepository(query);
+export async function getEventCatalogService(query: { page: number; pageSize: number; search: string; status: string }, allowedEventIds: string[] | null = null) {
+  return findEventCatalogRepository(query, allowedEventIds);
 }
 
 export async function removeEventFromCatalogService(id: string, actorUserId: string, requestId: string) {
@@ -113,8 +113,8 @@ export async function getPublicEventsService(query: PublicProgramQuery) {
   return findPublicProgramPageRepository(query);
 }
 
-export async function getEventOptionsService() {
-  return findEventOptionsRepository();
+export async function getEventOptionsService(allowedEventIds: string[] | null = null) {
+  return findEventOptionsRepository(allowedEventIds);
 }
 
 export async function getRegistrationEventService(id: string) {

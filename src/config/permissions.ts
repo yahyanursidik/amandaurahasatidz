@@ -2,10 +2,12 @@ export type GlobalRole =
   | "SUPER_ADMIN"
   | "SYSTEM_ADMIN"
   | "DATA_STEWARD"
-  | "REPORT_VIEWER";
+  | "REPORT_VIEWER"
+  | "COMMITTEE_ORGANIZER";
 
 export type EventScopedRole =
   | "EVENT_ADMIN"
+  | "COMMITTEE_ADMIN"
   | "COMMITTEE_LEAD"
   | "REGISTRATION_OFFICER"
   | "CHECKIN_OFFICER"
@@ -115,6 +117,24 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     "announcements.read", "announcements.manage", "announcements.publish",
     "attendance.read", "attendance.record", "attendance.correct", "attendance.export",
     "reports.read", "reports.export", "audit.read"
+  ],
+  COMMITTEE_ADMIN: [
+    "events.read", "invitations.read",
+    "participants.read", "participants.create", "participants.update", "participants.approve",
+    "participants.waitlist", "participants.cancel", "participants.replace", "participants.export",
+    "participants.manage_portal_access",
+    "schedule.read", "announcements.read", "attendance.read",
+  ],
+  COMMITTEE_ORGANIZER: [
+    "events.read", "events.create", "events.update", "events.publish", "events.cancel",
+    "invitations.read", "invitations.create", "invitations.send", "invitations.revoke",
+    "participants.read", "participants.create", "participants.update", "participants.approve",
+    "participants.waitlist", "participants.cancel", "participants.replace", "participants.export",
+    "participants.manage_portal_access",
+    "schedule.read", "schedule.manage",
+    "announcements.read", "announcements.manage", "announcements.publish",
+    "attendance.read", "attendance.record", "attendance.correct", "attendance.export",
+    "reports.read", "reports.export",
   ],
   COMMITTEE_LEAD: [
     "events.read", "participants.read", "participants.update", "participants.approve", "participants.waitlist", "participants.cancel", "participants.export", "participants.manage_portal_access", "schedule.read", "schedule.manage",

@@ -13,7 +13,7 @@ export function hasCommunicationPermission(permissions: CommunicationPermissions
     if (!ROLE_PERMISSIONS[assignment.roleCode]?.includes(action)) return false;
     if (assignment.roleCode === "SUPER_ADMIN") return true;
     if (assignment.eventId) return assignment.eventId === "*" || assignment.eventId === eventId;
-    return !["EVENT_ADMIN", "COMMITTEE_LEAD", "REGISTRATION_OFFICER", "CHECKIN_OFFICER", "INFORMATION_OFFICER", "EVENT_VIEWER"].includes(assignment.roleCode);
+    return !["EVENT_ADMIN", "COMMITTEE_ADMIN", "COMMITTEE_LEAD", "REGISTRATION_OFFICER", "CHECKIN_OFFICER", "INFORMATION_OFFICER", "EVENT_VIEWER"].includes(assignment.roleCode);
   });
 }
 

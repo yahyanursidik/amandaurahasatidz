@@ -32,6 +32,7 @@ import { AppShell } from "../common/AppShell";
 import { SidebarNavItem } from "../common/Sidebar";
 import { AuthIdentity } from "@/lib/refine/authProvider";
 import { canManageUstadz, canMergeUstadz } from "@/lib/ustadzPermissions";
+import { isCommitteeOrganizerOnly } from "@/lib/committeeOrganizerAccess";
 
 const eventIdFromPath = (pathname: string) => {
   const match = pathname.match(/^\/admin\/events\/([^/]+)/);
@@ -198,7 +199,13 @@ export const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children 
   const { data: identity } = useGetIdentity<AuthIdentity>();
   const hasUstadzWriteAccess = canManageUstadz(identity?.assignments);
   const hasUstadzMergeAccess = canMergeUstadz(identity?.assignments);
-  const navItems = useMemo(() => getAdminNavItems(location.pathname, hasUstadzWriteAccess, hasUstadzMergeAccess), [location.pathname, hasUstadzWriteAccess, hasUstadzMergeAccess]);
+  const committeeOrganizerOnly = isCommitteeOrganizerOnly(identity?.assignments);
+  const navItems = useMemo(() => {
+    const items = getAdminNavItems(location.pathname, hasUstadzWriteAccess, hasUstadzMergeAccess);
+    if (!committeeOrganizerOnly) return items;
+    return [...items.filter((item) => ["Event & Daurah", "Panduan Kerja"].includes(item.label)),
+      { label: "Portal Panitia", shortLabel: "Panitia", href: "/committee", icon: <UsersRound />, mobilePrimary: true }];
+  }, [location.pathname, hasUstadzWriteAccess, hasUstadzMergeAccess, committeeOrganizerOnly]);
   const isEventWorkspace = location.pathname.startsWith("/admin/events");
   const isInstitutionWorkspace = location.pathname.startsWith("/admin/institutions");
   const isUstadzWorkspace = location.pathname.startsWith("/admin/ustadz");
@@ -216,8 +223,8 @@ export const AdminLayout: React.FC<{ children: React.ReactNode }> = ({ children 
 
   return (
     <AppShell
-      portalName="Portal Super Admin"
-      badgeLabel="Super Admin Mode"
+      portalName={committeeOrganizerOnly ? "Ruang Kelola Event" : "Portal Super Admin"}
+      badgeLabel={committeeOrganizerOnly ? "Admin Panitia Semua Event" : "Super Admin Mode"}
       badgeColorClass="bg-emerald-800 text-emerald-100 border-emerald-700"
       navItems={navItems}
       enableCommandMenu

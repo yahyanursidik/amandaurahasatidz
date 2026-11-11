@@ -4,6 +4,7 @@
  * privacy: contact data is shown only inside the protected committee portal
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useGetIdentity } from "@refinedev/core";
 import {
   AlertCircle,
@@ -32,6 +33,7 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge, type StatusVariant } from "@/components/common/StatusBadge";
 import { ParticipantCommunicationPanel } from "@/components/communications/ParticipantCommunicationPanel";
 import { ParticipantProfileDialog } from "@/components/participants/ParticipantProfileDialog";
+import { ParticipantManagementDialog } from "@/components/participants/ParticipantManagementDialog";
 import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
 import { eventApi, eventApiEnvelope } from "@/lib/eventApi";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
@@ -40,6 +42,7 @@ import { availableParticipantCommands, participantStaffPermissions } from "@/lib
 import type { AuthIdentity } from "@/lib/refine/authProvider";
 import { canApproveParticipant, runParticipantBulkApproval, selectionAfterBulkApproval, type BulkApprovalResponse } from "@/lib/participantBulkApproval";
 import { getMissingParticipantContactFields } from "@/lib/participantCommunication";
+import { participantResolutionHint } from "@/lib/participantResolution";
 
 type EventSummary = {
   id: string;
@@ -66,6 +69,8 @@ type CommitteeParticipant = {
   institutionName: string | null;
   approvalStatus: string;
   confirmationStatus: string;
+  confirmationStatusReason?: string | null;
+  statusReason?: string | null;
   eventName?: string | null;
   eventStartDate?: string | null;
   eventEndDate?: string | null;
@@ -80,7 +85,7 @@ type CommitteeParticipant = {
 
 type Decision = "approve" | "waitlist" | "decline" | "cancel";
 type DecisionRequest = { participant: CommitteeParticipant; decision: Decision } | null;
-type StatusFilter = "ALL" | "NEEDS_ACTION" | "PENDING_REVIEW" | "APPROVED" | "WAITLISTED" | "DECLINED" | "CANCELLED";
+type StatusFilter = "ALL" | "NEEDS_ACTION" | "AWAITING_CONFIRMATION" | "PENDING_REVIEW" | "APPROVED" | "WAITLISTED" | "DECLINED" | "CANCELLED";
 type ContactFilter = "ALL" | "COMPLETE" | "INCOMPLETE" | "NO_WHATSAPP" | "NO_PORTAL";
 type SortOption = "PRIORITY" | "NEWEST" | "OLDEST" | "NAME";
 
@@ -240,11 +245,16 @@ const ParticipantDecisionDialog: React.FC<{
 };
 
 export const CommitteeParticipantsPage: React.FC = () => {
+  const [urlParams] = useSearchParams();
+  const requestedEventId = urlParams.get("eventId") || "";
+  const requestedStatus = urlParams.get("status") || "ALL";
   const [events, setEvents] = useState<EventSummary[]>([]);
   const [selectedEventId, setSelectedEventId] = useState("");
   const [participants, setParticipants] = useState<CommitteeParticipant[]>([]);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>(
+    ["PENDING_REVIEW", "WAITLISTED", "AWAITING_CONFIRMATION", "NEEDS_ACTION"].includes(requestedStatus)
+      ? requestedStatus as StatusFilter : "ALL");
   const [contactFilter, setContactFilter] = useState<ContactFilter>("ALL");
   const [sourceFilter, setSourceFilter] = useState<ParticipantSourceFilter>("ALL");
   const [institutionFilter, setInstitutionFilter] = useState("ALL");
@@ -298,7 +308,8 @@ export const CommitteeParticipantsPage: React.FC = () => {
       if (!mounted.current || signal?.aborted) return;
       const eventItems = Array.isArray(data) ? data : [];
       setEvents(eventItems);
-      setSelectedEventId((current) => current || eventItems[0]?.id || "");
+      setSelectedEventId((current) => eventItems.some((item) => item.id === current) ? current
+        : eventItems.some((item) => item.id === requestedEventId) ? requestedEventId : eventItems[0]?.id || "");
       setPreviewMode(false);
       if (eventItems.length === 0) setParticipants([]);
     } catch (loadError) {
@@ -406,7 +417,8 @@ export const CommitteeParticipantsPage: React.FC = () => {
       .filter((participant) => {
         const missing = getMissingParticipantContactFields(participantWithContact(participant));
         const hasWhatsapp = Boolean(participant.ustadzWhatsapp || participant.ustadzPhone);
-        const statusMatch = statusFilter === "ALL" || (statusFilter === "NEEDS_ACTION" ? participant.approvalStatus === "PENDING_REVIEW" || missing.length > 0 || !participant.portalPasswordConfigured : participant.approvalStatus === statusFilter);
+        const statusMatch = statusFilter === "ALL" || (statusFilter === "NEEDS_ACTION" ? participant.approvalStatus === "PENDING_REVIEW" || missing.length > 0 || !participant.portalPasswordConfigured
+          : statusFilter === "AWAITING_CONFIRMATION" ? participant.approvalStatus === "APPROVED" && participant.confirmationStatus === "INVITED" : participant.approvalStatus === statusFilter);
         const contactMatch = contactFilter === "ALL" || (contactFilter === "COMPLETE" && missing.length === 0) || (contactFilter === "INCOMPLETE" && missing.length > 0) || (contactFilter === "NO_WHATSAPP" && !hasWhatsapp) || (contactFilter === "NO_PORTAL" && !participant.portalPasswordConfigured);
         const institutionMatch = institutionFilter === "ALL" || (institutionFilter === "INDIVIDUAL" ? !participant.institutionName : participant.institutionName === institutionFilter);
         const searchMatch = !keyword || [participant.ustadzName, participant.participantCode, participant.institutionName, participant.ustadzWhatsapp, participant.ustadzPhone, participant.ustadzEmail].filter(Boolean).some((value) => String(value).toLocaleLowerCase("id-ID").includes(keyword));
@@ -614,7 +626,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
             <div className="mt-5 space-y-4">
               <label className="block"><span className="mb-2 block text-sm font-bold text-slate-800">Event</span><select value={selectedEventId} onChange={(event) => setSelectedEventId(event.target.value)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700">{events.length === 0 && <option value="">Belum ada event</option>}{events.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
               <label className="block"><span className="mb-2 block text-sm font-bold text-slate-800">Cari peserta</span><span className="relative block"><Search className="pointer-events-none absolute left-3 top-3.5 h-4 w-4 text-slate-500" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Nama, kode, lembaga" className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700" /></span></label>
-              <label className="block"><span className="mb-2 block text-sm font-bold text-slate-800">Tahap keputusan</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700"><option value="ALL">Semua tahap</option><option value="NEEDS_ACTION">Perlu tindakan</option><option value="PENDING_REVIEW">Menunggu tinjauan</option><option value="APPROVED">Disetujui</option><option value="WAITLISTED">Daftar tunggu</option><option value="DECLINED">Ditolak</option><option value="CANCELLED">Dibatalkan</option></select></label>
+              <label className="block"><span className="mb-2 block text-sm font-bold text-slate-800">Tahap keputusan</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700"><option value="ALL">Semua tahap</option><option value="NEEDS_ACTION">Perlu tindakan</option><option value="PENDING_REVIEW">Menunggu tinjauan</option><option value="WAITLISTED">Daftar tunggu</option><option value="AWAITING_CONFIRMATION">Menunggu konfirmasi hadir</option><option value="APPROVED">Disetujui</option><option value="DECLINED">Ditolak</option><option value="CANCELLED">Dibatalkan</option></select></label>
               <label className="block"><span className="mb-2 block text-sm font-bold text-slate-800">Kesiapan data</span><select value={contactFilter} onChange={(event) => setContactFilter(event.target.value as ContactFilter)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700"><option value="ALL">Semua data</option><option value="COMPLETE">Kontak lengkap</option><option value="INCOMPLETE">Kontak belum lengkap</option><option value="NO_WHATSAPP">Tanpa WhatsApp</option><option value="NO_PORTAL">Akses portal belum siap</option></select></label>
               <label className="block"><span className="mb-2 block text-sm font-bold text-slate-800">Jalur pendaftaran</span><select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value as ParticipantSourceFilter)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700"><option value="ALL">Semua jalur</option><option value="REGULAR">Pendaftaran reguler</option><option value="INSTITUTION">Undangan lembaga</option><option value="INDIVIDUAL">Undangan pribadi</option></select></label>
               <label className="block"><span className="mb-2 block text-sm font-bold text-slate-800">Lembaga</span><select value={institutionFilter} onChange={(event) => setInstitutionFilter(event.target.value)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm outline outline-2 outline-transparent hover:bg-slate-50 focus-visible:outline-teal-700"><option value="ALL">Semua lembaga</option><option value="INDIVIDUAL">Peserta individu</option>{institutions.map((name) => <option key={name} value={name}>{name}</option>)}</select></label>
@@ -638,6 +650,9 @@ export const CommitteeParticipantsPage: React.FC = () => {
             const missing = getMissingParticipantContactFields(contact);
             const canSelect = canApprove && participant.approvalStatus === "PENDING_REVIEW" && canApproveParticipant(participant);
             const commands = availableParticipantCommands({ ...participant, name: participant.ustadzName }, permissions);
+            const resolution = participantResolutionHint({ approvalStatus: participant.approvalStatus,
+              confirmationStatus: participant.confirmationStatus, contactComplete: missing.length === 0,
+              portalPasswordConfigured: participant.portalPasswordConfigured });
             return <li key={participant.id} className={`min-w-0 py-5 ${selectedIds.includes(participant.id) ? "bg-teal-50/70" : ""}`}>
               <div className="grid min-w-0 gap-4 px-4 md:grid-cols-[2rem_minmax(0,1fr)]">
                 <div>{canSelect ? <input type="checkbox" disabled={Boolean(busy) || loading || requiresRefresh} checked={selectedIds.includes(participant.id)} onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, participant.id] : current.filter((id) => id !== participant.id))} aria-label={`Pilih ${participant.ustadzName}`} className="mt-1 h-5 w-5 accent-teal-800" /> : <UserRoundCheck className="mt-1 h-5 w-5 text-slate-400" aria-hidden="true" />}</div>
@@ -646,6 +661,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
                     <div className="min-w-0"><p className="font-mono text-sm font-bold text-teal-800">{participant.participantCode}</p><h3 className="mt-1 overflow-wrap-anywhere text-lg font-black text-slate-950">{participant.ustadzName}</h3><p className="mt-1 text-sm leading-6 text-slate-600">{participant.institutionName || (participant.publicGroupId ? `Rombongan reguler ${participant.publicGroupId.slice(0, 8)}` : "Peserta individu")}</p><p className="text-sm font-bold text-teal-800">{participantSourceLabel(participant.registrationSource)}</p>{participant.publicGroupId && <p className="text-sm font-bold text-teal-800">{participant.isDelegationLead ? "Kepala rombongan" : "Anggota rombongan"}</p>}</div>
                     <div className="flex flex-wrap gap-2"><StatusBadge label={approvalLabels[participant.approvalStatus] || participant.approvalStatus.replaceAll("_", " ")} variant={approvalVariant(participant.approvalStatus)} /><StatusBadge label={missing.length === 0 ? "Kontak lengkap" : `${missing.length} data belum lengkap`} variant={missing.length === 0 ? "success" : "warning"} /><StatusBadge label={participant.portalPasswordConfigured ? "Portal siap" : "Portal belum siap"} variant={participant.portalPasswordConfigured ? "info" : "neutral"} /></div>
                   </div>
+                  <div className={`mt-3 rounded-lg border px-3 py-2 text-sm ${resolution.tone === "warning" ? "border-amber-200 bg-amber-50 text-amber-950" : resolution.tone === "info" ? "border-sky-200 bg-sky-50 text-sky-950" : "border-slate-200 bg-slate-50 text-slate-700"}`}><strong>{resolution.title}.</strong> {resolution.detail}{participant.statusReason && ["WAITLISTED", "DECLINED", "REJECTED"].includes(participant.approvalStatus) && <span className="mt-1 block">Catatan: {participant.statusReason}</span>}</div>
 
                   <div className="mt-4 grid gap-2 border-y border-slate-100 py-4 sm:grid-cols-2 xl:grid-cols-4">
                     <p className="flex min-w-0 items-center gap-2 text-sm text-slate-700"><Smartphone className="h-4 w-4 shrink-0 text-teal-800" /><span className="truncate">{participant.ustadzWhatsapp || participant.ustadzPhone || "Belum diisi"}</span></p>
@@ -660,9 +676,16 @@ export const CommitteeParticipantsPage: React.FC = () => {
                       {participant.approvalStatus === "PENDING_REVIEW" && commands.includes("waitlist") && <button type="button" onClick={() => setDecisionRequest({ participant, decision: "waitlist" })} disabled={Boolean(busy) || loading || requiresRefresh} className="min-h-[44px] whitespace-nowrap rounded-lg border border-amber-400 bg-amber-50 px-4 text-sm font-bold text-amber-950 hover:bg-amber-100 disabled:opacity-50">Daftar tunggu</button>}
                       {participant.approvalStatus === "PENDING_REVIEW" && commands.includes("decline") && <button type="button" onClick={() => setDecisionRequest({ participant, decision: "decline" })} disabled={Boolean(busy) || loading || requiresRefresh} className="min-h-[44px] whitespace-nowrap rounded-lg border border-rose-300 bg-white px-4 text-sm font-bold text-rose-800 hover:bg-rose-50 disabled:opacity-50">Tolak</button>}
                       {commands.includes("cancel") && <button type="button" onClick={() => setDecisionRequest({ participant, decision: "cancel" })} disabled={Boolean(busy) || loading || requiresRefresh} className="min-h-[44px] whitespace-nowrap rounded-lg border border-rose-300 bg-white px-4 text-sm font-bold text-rose-800 hover:bg-rose-50 disabled:opacity-50">Batalkan</button>}
+                      {commands.includes("replace") && <ParticipantManagementDialog eventId={selectedEventId}
+                        participant={{ id: participant.id, name: participant.ustadzName, participantCode: participant.participantCode,
+                          approvalStatus: participant.approvalStatus, confirmationStatus: participant.confirmationStatus }}
+                        permissions={permissions} onlyActions={["replace"]} disabled={Boolean(busy) || loading || requiresRefresh}
+                        demoMode={previewMode} onBusyChange={(working) => { if (mounted.current && activeEvent.current === selectedEventId) {
+                          actionBusy.current = working; setBusy(working ? participant.id : ""); } }}
+                        onCompleted={async () => { const refreshed = await reloadParticipants(); if (refreshed) setSuccess("Penggantian tersimpan. Peserta baru menunggu persetujuan; QR lama tidak berlaku."); return refreshed; }} />}
                     </div>
                     <div className="flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3 xl:border-0 xl:pt-0">
-                      <ParticipantProfileDialog participant={{ id: participant.id, ustadzId: participant.ustadzId, name: participant.ustadzName, participantCode: participant.participantCode, institutionName: participant.institutionName, email: participant.ustadzEmail, phone: participant.ustadzPhone, whatsapp: participant.ustadzWhatsapp, address: participant.ustadzAddress, approvalStatus: participant.approvalStatus, confirmationStatus: participant.confirmationStatus, registrationSource: participant.registrationSource, registeredAt: participant.registeredAt, eventName: participant.eventName || selectedEvent?.name }} />
+                      <ParticipantProfileDialog participant={{ id: participant.id, ustadzId: participant.ustadzId, name: participant.ustadzName, participantCode: participant.participantCode, institutionName: participant.institutionName, email: participant.ustadzEmail, phone: participant.ustadzPhone, whatsapp: participant.ustadzWhatsapp, address: participant.ustadzAddress, approvalStatus: participant.approvalStatus, confirmationStatus: participant.confirmationStatus, confirmationStatusReason: participant.confirmationStatusReason, registrationSource: participant.registrationSource, registeredAt: participant.registeredAt, eventName: participant.eventName || selectedEvent?.name }} />
                       <ParticipantCommunicationPanel disabled={previewMode} participant={contact} senderRole="committee" initialTemplate={participantSourceCategory(participant.registrationSource) === "REGULAR" ? "REGULAR_REGISTRATION" : "EVENT_INVITATION"} event={{ name: participant.eventName || selectedEvent?.name, startDate: participant.eventStartDate || selectedEvent?.startDate, endDate: participant.eventEndDate || selectedEvent?.endDate, venueName: participant.eventVenueName || selectedEvent?.venueName, venueAddress: participant.eventVenueAddress || selectedEvent?.venueAddress }} />
                       {permissions.includes("participants.manage_portal_access") && <ParticipantPortalAccessAction eventId={selectedEventId} participant={{ id: participant.id, name: participant.ustadzName, email: participant.ustadzEmail, portalPasswordConfigured: participant.portalPasswordConfigured }} previewMode={previewMode} onCompleted={() => {
                         // Keep the row mounted: the one-time credential dialog must not disappear on refresh.

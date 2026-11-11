@@ -12,8 +12,9 @@ import {
   formatCommitteeDate,
   roleLabel,
 } from "@/lib/committeeApi";
+import { fromEventIso, toEventIso } from "@/lib/eventDateTime";
 
-type EventItem = { id: string; code: string; name: string };
+type EventItem = { id: string; code: string; name: string; timezone: string };
 const fieldClass =
   "min-h-[46px] w-full min-w-0 border border-slate-300 bg-white px-3 text-sm outline-2 outline-transparent hover:border-slate-400 focus-visible:outline-emerald-700";
 
@@ -22,9 +23,13 @@ export const CommitteeDetailPage: React.FC = () => {
   const [member, setMember] = useState<CommitteeMember | null>(null);
   const [events, setEvents] = useState<EventItem[]>([]);
   const [notice, setNotice] = useState("");
+  const [editingAssignmentId, setEditingAssignmentId] = useState("");
+  const [savingAssignment, setSavingAssignment] = useState(false);
+  const [savingGlobalAccess, setSavingGlobalAccess] = useState(false);
+  const [assignmentForm, setAssignmentForm] = useState({ committeeRole: "COMMITTEE_ADMIN", startsAt: "", endsAt: "" });
   const [form, setForm] = useState({
     eventId: "",
-    committeeRole: "CHECKIN_OFFICER",
+    committeeRole: "COMMITTEE_ADMIN",
     startsAt: "",
     endsAt: "",
   });
@@ -52,8 +57,8 @@ export const CommitteeDetailPage: React.FC = () => {
         body: JSON.stringify({
           userId: id,
           committeeRole: form.committeeRole,
-          startsAt: form.startsAt || null,
-          endsAt: form.endsAt || null,
+          startsAt: toEventIso(form.startsAt, events.find((item) => item.id === form.eventId)?.timezone || "Asia/Jakarta"),
+          endsAt: toEventIso(form.endsAt, events.find((item) => item.id === form.eventId)?.timezone || "Asia/Jakarta"),
         }),
       });
       setNotice("Penugasan dan akses RBAC berhasil disimpan.");
@@ -78,13 +83,58 @@ export const CommitteeDetailPage: React.FC = () => {
     }
   };
 
+  const toggleGlobalAccess = async () => {
+    if (!member || savingGlobalAccess) return;
+    const enabled = !member.globalAccess;
+    if (enabled && !window.confirm("Berikan akses membuat dan mengelola SEMUA event kepada akun ini?")) return;
+    if (!enabled && !window.confirm("Cabut akses semua event? Penugasan per event yang terpisah tetap berlaku.")) return;
+    setSavingGlobalAccess(true);
+    try {
+      await committeeApi(`/committee-members/${id}/global-access`, { method: "PUT", body: JSON.stringify({ enabled }) });
+      setNotice(enabled ? "Akses semua event berhasil diberikan." : "Akses semua event berhasil dicabut.");
+      await load();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Akses semua event gagal diperbarui.");
+    } finally {
+      setSavingGlobalAccess(false);
+    }
+  };
+
   const endAssignment = async (eventId: string, assignmentId: string) => {
+    if (!window.confirm("Akhiri tugas ini? Akses ke event terkait akan dicabut.")) return;
     try {
       await committeeApi(`/events/${eventId}/committee/${assignmentId}`, { method: "DELETE" });
       setNotice("Masa tugas dan akses event telah diakhiri.");
       await load();
     } catch (error) {
       setNotice(error instanceof Error ? error.message : "Masa tugas gagal diakhiri.");
+    }
+  };
+
+  const beginAssignmentEdit = (assignment: CommitteeMember["assignments"][number]) => {
+    const timezone = events.find((event) => event.id === assignment.eventId)?.timezone || "Asia/Jakarta";
+    setAssignmentForm({ committeeRole: assignment.committeeRole,
+      startsAt: fromEventIso(assignment.startsAt, timezone), endsAt: fromEventIso(assignment.endsAt, timezone) });
+    setEditingAssignmentId(assignment.id);
+    setNotice("");
+  };
+
+  const saveAssignment = async (event: React.FormEvent, assignment: CommitteeMember["assignments"][number]) => {
+    event.preventDefault();
+    if (savingAssignment) return;
+    setSavingAssignment(true);
+    const timezone = events.find((item) => item.id === assignment.eventId)?.timezone || "Asia/Jakarta";
+    try {
+      await committeeApi(`/events/${assignment.eventId}/committee/${assignment.id}`, { method: "PATCH",
+        body: JSON.stringify({ committeeRole: assignmentForm.committeeRole,
+          startsAt: toEventIso(assignmentForm.startsAt, timezone), endsAt: toEventIso(assignmentForm.endsAt, timezone) }) });
+      setEditingAssignmentId("");
+      setNotice("Peran dan masa tugas berhasil diperbarui. Hak akses lama telah disesuaikan.");
+      await load();
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Perubahan tugas gagal disimpan.");
+    } finally {
+      setSavingAssignment(false);
     }
   };
 
@@ -114,9 +164,15 @@ export const CommitteeDetailPage: React.FC = () => {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-y border-slate-200 bg-white p-4">
               <div>
                 <p className="text-sm font-black text-slate-950">{member.email}</p>
-                <p className="mt-1 text-xs text-slate-500">Login portal panitia dengan email dan password.</p>
+                <p className="mt-1 text-sm text-slate-600">Login dengan email dan password. Admin lintas-event dapat memakai Portal Panitia dan Ruang Kelola Event.</p>
               </div>
-              <StatusBadge label={member.status === "ACTIVE" ? "Akun aktif" : "Akun nonaktif"} variant={member.status === "ACTIVE" ? "success" : "danger"} />
+              <div className="flex flex-wrap items-center gap-2"><StatusBadge label={member.globalAccess ? "Akses semua event" : "Akses sesuai tugas"} variant={member.globalAccess ? "warning" : "info"} /><StatusBadge label={member.status === "ACTIVE" ? "Akun aktif" : "Akun nonaktif"} variant={member.status === "ACTIVE" ? "success" : "danger"} /></div>
+            </div>
+
+            <div className="mb-4 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-950">
+              <p className="font-black">Admin Panitia Semua Event</p>
+              <p className="mt-1">{member.globalAccess ? "Akun dapat membuat dan mengelola semua event tanpa penugasan tambahan." : "Akun saat ini hanya dapat mengakses event sesuai penugasan di bawah."}</p>
+              <button type="button" disabled={savingGlobalAccess} onClick={() => void toggleGlobalAccess()} className="mt-3 min-h-[44px] rounded-lg border border-amber-400 bg-white px-4 text-sm font-bold disabled:opacity-50">{savingGlobalAccess ? "Menyimpan…" : member.globalAccess ? "Cabut akses semua event" : "Berikan akses semua event"}</button>
             </div>
 
             <div className="space-y-3">
@@ -138,15 +194,22 @@ export const CommitteeDetailPage: React.FC = () => {
                     <Link to={`/admin/events/${assignment.eventId}/team`} className="inline-flex min-h-[40px] items-center whitespace-nowrap px-3 text-sm font-black text-emerald-800 hover:bg-emerald-50 active:bg-emerald-100">
                       Buka tim event
                     </Link>
+                    <button type="button" onClick={() => beginAssignmentEdit(assignment)} className="min-h-[40px] whitespace-nowrap border border-emerald-200 px-3 text-sm font-black text-emerald-800 hover:bg-emerald-50">Edit peran & masa tugas</button>
                     <button onClick={() => endAssignment(assignment.eventId, assignment.id)} className="min-h-[40px] whitespace-nowrap border border-rose-200 px-3 text-sm font-black text-rose-700 hover:bg-rose-50 active:bg-rose-100">
                       Akhiri tugas
                     </button>
                   </div>
+                  {editingAssignmentId === assignment.id && <form onSubmit={(event) => void saveAssignment(event, assignment)} className="mt-4 grid gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-4 sm:grid-cols-2">
+                    <label className="sm:col-span-2"><span className="mb-1 block text-sm font-bold">Peran pada event ini</span><select value={assignmentForm.committeeRole} onChange={(event) => setAssignmentForm({ ...assignmentForm, committeeRole: event.target.value })} className={fieldClass}>{COMMITTEE_ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}</select></label>
+                    <label><span className="mb-1 block text-sm font-bold">Mulai tugas</span><input type="datetime-local" value={assignmentForm.startsAt} onChange={(event) => setAssignmentForm({ ...assignmentForm, startsAt: event.target.value })} className={fieldClass} /></label>
+                    <label><span className="mb-1 block text-sm font-bold">Akhir tugas</span><input type="datetime-local" value={assignmentForm.endsAt} onChange={(event) => setAssignmentForm({ ...assignmentForm, endsAt: event.target.value })} className={fieldClass} /></label>
+                    <div className="flex flex-wrap gap-2 sm:col-span-2"><button type="submit" disabled={savingAssignment} className="min-h-[44px] bg-emerald-700 px-4 text-sm font-bold text-white disabled:opacity-50">{savingAssignment ? "Menyimpan…" : "Simpan perubahan"}</button><button type="button" disabled={savingAssignment} onClick={() => setEditingAssignmentId("")} className="min-h-[44px] border border-slate-300 bg-white px-4 text-sm font-bold">Batal</button></div>
+                  </form>}
                 </article>
               ))}
               {member.assignments.length === 0 && (
                 <div className="border border-dashed border-slate-300 bg-white p-10 text-center text-sm text-slate-500">
-                  Akun belum memiliki tugas event.
+                  {member.globalAccess ? "Akses semua event sudah aktif; tidak perlu menambahkan tugas satu per satu." : "Akun belum memiliki tugas event."}
                 </div>
               )}
             </div>
@@ -169,6 +232,7 @@ export const CommitteeDetailPage: React.FC = () => {
                   <select value={form.committeeRole} onChange={(event) => setForm({ ...form, committeeRole: event.target.value })} className={fieldClass}>
                     {COMMITTEE_ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}
                   </select>
+                  <span className="mt-2 block text-sm leading-6 text-slate-600">{COMMITTEE_ROLES.find((role) => role.value === form.committeeRole)?.purpose}</span>
                 </label>
                 <label className="block">
                   <span className="mb-1 block text-sm font-bold">Mulai tugas</span>

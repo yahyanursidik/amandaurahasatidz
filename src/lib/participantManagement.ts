@@ -12,11 +12,12 @@ const commandPermission: Record<ParticipantCommand, PermissionCode> = {
 
 export function participantStaffPermissions(assignments: Array<{ roleCode: string; eventId?: string | null; startsAt?: string | Date | null; endsAt?: string | Date | null }> = [], eventId: string) {
   const permissions = new Set<PermissionCode>();
-  const globalRoles = ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD", "REPORT_VIEWER"];
+  const globalRoles = ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD", "REPORT_VIEWER", "COMMITTEE_ORGANIZER"];
   for (const assignment of assignments) {
     if (["USTADZ", "INSTITUTION_REPRESENTATIVE"].includes(assignment.roleCode) ||
-      assignment.startsAt && new Date(assignment.startsAt) > new Date() || assignment.endsAt && new Date(assignment.endsAt) < new Date()) continue;
-    if (!globalRoles.includes(assignment.roleCode) && assignment.eventId !== eventId && assignment.eventId !== "*") continue;
+      assignment.startsAt && new Date(assignment.startsAt) > new Date() || assignment.endsAt && new Date(assignment.endsAt) <= new Date()) continue;
+    if (assignment.eventId !== eventId && assignment.eventId !== "*"
+      && !(globalRoles.includes(assignment.roleCode) && !assignment.eventId)) continue;
     for (const permission of ROLE_PERMISSIONS[assignment.roleCode as RoleCode] || []) permissions.add(permission);
   }
   return [...permissions];
