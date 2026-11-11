@@ -13,6 +13,7 @@ import { eventApi } from "@/lib/eventApi";
 import { AuthIdentity } from "@/lib/refine/authProvider";
 import { DEFAULT_EVENT_POSTER, posterObjectPosition } from "@/lib/eventPoster";
 import { formatEventDate } from "@/lib/eventDateTime";
+import { ROLE_PERMISSIONS, type RoleCode } from "@/config/permissions";
 
 type EventSummary = {
   id: string; code: string; slug: string; name: string; startDate: string; endDate: string;
@@ -31,6 +32,15 @@ const dateLabel = formatEventDate;
 
 export const EventListPage: React.FC = () => {
   const { data: identity } = useGetIdentity<AuthIdentity>();
+  const now = Date.now();
+  const activeAssignments = (identity?.assignments || []).filter((assignment) =>
+    (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= now)
+    && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > now));
+  const canCreateEvent = activeAssignments.some((assignment) => ROLE_PERMISSIONS[assignment.roleCode as RoleCode]?.includes("events.create"));
+  const canPublishEvent = (eventId: string) => activeAssignments.some((assignment) =>
+    ROLE_PERMISSIONS[assignment.roleCode as RoleCode]?.includes("events.publish")
+    && (["SUPER_ADMIN", "COMMITTEE_ORGANIZER"].includes(assignment.roleCode) && !assignment.eventId
+      || assignment.eventId === eventId));
   const [params, setParams] = useSearchParams();
   const page = Math.max(1, Number(params.get("page") || 1) || 1);
   const status = statuses.includes(params.get("status") || "") ? params.get("status")! : "ALL";
@@ -90,7 +100,7 @@ export const EventListPage: React.FC = () => {
   }, [page, status, keyword, refresh]);
 
   return <AdminLayout>
-    <PageHeader title="Event Daurah" description="Kelola program, undangan, peserta, dan pelaksanaan dari satu ruang kerja." breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Event Daurah" }]} actions={<Link to="/admin/events/create" className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"><Plus className="h-4 w-4" /> Buat event</Link>} />
+    <PageHeader title="Event Daurah" description="Kelola program, undangan, peserta, dan pelaksanaan dari satu ruang kerja." breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Event Daurah" }]} actions={canCreateEvent ? <Link to="/admin/events/create" className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"><Plus className="h-4 w-4" /> Buat event</Link> : undefined} />
     <section aria-label="Ringkasan status event" className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
       {[["Nonarsip", "ALL"], ["Draft", "DRAFT"], ["Pendaftaran", "REGISTRATION_OPEN"], ["Berlangsung", "ONGOING"]].map(([label, filter]) => <button key={filter} type="button" onClick={() => updateQuery({ status: filter, page: "1" })} aria-pressed={status === filter} className={`min-h-20 rounded-lg border p-3 text-left focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 ${status === filter ? "border-emerald-700 bg-emerald-50" : "border-slate-200 bg-white hover:bg-slate-50"}`}><strong className="text-xl tabular-nums">{catalog ? filter === "ALL" ? Object.values(catalog.statusCounts).reduce((sum, count) => sum + count, 0) : catalog.statusCounts[filter] || 0 : "—"}</strong><span className="mt-1 block text-sm font-bold text-slate-600">{label}</span></button>)}
     </section>
@@ -116,7 +126,7 @@ export const EventListPage: React.FC = () => {
           <Link to={`/admin/events/${item.id}/registrations?view=invitations`} className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 hover:bg-slate-100"><ClipboardList className="h-4 w-4" /> Undangan</Link>
           <Link to={`/admin/events/${item.id}/registrations?view=participants`} className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 hover:bg-slate-100"><UserRoundCheck className="h-4 w-4" /> Peserta</Link>
           <details className="group relative"><summary className="flex min-h-11 cursor-pointer list-none items-center rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-700 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700">Tindakan lain</summary><div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-            {identity?.assignments.some((assignment) => assignment.roleCode === "SUPER_ADMIN" || (assignment.roleCode === "EVENT_ADMIN" && assignment.eventId === item.id)) && ["DRAFT", "PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED"].includes(item.status) && <button type="button" disabled={Boolean(busyEvent)} onClick={() => void changeStatus(item)} className="min-h-11 whitespace-nowrap rounded-lg border border-emerald-400 bg-emerald-50 px-3 text-sm font-bold text-emerald-900 disabled:opacity-50">{busyEvent === item.id ? "Memproses…" : item.status === "DRAFT" ? "Terbitkan" : item.status === "REGISTRATION_OPEN" ? "Tutup pendaftaran" : item.status === "REGISTRATION_CLOSED" ? "Buka kembali" : "Buka pendaftaran"}</button>}
+            {canPublishEvent(item.id) && ["DRAFT", "PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED"].includes(item.status) && <button type="button" disabled={Boolean(busyEvent)} onClick={() => void changeStatus(item)} className="min-h-11 whitespace-nowrap rounded-lg border border-emerald-400 bg-emerald-50 px-3 text-sm font-bold text-emerald-900 disabled:opacity-50">{busyEvent === item.id ? "Memproses…" : item.status === "DRAFT" ? "Terbitkan" : item.status === "REGISTRATION_OPEN" ? "Tutup pendaftaran" : item.status === "REGISTRATION_CLOSED" ? "Buka kembali" : "Buka pendaftaran"}</button>}
             <EventWhatsAppDialog event={item} />
             {!["DRAFT", "CANCELLED", "ARCHIVED"].includes(item.status) && <Link to={`/events/${item.slug}`} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-lg border border-slate-300 px-3 text-sm font-bold text-emerald-800">Halaman publik <ExternalLink className="h-4 w-4" /></Link>}
             {item.status !== "ARCHIVED" && identity?.assignments.some((assignment) => assignment.roleCode === "SUPER_ADMIN") && <button type="button" disabled={Boolean(busyEvent)} onClick={() => void removeEvent(item)} className="inline-flex min-h-11 items-center gap-1 whitespace-nowrap rounded-lg border border-rose-200 px-3 text-sm font-bold text-rose-800 disabled:opacity-50"><Trash2 className="h-4 w-4" /> Arsipkan</button>}

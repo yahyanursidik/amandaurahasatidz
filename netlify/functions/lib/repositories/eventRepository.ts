@@ -6,10 +6,12 @@ import type { PublicProgramQuery } from "../validations/eventValidation";
 import { withTransaction } from "../db/transaction";
 import { assertRegistrationQuotaEdit } from "../services/registrationCapacity";
 
-export async function findEventCatalogRepository(query: { page: number; pageSize: number; search: string; status: string }) {
+export async function findEventCatalogRepository(query: { page: number; pageSize: number; search: string; status: string }, allowedEventIds: string[] | null = null) {
   const db = getDbClient();
+  if (allowedEventIds?.length === 0) return { items: [], total: 0, page: query.page, pageCount: 1, statusCounts: {} };
   const keyword = query.search.trim();
   const filter = and(
+    allowedEventIds ? inArray(events.id, allowedEventIds) : undefined,
     query.status === "ARCHIVED" ? undefined : isNull(events.archivedAt),
     query.status === "ALL" ? undefined : eq(events.status, query.status),
     keyword ? or(
@@ -31,7 +33,7 @@ export async function findEventCatalogRepository(query: { page: number; pageSize
       .limit(query.pageSize).offset((query.page - 1) * query.pageSize),
     db.select({ total: count() }).from(events).where(filter),
     db.select({ status: events.status, total: count() }).from(events)
-      .where(isNull(events.archivedAt)).groupBy(events.status),
+      .where(and(isNull(events.archivedAt), allowedEventIds ? inArray(events.id, allowedEventIds) : undefined)).groupBy(events.status),
   ]);
   return {
     items,
@@ -42,9 +44,10 @@ export async function findEventCatalogRepository(query: { page: number; pageSize
   };
 }
 
-export async function findEventsRepository(search?: string, status?: string) {
+export async function findEventsRepository(search?: string, status?: string, allowedEventIds: string[] | null = null) {
+  if (allowedEventIds?.length === 0) return [];
   const db = getDbClient();
-  const conditions = [isNull(events.archivedAt)];
+  const conditions = [isNull(events.archivedAt), ...(allowedEventIds ? [inArray(events.id, allowedEventIds)] : [])];
 
   if (search && search.trim() !== "") {
     const pattern = `%${search.trim()}%`;
@@ -65,14 +68,16 @@ export async function findEventsRepository(search?: string, status?: string) {
 }
 
 /** Small event selectors must not transfer every poster and event description. */
-export async function findEventOptionsRepository() {
-  return getDbClient().select({ id: events.id, code: events.code, name: events.name, status: events.status,
+export async function findEventOptionsRepository(allowedEventIds: string[] | null = null) {
+  if (allowedEventIds?.length === 0) return [];
+  return getDbClient().select({ id: events.id, code: events.code, slug: events.slug, name: events.name, status: events.status,
     startDate: events.startDate, endDate: events.endDate, timezone: events.timezone,
     venueName: events.venueName, venueAddress: events.venueAddress,
     invitationResponseDeadline: events.invitationResponseDeadline,
     attendanceConfirmationDeadline: events.attendanceConfirmationDeadline,
     attendanceConfirmationRequired: events.attendanceConfirmationRequired, lateConfirmationPolicy: events.lateConfirmationPolicy,
-  }).from(events).where(isNull(events.archivedAt)).orderBy(desc(events.startDate), desc(events.id));
+  }).from(events).where(and(isNull(events.archivedAt), allowedEventIds ? inArray(events.id, allowedEventIds) : undefined))
+    .orderBy(desc(events.startDate), desc(events.id));
 }
 
 export async function findPublicEventsRepository() {
@@ -227,9 +232,8 @@ export async function findEventBySlugRepository(slug: string) {
 }
 
 export async function createEventRepository(data: typeof events.$inferInsert) {
-  const db = getDbClient();
-  const created = await db.insert(events).values(data).returning();
-  return created[0];
+  const [created] = await getDbClient().insert(events).values(data).returning();
+  return created;
 }
 
 export async function updateEventRepository(id: string, data: Partial<typeof events.$inferInsert>) {

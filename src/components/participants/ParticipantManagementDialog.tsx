@@ -8,12 +8,12 @@ type Candidate = { id: string; fullName: string; email: string | null };
 
 export const ParticipantManagementDialog: React.FC<{
   eventId: string; participant: ParticipantCommandTarget; permissions: PermissionCode[];
-  disabled?: boolean; demoMode?: boolean; onBusyChange?: (busy: boolean) => void;
+  disabled?: boolean; demoMode?: boolean; onlyActions?: ParticipantCommand[]; onBusyChange?: (busy: boolean) => void;
   onCompleted: () => Promise<boolean | void> | boolean | void;
-}> = ({ eventId, participant, permissions, disabled = false, demoMode = false, onBusyChange, onCompleted }) => {
+}> = ({ eventId, participant, permissions, disabled = false, demoMode = false, onlyActions, onBusyChange, onCompleted }) => {
   const id = useId(), dialog = useRef<HTMLDialogElement>(null), trigger = useRef<HTMLButtonElement>(null);
   const reasonInput = useRef<HTMLTextAreaElement>(null), busyRef = useRef(false), mounted = useRef(true);
-  const actions = availableParticipantCommands(participant, permissions);
+  const actions = availableParticipantCommands(participant, permissions).filter((item) => !onlyActions || onlyActions.includes(item));
   const [open, setOpen] = useState(false), [busy, setBusy] = useState(false);
   const [action, setAction] = useState<ParticipantCommand>("waitlist");
   const [reason, setReason] = useState(""), [error, setError] = useState(""), [message, setMessage] = useState("");
@@ -64,7 +64,7 @@ export const ParticipantManagementDialog: React.FC<{
   };
   const control = "mt-1 min-h-11 w-full rounded-lg border border-slate-300 bg-white px-3 text-sm focus:outline-emerald-700";
   return <div>
-    <button ref={trigger} type="button" disabled={disabled || busy} onClick={openDialog} aria-haspopup="dialog" aria-controls={`${id}-dialog`} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-bold text-slate-700 disabled:opacity-50"><Settings2 className="h-4 w-4" /> Kelola status</button>
+    <button ref={trigger} type="button" disabled={disabled || busy} onClick={openDialog} aria-haspopup="dialog" aria-controls={`${id}-dialog`} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-bold text-slate-700 disabled:opacity-50"><Settings2 className="h-4 w-4" /> {onlyActions?.length === 1 && onlyActions[0] === "replace" ? "Ganti asatidz" : "Kelola status"}</button>
     {message && <p role="status" className="mt-2 max-w-xs text-xs text-emerald-800">{message}</p>}
     <dialog id={`${id}-dialog`} ref={dialog} aria-labelledby={`${id}-title`} aria-busy={busy}
       onCancel={(event) => { if (busyRef.current) event.preventDefault(); }}

@@ -3,12 +3,13 @@ import { Navigate, useLocation } from "react-router-dom";
 import { useGetIdentity, useIsAuthenticated } from "@refinedev/core";
 import { AuthIdentity } from "@/lib/refine/authProvider";
 import { LoadingState } from "./LoadingState";
+import { isCommitteeOrganizerOnly } from "@/lib/committeeOrganizerAccess";
 
 export type PortalAccess = "admin" | "committee" | "ustadz";
 
 export const PORTAL_ROLE_ACCESS: Record<PortalAccess, string[]> = {
-  admin: ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD", "REPORT_VIEWER", "EVENT_ADMIN"],
-  committee: ["COMMITTEE_LEAD", "REGISTRATION_OFFICER", "CHECKIN_OFFICER", "INFORMATION_OFFICER", "EVENT_VIEWER"],
+  admin: ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD", "REPORT_VIEWER", "EVENT_ADMIN", "COMMITTEE_ORGANIZER"],
+  committee: ["COMMITTEE_ORGANIZER", "COMMITTEE_ADMIN", "COMMITTEE_LEAD", "REGISTRATION_OFFICER", "CHECKIN_OFFICER", "INFORMATION_OFFICER", "EVENT_VIEWER"],
   ustadz: ["USTADZ"],
 };
 
@@ -16,10 +17,12 @@ export const portalForPath = (pathname: string): PortalAccess =>
   pathname.startsWith("/committee") ? "committee" : pathname.startsWith("/portal") ? "ustadz" : "admin";
 
 export const canAccessPortal = (assignments: AuthIdentity["assignments"], portal: PortalAccess) =>
-  assignments.some((assignment) => PORTAL_ROLE_ACCESS[portal].includes(assignment.roleCode));
+  assignments.some((assignment) => PORTAL_ROLE_ACCESS[portal].includes(assignment.roleCode)
+    && (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= Date.now())
+    && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > Date.now()));
 
 export const homeForAssignments = (assignments: AuthIdentity["assignments"]) => {
-  if (canAccessPortal(assignments, "admin")) return "/admin";
+  if (canAccessPortal(assignments, "admin")) return isCommitteeOrganizerOnly(assignments) ? "/admin/events" : "/admin";
   if (canAccessPortal(assignments, "committee")) return "/committee";
   if (canAccessPortal(assignments, "ustadz")) return "/portal";
   return "/login";
@@ -47,6 +50,10 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   const assignments = identity?.assignments || [];
   if (!canAccessPortal(assignments, portal)) {
     return <Navigate to={homeForAssignments(assignments)} replace />;
+  }
+
+  if (location.pathname === "/admin" && isCommitteeOrganizerOnly(assignments)) {
+    return <Navigate to="/admin/events" replace />;
   }
 
   return <>{children}</>;

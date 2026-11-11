@@ -125,9 +125,9 @@ export const updateEventSessionSchema = createEventSessionSchema.omit({ eventDay
 
 export const assignCommitteeSchema = z.object({
   userId: z.string().uuid("ID Pengguna tidak valid"),
-  committeeRole: z.enum(["EVENT_ADMIN", "COMMITTEE_LEAD", "REGISTRATION_OFFICER", "CHECKIN_OFFICER", "INFORMATION_OFFICER"]),
-  startsAt: z.string().optional().nullable(),
-  endsAt: z.string().optional().nullable(),
+  committeeRole: z.enum(["EVENT_ADMIN", "COMMITTEE_ADMIN", "COMMITTEE_LEAD", "REGISTRATION_OFFICER", "CHECKIN_OFFICER", "INFORMATION_OFFICER"]),
+  startsAt: z.string().datetime({ offset: true }).optional().nullable(),
+  endsAt: z.string().datetime({ offset: true }).optional().nullable(),
   permissions: z.array(z.string()).optional().nullable(),
 });
 

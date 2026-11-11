@@ -2,6 +2,7 @@
  * Hallmark · macrostructure: Index-First · tone: utilitarian · anchor hue: emerald
  */
 import React, { useEffect, useMemo, useState } from "react";
+import { useGetIdentity } from "@refinedev/core";
 import { Link, useLocation, useParams } from "react-router-dom";
 import {
   CalendarDays,
@@ -23,9 +24,10 @@ import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge, StatusVariant } from "@/components/common/StatusBadge";
 import { EventWorkspaceNav } from "@/components/admin/events/EventWorkspaceNav";
 import { eventApi } from "@/lib/eventApi";
-import { CommitteeMember as DirectoryMember, COMMITTEE_ROLES, roleLabel } from "@/lib/committeeApi";
+import { COMMITTEE_ROLES, roleLabel } from "@/lib/committeeApi";
 import { DEFAULT_EVENT_POSTER, posterObjectPosition } from "@/lib/eventPoster";
 import { eventTimezoneLabel, formatEventDate, formatEventDateTime, formatEventTime, fromEventIso, toEventIso } from "@/lib/eventDateTime";
+import type { AuthIdentity } from "@/lib/refine/authProvider";
 
 type EventDay = {
   id: string;
@@ -61,6 +63,8 @@ type CommitteeMember = {
   startsAt?: string | null;
   endsAt?: string | null;
 };
+
+type CommitteeCandidate = { id: string; name: string | null; email: string };
 
 type EventDetail = {
   id: string;
@@ -183,7 +187,13 @@ export const EventShowPage: React.FC = () => {
   const [showSessionForm, setShowSessionForm] = useState(false);
   const [editingSession, setEditingSession] = useState<EventSession | null>(null);
   const [showTeamForm, setShowTeamForm] = useState(false);
-  const [committeeDirectory, setCommitteeDirectory] = useState<DirectoryMember[]>([]);
+  const [committeeDirectory, setCommitteeDirectory] = useState<CommitteeCandidate[]>([]);
+  const { data: identity } = useGetIdentity<AuthIdentity>();
+  const now = Date.now();
+  const canCreateCommitteeAccount = identity?.assignments.some((assignment) =>
+    ["SUPER_ADMIN", "SYSTEM_ADMIN"].includes(assignment.roleCode)
+    && (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= now)
+    && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > now)) ?? false;
 
   const loadEvent = async () => {
     setLoading(true);
@@ -211,10 +221,10 @@ export const EventShowPage: React.FC = () => {
 
   useEffect(() => {
     if (section !== "team" || previewMode) return;
-    void eventApi<{ items: DirectoryMember[] }>("/committee-members")
-      .then((result) => setCommitteeDirectory(result.items))
+    void eventApi<CommitteeCandidate[]>(`/events/${id}/committee-candidates`)
+      .then(setCommitteeDirectory)
       .catch(() => setCommitteeDirectory([]));
-  }, [section, previewMode]);
+  }, [section, previewMode, id]);
 
   const daysWithSessions = useMemo(
     () => (data?.days || []).map((day) => ({ ...day, sessions: (data?.sessions || []).filter((session) => session.eventDayId === day.id) })),
@@ -312,8 +322,8 @@ export const EventShowPage: React.FC = () => {
         body: JSON.stringify({
           userId: form.get("userId"),
           committeeRole: form.get("committeeRole"),
-          startsAt: form.get("startsAt") || null,
-          endsAt: form.get("endsAt") || null,
+          startsAt: toEventIso(String(form.get("startsAt") || ""), data?.timezone || "Asia/Jakarta"),
+          endsAt: toEventIso(String(form.get("endsAt") || ""), data?.timezone || "Asia/Jakarta"),
         }),
       });
       setShowTeamForm(false);
@@ -530,13 +540,13 @@ export const EventShowPage: React.FC = () => {
       {section === "team" && (
         <div className="space-y-5">
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <div><h2 className="text-base font-black text-slate-900">Panitia event</h2><p className="mt-1 text-xs text-slate-500">Hak akses panitia mengikuti peran dan lingkup event ini.</p></div>
-            <button type="button" onClick={() => setShowTeamForm((value) => !value)} disabled={previewMode} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white disabled:opacity-50"><Plus className="h-4 w-4" /> Tugaskan panitia</button>
+            <div><h2 className="text-base font-black text-slate-900">Panitia event</h2><p className="mt-1 text-sm text-slate-600">Petugas biasa dibatasi event ini. Admin Panitia Semua Event dapat mengelola seluruh event tanpa penugasan di tabel ini.</p></div>
+            <div className="flex flex-wrap gap-2">{!previewMode && canCreateCommitteeAccount && <Link to="/admin/committee/create?role=COMMITTEE_ORGANIZER" className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-emerald-700 bg-white px-4 text-sm font-bold text-emerald-800"><Plus className="h-4 w-4" /> Buat admin semua event</Link>}<button type="button" onClick={() => setShowTeamForm((value) => !value)} disabled={previewMode} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white disabled:opacity-50"><Plus className="h-4 w-4" /> Tugaskan akun yang ada</button></div>
           </div>
           {showTeamForm && (
             <form onSubmit={submitTeam} className="grid gap-3 border-t-2 border-emerald-700 bg-white p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_10rem_10rem_auto]">
               <select name="userId" required className="min-h-[44px] border border-slate-300 px-3 text-sm"><option value="">Pilih akun panitia</option>{committeeDirectory.map((member) => <option key={member.id} value={member.id}>{member.name || member.email} · {member.email}</option>)}</select>
-              <select name="committeeRole" className="min-h-[44px] border border-slate-300 px-3 text-sm">
+              <select name="committeeRole" defaultValue="COMMITTEE_ADMIN" className="min-h-[44px] border border-slate-300 px-3 text-sm">
                 {COMMITTEE_ROLES.map((role) => <option key={role.value} value={role.value}>{role.label}</option>)}
               </select>
               <input name="startsAt" type="datetime-local" aria-label="Mulai tugas" className="min-h-[44px] border border-slate-300 px-2 text-xs" />

@@ -35,11 +35,17 @@ export async function getAdminDashboardMetricsService() {
   };
 }
 
-export async function getCommitteeDashboardMetricsService(eventId?: string) {
-  const scope = eventId ? sql`event_id = ${eventId}::uuid` : sql`true`;
+export async function getCommitteeDashboardMetricsService(eventId: string) {
+  const scope = sql`event_id = ${eventId}::uuid`;
   const result = await getDbClient().execute(sql`
     select
       (select count(*)::int from event_participants where ${scope}) as "totalParticipantsCount",
+      (select count(*)::int from event_participants where ${scope} and approval_status = 'PENDING_REVIEW'
+        and confirmation_status in ('INVITED','CONFIRMED')) as "pendingReviewCount",
+      (select count(*)::int from event_participants where ${scope} and approval_status = 'WAITLISTED'
+        and confirmation_status in ('INVITED','CONFIRMED')) as "waitlistedCount",
+      (select count(*)::int from event_participants where ${scope} and approval_status = 'APPROVED'
+        and confirmation_status = 'INVITED') as "awaitingConfirmationCount",
       coalesce((select jsonb_agg(recent) from (
         select id, result, created_at as "createdAt" from checkin_logs where ${scope}
         order by created_at desc, id desc limit 10
@@ -51,7 +57,8 @@ export async function getCommitteeDashboardMetricsService(eventId?: string) {
           and a.attendance_status in ('PRESENT','LATE'))) as "noShowParticipantsCount"
   `);
   return result.rows[0] as unknown as {
-    totalParticipantsCount: number; recentCheckins: Array<{ id: string; result: string; createdAt: string }>;
+    totalParticipantsCount: number; pendingReviewCount: number; waitlistedCount: number; awaitingConfirmationCount: number;
+    recentCheckins: Array<{ id: string; result: string; createdAt: string }>;
     checkinIssuesCount: number; duplicateScansCount: number; noShowParticipantsCount: number;
   };
 }

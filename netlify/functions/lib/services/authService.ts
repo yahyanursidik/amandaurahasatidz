@@ -78,8 +78,10 @@ export function createSessionToken(
 }
 
 const PORTAL_ROLES: Record<string, RoleCode[]> = {
-  admin: ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD", "REPORT_VIEWER", "EVENT_ADMIN"],
+  admin: ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD", "REPORT_VIEWER", "EVENT_ADMIN", "COMMITTEE_ORGANIZER"],
   committee: [
+    "COMMITTEE_ORGANIZER",
+    "COMMITTEE_ADMIN",
     "COMMITTEE_LEAD",
     "REGISTRATION_OFFICER",
     "CHECKIN_OFFICER",
@@ -131,7 +133,10 @@ export async function authenticatePasswordService(
   }
 
   const allowedRoles = PORTAL_ROLES[portal] || [];
-  if (!context.assignments.some((assignment) => allowedRoles.includes(assignment.roleCode))) {
+  const now = Date.now();
+  if (!context.assignments.some((assignment) => allowedRoles.includes(assignment.roleCode)
+    && (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= now)
+    && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > now))) {
     throw new ForbiddenError(`Akun ini tidak memiliki akses ke portal ${portal}.`);
   }
 
