@@ -16,6 +16,7 @@ const AdminDashboardPage = lazy(() => import("./pages/admin/AdminDashboardPage")
 const AdminGuidePage = lazy(() => import("./pages/admin/AdminGuidePage").then((module) => ({ default: module.AdminGuidePage })));
 const AdminAuditPage = lazy(() => import("./pages/admin/AdminAuditPage").then((module) => ({ default: module.AdminAuditPage })));
 const AdminEmailJobsPage = lazy(() => import("./pages/admin/AdminEmailJobsPage").then((module) => ({ default: module.AdminEmailJobsPage })));
+const AdminTransactionalEmailPage = lazy(() => import("./pages/admin/AdminTransactionalEmailPage").then((module) => ({ default: module.AdminTransactionalEmailPage })));
 
 const InstitutionDirectoryPage = lazy(() => import("./pages/admin/institutions/InstitutionDirectoryPage").then((module) => ({ default: module.InstitutionDirectoryPage })));
 const InstitutionCreateRealPage = lazy(() => import("./pages/admin/institutions/InstitutionCreateRealPage").then((module) => ({ default: module.InstitutionCreateRealPage })));
@@ -322,6 +323,7 @@ export const App: React.FC = () => {
           />
           <Route path="/admin/email-jobs" element={<ProtectedRoute><AdminEmailJobsPage /></ProtectedRoute>} />
           <Route path="/admin/broadcast" element={<ProtectedRoute><AdminEmailJobsPage mode="broadcast" /></ProtectedRoute>} />
+          <Route path="/admin/email-templates" element={<ProtectedRoute><AdminTransactionalEmailPage /></ProtectedRoute>} />
 
           <Route path="/admin/committee" element={<ProtectedRoute><CommitteeDirectoryPage /></ProtectedRoute>} />
           <Route path="/admin/committee/create" element={<ProtectedRoute><CommitteeCreatePage /></ProtectedRoute>} />

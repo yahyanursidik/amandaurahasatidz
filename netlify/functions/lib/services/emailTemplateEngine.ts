@@ -1,5 +1,7 @@
 import { ValidationError } from "../utils/errors";
 import { renderBrandedTextEmailHtml, renderHtmlByTemplateCode } from "./emailHtmlTemplates";
+import { DEFAULT_TRANSACTIONAL_EMAIL_COPY, stripLegacyEmailGreeting, transactionalEmailOpening,
+  type TransactionalEmailCopy } from "./transactionalEmailCopy";
 
 export interface TemplateDefinition {
   code: string;
@@ -135,7 +137,8 @@ export const TEMPLATE_WHITELISTS: Record<string, TemplateDefinition> = {
  */
 export function renderEmailTemplate(
   templateCode: string,
-  variables: Record<string, any>
+  variables: Record<string, any>,
+  copy: TransactionalEmailCopy = DEFAULT_TRANSACTIONAL_EMAIL_COPY,
 ): { subject: string; body: string } {
   const tpl = TEMPLATE_WHITELISTS[templateCode];
   if (!tpl) {
@@ -153,7 +156,7 @@ export function renderEmailTemplate(
   }
 
   let subject = tpl.subjectTemplate;
-  let body = tpl.bodyTemplate;
+  let body = templateCode === "OTP_CODE" ? tpl.bodyTemplate : stripLegacyEmailGreeting(tpl.bodyTemplate);
 
   for (const varName of tpl.allowedVariables) {
     const val = variables[varName] !== undefined ? String(variables[varName]) : "";
@@ -162,7 +165,8 @@ export function renderEmailTemplate(
     body = body.replace(placeholder, val);
   }
 
-  return { subject, body };
+  const opening = transactionalEmailOpening(templateCode, variables, copy);
+  return { subject, body: opening ? `${opening}\n\n${body}` : body };
 }
 
 /**
@@ -171,26 +175,31 @@ export function renderEmailTemplate(
  */
 export function renderHtmlEmailTemplate(
   templateCode: string,
-  variables: Record<string, any>
+  variables: Record<string, any>,
+  copy: TransactionalEmailCopy = DEFAULT_TRANSACTIONAL_EMAIL_COPY,
 ): { subject: string; htmlBody: string; textBody: string } {
   // Validasi template dan hasilkan subject + plain text
-  const { subject, body: textBody } = renderEmailTemplate(templateCode, variables);
+  const { subject, body: textBody } = renderEmailTemplate(templateCode, variables, copy);
 
   const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character] || character);
   const safeVariables = Object.fromEntries(Object.entries(variables).map(([key, value]) => [key, escapeHtml(String(value ?? ""))]));
   const confirmationLink = String(variables.confirmationLink || "");
   const cardLink = String(variables.cardLink || "");
+  const invitationLink = String(variables.invitationLink || "");
+  const portalLink = String(variables.portalLink || "");
   const primaryLink = templateCode === "REGISTRATION_CONFIRMATION_REQUEST" ? confirmationLink
     : templateCode === "PARTICIPANT_ATTENDANCE_CONFIRMED" ? cardLink || confirmationLink
-      : ["REGISTRATION_RECEIVED", "REGISTRATION_AUTO_APPROVED", "REGISTRATION_APPROVED"].includes(templateCode) ? cardLink : undefined;
+      : ["REGISTRATION_RECEIVED", "REGISTRATION_AUTO_APPROVED", "REGISTRATION_APPROVED"].includes(templateCode) ? cardLink
+        : invitationLink || portalLink || String(variables.qrCodeUrl || "") || undefined;
   const primaryLabel = templateCode === "REGISTRATION_RECEIVED" ? "Buka bukti pendaftaran"
     : templateCode === "REGISTRATION_CONFIRMATION_REQUEST" ? "Konfirmasi kehadiran"
-      : templateCode === "PARTICIPANT_ATTENDANCE_CONFIRMED" && !cardLink ? "Lihat status pribadi" : "Buka kartu QR pribadi";
-  const htmlBody = ["ANNOUNCEMENT", "REGISTRATION_RECEIVED", "EVENT_CONTINUATION_REMINDER", "REGISTRATION_AUTO_APPROVED", "REGISTRATION_APPROVED",
-    "REGISTRATION_CONFIRMATION_REQUEST", "PARTICIPANT_ATTENDANCE_CONFIRMED", "PARTICIPANT_ATTENDANCE_DECLINED", "PARTICIPANT_WITHDRAWN"].includes(templateCode)
+      : invitationLink ? "Buka undangan pribadi"
+        : templateCode === "PARTICIPANT_ATTENDANCE_CONFIRMED" && !cardLink ? "Lihat status pribadi"
+          : portalLink && !cardLink ? "Buka Portal Asatidz" : "Buka kartu QR pribadi";
+  const htmlBody = templateCode !== "OTP_CODE"
     ? renderBrandedTextEmailHtml(textBody, "Daurah Duat dan Pegiat Dakwah", primaryLink, primaryLabel,
       templateCode === "PARTICIPANT_ATTENDANCE_CONFIRMED" && cardLink ? confirmationLink : undefined,
-      "Status & pengunduran diri")
+      "Status & pengunduran diri", copy.openingArabic)
     : renderHtmlByTemplateCode(templateCode, safeVariables);
 
   return { subject, htmlBody, textBody };
