@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { HandlerContext, HandlerEvent } from "@netlify/functions";
-const mocks = vi.hoisted(() => ({ session: vi.fn(), page: vi.fn(), legacy: vi.fn(), settings: vi.fn(), options: vi.fn(), programs: vi.fn(), policy: vi.fn() }));
+const mocks = vi.hoisted(() => ({ session: vi.fn(), page: vi.fn(), legacy: vi.fn(), settings: vi.fn(), options: vi.fn(), programs: vi.fn(), policy: vi.fn(), audit: vi.fn() }));
 vi.mock("../../netlify/functions/lib/services/authService", async (original) => ({ ...await original<typeof import("../../netlify/functions/lib/services/authService")>(), getUserSession: mocks.session }));
 vi.mock("../../netlify/functions/lib/services/participantService", async (original) => ({ ...await original<typeof import("../../netlify/functions/lib/services/participantService")>(), getParticipantPageService: mocks.page, getParticipantsService: mocks.legacy }));
 vi.mock("../../netlify/functions/lib/services/eventService", async (original) => ({ ...await original<typeof import("../../netlify/functions/lib/services/eventService")>(), getRegistrationEventService: mocks.settings, getEventOptionsService: mocks.options, getPublicEventsService: mocks.programs }));
 vi.mock("../../netlify/functions/lib/services/invitationService", async (original) => ({ ...await original<typeof import("../../netlify/functions/lib/services/invitationService")>(), getPublicInvitationPolicyService: mocks.policy }));
+vi.mock("../../netlify/functions/lib/services/auditService", async (original) => ({ ...await original<typeof import("../../netlify/functions/lib/services/auditService")>(), createAuditLog: mocks.audit }));
 import { handler } from "../../netlify/functions/api";
 const id = "11111111-1111-4111-8111-111111111111";
 beforeEach(() => {
@@ -33,6 +34,21 @@ describe("performance read API preserves authorization", () => {
     expect((await get(`/events/${id}/registration-settings`)).statusCode).toBe(200);
     expect((await get(`/events/${id}/invitations`)).statusCode).toBe(403);
     expect((await get(`/events/${id}/invitations/institutions`)).statusCode).toBe(403);
+  });
+  it("requires export permission and event scope for paginated Excel data", async () => {
+    expect((await get(`/events/${id}/participants/export`, { page: "1", pageSize: "100" })).statusCode).toBe(403);
+    expect(mocks.page).not.toHaveBeenCalled();
+    mocks.session.mockResolvedValue({ userId: id, email: "admin@example.invalid", assignments: [{ roleCode: "EVENT_ADMIN", eventId: id }] });
+    const response = await get(`/events/${id}/participants/export`, { page: "1", pageSize: "100", status: "APPROVED", source: "INSTITUTION", projection: "full" });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers).toMatchObject({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+    expect(mocks.page).toHaveBeenCalledExactlyOnceWith(id, expect.objectContaining({ page: 1, pageSize: 100, status: "APPROVED", source: "INSTITUTION" }));
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: "PARTICIPANTS_EXPORT_REQUESTED", eventId: id }));
+    expect((await get(`/events/${id}/participants/export`, { page: "2", pageSize: "100" })).statusCode).toBe(200);
+    expect(mocks.audit).toHaveBeenCalledTimes(1);
+    expect((await get(`/events/${id}/participants/export`, { projection: "selection" })).statusCode).toBe(422);
+    mocks.session.mockResolvedValue({ userId: id, email: "admin@example.invalid", assignments: [{ roleCode: "EVENT_ADMIN", eventId: "22222222-2222-4222-8222-222222222222" }] });
+    expect((await get(`/events/${id}/participants/export`)).statusCode).toBe(403);
   });
   it("keeps older list callers compatible and rejects invalid page inputs", async () => {
     expect((await get(`/events/${id}/participants`)).statusCode).toBe(200); expect(mocks.legacy).toHaveBeenCalledWith(id);

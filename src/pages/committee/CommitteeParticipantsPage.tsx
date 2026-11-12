@@ -34,6 +34,7 @@ import { StatusBadge, type StatusVariant } from "@/components/common/StatusBadge
 import { ParticipantCommunicationPanel } from "@/components/communications/ParticipantCommunicationPanel";
 import { ParticipantProfileDialog } from "@/components/participants/ParticipantProfileDialog";
 import { ParticipantManagementDialog } from "@/components/participants/ParticipantManagementDialog";
+import { ParticipantExcelExport } from "@/components/participants/ParticipantExcelExport";
 import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
 import { eventApi, eventApiEnvelope } from "@/lib/eventApi";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
@@ -48,6 +49,7 @@ type EventSummary = {
   id: string;
   name: string;
   code: string;
+  timezone?: string;
   status: string;
   startDate: string;
   endDate: string;
@@ -446,6 +448,14 @@ export const CommitteeParticipantsPage: React.FC = () => {
   const portalReady = previewMode ? participants.filter((participant) => participant.portalPasswordConfigured).length : pageMeta.summary.portalReady || 0;
   const totalParticipants = previewMode ? participants.length : pageMeta.summary.total;
   const filteredTotal = previewMode ? filteredParticipants.length : pageMeta.total;
+  const excelFilterSummary = [
+    statusFilter === "ALL" ? "Semua tahap" : statusFilter === "NEEDS_ACTION" ? "Perlu tindakan" : statusFilter === "AWAITING_CONFIRMATION" ? "Menunggu konfirmasi hadir" : approvalLabels[statusFilter] || statusFilter,
+    sourceFilter === "ALL" ? "Semua jalur" : sourceFilter === "REGULAR" ? "Reguler" : sourceFilter === "INSTITUTION" ? "Undangan lembaga" : "Undangan pribadi",
+    ...(contactFilter !== "ALL" ? [`Kesiapan: ${contactFilter.replaceAll("_", " ")}`] : []),
+    ...(institutionFilter !== "ALL" ? [`Lembaga: ${institutionFilter === "INDIVIDUAL" ? "Individu" : institutionFilter}`] : []),
+    ...(debouncedSearch ? [`Pencarian: ${debouncedSearch}`] : []),
+    `Urutan: ${sort === "NAME" ? "Nama A–Z" : sort === "OLDEST" ? "Terlama" : sort === "NEWEST" ? "Terbaru" : "Prioritas tindakan"}`,
+  ].join(" · ");
 
   const resetFilters = () => {
     setSearch("");
@@ -640,7 +650,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
         <section className="min-w-0" aria-label="Daftar peserta">
           <div className="flex flex-col gap-3 border-b border-slate-200 pb-4 sm:flex-row sm:items-end sm:justify-between">
             <div><p className="text-xs font-black uppercase tracking-[0.16em] text-teal-800">Antrean peserta</p><h2 className="mt-1 text-2xl font-black tracking-tight text-slate-950">Tinjau lalu tindak lanjuti</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-slate-600">Peserta yang menunggu keputusan ditempatkan lebih dahulu. Pilih beberapa baris untuk persetujuan massal.</p></div>
-            {canExport && <button type="button" onClick={() => void exportCsv()} disabled={loading || Boolean(busy) || requiresRefresh || filteredTotal === 0} className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-4 w-4" />{busy === "export" ? "Menyiapkan ekspor…" : "Ekspor CSV"}</button>}
+            {canExport && <div className="flex flex-wrap items-start gap-2"><button type="button" onClick={() => void exportCsv()} disabled={loading || Boolean(busy) || requiresRefresh || filteredTotal === 0} className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:cursor-not-allowed disabled:opacity-50"><Download className="h-4 w-4" />{busy === "export" ? "Menyiapkan ekspor…" : "Ekspor CSV"}</button><ParticipantExcelExport event={{ id: selectedEventId, code: selectedEvent?.code, name: selectedEvent?.name || "Event daurah", timezone: selectedEvent?.timezone }} queryString={participantQuery} filterSummary={excelFilterSummary} total={filteredTotal} canExport={canExport} disabled={loading || search.trim() !== debouncedSearch || Boolean(busy) || requiresRefresh} previewMode={previewMode} previewRecords={filteredParticipants} /></div>}
           </div>
 
           {canApprove && (pendingTotal > 0 || selectedIds.length > 0) && <div className="mt-4 flex flex-col gap-3 border-l-4 border-teal-700 bg-teal-50 p-4 sm:flex-row sm:items-center sm:justify-between"><label className="flex min-h-[44px] cursor-pointer items-center gap-3 text-sm font-bold text-teal-950"><input type="checkbox" disabled={Boolean(busy) || loading || requiresRefresh || pendingTotal === 0} checked={allPendingSelected} onChange={(event) => void selectFilteredPending(event.target.checked)} className="h-5 w-5 accent-teal-800" />Pilih semua yang menunggu sesuai filter ({pendingTotal})</label>{selectedIds.length > 0 && <button type="button" onClick={() => void bulkApprove()} disabled={Boolean(busy) || loading || requiresRefresh} className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-teal-800 px-4 text-sm font-bold text-white hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700 disabled:opacity-50"><ListChecks className="h-4 w-4" />{busy === "bulk" ? "Memproses…" : `Setujui ${selectedIds.length} peserta`}</button>}</div>}

@@ -44,6 +44,7 @@ import { IndividualInvitationForm, type IndividualInvitationRecipient, type Indi
 import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
 import { ParticipantShareDialog } from "@/components/participants/ParticipantShareDialog";
 import { ParticipantManagementDialog } from "@/components/participants/ParticipantManagementDialog";
+import { ParticipantExcelExport } from "@/components/participants/ParticipantExcelExport";
 import { participantStaffPermissions } from "@/lib/participantManagement";
 import { ManualParticipantDialog } from "@/components/participants/ManualParticipantDialog";
 import { BulkParticipantApprovalPanel } from "@/components/participants/BulkParticipantApprovalPanel";
@@ -150,6 +151,7 @@ type ParticipantImportPreview = {
   }>;
 };
 type EventDeadline = {
+  code?: string;
   name?: string;
   timezone?: string;
   slug?: string;
@@ -343,6 +345,7 @@ export const EventRegistrationsPage: React.FC = () => {
   const staffPermissions = participantStaffPermissions(identity?.assignments, id);
   const permissionsKey = staffPermissions.slice().sort().join(",");
   const canReadParticipants = staffPermissions.includes("participants.read");
+  const canExportParticipants = staffPermissions.includes("participants.export");
   const canReadInvitations = staffPermissions.includes("invitations.read");
   const canCreateInvitations = staffPermissions.includes("invitations.create");
   const canSendInvitations = staffPermissions.includes("invitations.send");
@@ -598,6 +601,13 @@ export const EventRegistrationsPage: React.FC = () => {
   const visibleParticipantPage = Math.min(participantPage, participantPageCount);
   const pagedParticipants = demoMode ? filteredParticipants.slice((visibleParticipantPage - 1) * 25, visibleParticipantPage * 25) : participants;
   const participantTotal = demoMode ? filteredParticipants.length : participantMeta.total;
+  const participantExportScope = [
+    participantStatus === "ALL" ? "Semua status" : participantStatus === "AWAITING_CONFIRMATION" ? "Belum konfirmasi hadir" : participantApprovalLabel(participantStatus),
+    participantSource === "ALL" ? "Semua jalur" : participantSource === "REGULAR" ? "Reguler" : participantSource === "INSTITUTION" ? "Undangan lembaga" : "Undangan pribadi",
+    ...(debouncedSearch ? [`Pencarian: ${debouncedSearch}`] : []),
+    ...(requestedInstitutionId ? ["Lembaga terpilih"] : []),
+    ...(requestedInvitationId ? ["Undangan terpilih"] : []),
+  ].join(" · ");
   const participantSummary = demoMode ? { total: participants.length, approved: participants.filter((item) => item.approvalStatus === "APPROVED").length,
     pending: participants.filter((item) => item.approvalStatus === "PENDING_REVIEW").length, institution: participants.filter((item) => participantSourceCategory(item.registrationSource) === "INSTITUTION").length,
     pendingEligible: eligibleApprovalIds(participants, true).length } : participantMeta.summary;
@@ -1299,6 +1309,13 @@ export const EventRegistrationsPage: React.FC = () => {
           <label className="block"><span className="sr-only">Filter jalur pendaftaran</span><select aria-label="Filter jalur pendaftaran" value={participantSource} onChange={(event) => { const next = new URLSearchParams(searchParams); if (event.target.value === "ALL") next.delete("source"); else next.set("source", event.target.value); setSearchParams(next, { replace: true }); }} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold"><option value="ALL">Semua jalur</option><option value="REGULAR">Pendaftaran reguler</option><option value="INSTITUTION">Undangan lembaga</option><option value="INDIVIDUAL">Undangan pribadi</option></select></label>
           <label className="block"><span className="sr-only">Filter status peserta</span><select aria-label="Filter status peserta" value={statusFilter} onChange={(event) => setStatusFilter(event.target.value)} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold"><option value="ALL">Semua status</option><option value="PENDING_REVIEW">Menunggu tinjauan</option><option value="AWAITING_CONFIRMATION">Belum konfirmasi hadir</option><option value="APPROVED">Disetujui</option><option value="WAITLISTED">Daftar tunggu</option><option value="DECLINED">Ditolak</option><option value="CANCELLED">Berhalangan / mundur</option></select></label>
         </div>
+        {canExportParticipants && <div className="mt-3 flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+          <p className="text-sm text-slate-700"><strong>{participantTotal.toLocaleString("id-ID")}</strong> peserta sesuai filter. File Excel mencakup seluruh halaman.</p>
+          <ParticipantExcelExport event={{ id, code: eventDeadline?.code, name: eventDeadline?.name || "Event daurah", timezone: eventDeadline?.timezone }}
+            queryString={participantQuery} filterSummary={participantExportScope} total={participantTotal}
+            canExport={canExportParticipants} disabled={loading || search.trim() !== debouncedSearch || Boolean(participantBusy) || Boolean(participantImportBusy) || approvalRequiresRefresh}
+            previewMode={demoMode} previewRecords={filteredParticipants} />
+        </div>}
         {showBulkApproval && <BulkParticipantApprovalPanel key={id} eventId={id} eventName={eventDeadline?.name}
           participants={selectionCandidates} filteredParticipants={filteredParticipants} pageParticipants={pagedParticipants}
           loadScope={demoMode ? undefined : loadApprovalScope} scopeKey={participantFilterKey}
