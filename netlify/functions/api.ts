@@ -922,6 +922,23 @@ export const handler: Handler = async (event, _context) => {
     }
 
     // 6. Participants Management Endpoints
+    const participantExportPageMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/export$/i);
+    if (participantExportPageMatch && method === "GET") {
+      const session = requireAuth(userSession);
+      const eventId = participantExportPageMatch[1];
+      const staffSession = { ...session, assignments: session.assignments.filter((assignment) =>
+        !["USTADZ", "INSTITUTION_REPRESENTATIVE"].includes(assignment.roleCode)) };
+      requirePermission(staffSession, "participants.read", eventId);
+      requirePermission(staffSession, "participants.export", eventId);
+      const query = validateRequestData(participantPageQuerySchema, event.queryStringParameters || {});
+      if (query.projection !== "full") throw new ValidationError("Ekspor memerlukan data peserta lengkap.");
+      const result = await getParticipantPageService(eventId, query);
+      if (query.page === 1) await createAuditLog({ actorUserId: session.userId, action: "PARTICIPANTS_EXPORT_REQUESTED",
+        resourceType: "EVENT", resourceId: eventId, eventId,
+        reason: `Ekspor peserta dimulai (${result.meta.total} peserta sesuai filter).`, requestId });
+      const response = buildSuccessResponse(result.data, requestId, result.meta);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
+    }
     const partListMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants$/i);
     if (partListMatch && method === "GET") {
       const eventId = partListMatch[1];

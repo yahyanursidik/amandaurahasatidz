@@ -117,7 +117,7 @@ export async function findPublicProgramPageRepository(query: PublicProgramQuery)
 
 /** Registration controls do not need posters, schedules, or committee accounts. */
 export async function findRegistrationEventRepository(id: string) {
-  const [event] = await getDbClient().select({ id: events.id, name: events.name, slug: events.slug,
+  const [event] = await getDbClient().select({ id: events.id, code: events.code, name: events.name, slug: events.slug,
     timezone: events.timezone, startDate: events.startDate, endDate: events.endDate,
     venueName: events.venueName, venueAddress: events.venueAddress, audienceMode: events.audienceMode,
     status: events.status, defaultInstitutionQuota: events.defaultInstitutionQuota,
