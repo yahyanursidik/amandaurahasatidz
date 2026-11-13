@@ -25,11 +25,12 @@ vi.mock("../../netlify/functions/lib/services/auditService", () => ({ createAudi
 
 import { createInvitationService, editInvitationService, getInvitationInstitutionsService, getInvitationUstadzOptionsService, getInvitationsService,
   sendInvitationService, revokeInvitationService, regenerateInvitationLinkService,
+  getInstitutionInvitationAccessCodeService,
   getPublicInstitutionInvitationService, getPublicIndividualInvitationService, submitInstitutionResponseService as submitResponse,
 } from "../../netlify/functions/lib/services/invitationService";
 import { createInvitationSchema, updateInvitationSchema } from "../../netlify/functions/lib/validations/invitationValidation";
 import { invitationAllowsGroup, invitationIsSelfRegistration, invitationParticipantLimit } from "../../src/lib/institutionInvitation";
-import { createInstitutionAccessVerification } from "../../netlify/functions/lib/services/institutionAccessCodeService";
+import { createInstitutionAccessVerification, verifyInstitutionAccessCode } from "../../netlify/functions/lib/services/institutionAccessCodeService";
 
 const eventId = "11111111-1111-4111-8111-111111111111";
 const id = "22222222-2222-4222-8222-222222222222";
@@ -115,11 +116,44 @@ describe("kebijakan rombongan kompatibel dengan undangan lama", () => {
   });
   it("mengembalikan izin rombongan dan tenggat event pada daftar", async () => {
     mocks.list.mockResolvedValue([{ ...invitation, responseDeadline: null, eventResponseDeadline: deadline }]);
-    expect(await getInvitationsService(eventId)).toEqual([expect.objectContaining({ allowGroup: true, responseDeadline: deadline })]);
+    const result = await getInvitationsService(eventId);
+    expect(result).toEqual([expect.objectContaining({ allowGroup: true, responseDeadline: deadline })]);
+    expect(result[0]).not.toHaveProperty("accessCode");
+  });
+  it("memuat kode lembaga secara massal hanya ketika diminta dan melewati undangan individu/dicabut", async () => {
+    mocks.list.mockResolvedValue([
+      invitation,
+      { ...invitation, id: otherId, status: "REVOKED" },
+      { ...invitation, id: institutionId, invitationType: "INDIVIDUAL" },
+    ]);
+    const result = await getInvitationsService(eventId, true);
+    expect(mocks.list).toHaveBeenCalledExactlyOnceWith(eventId);
+    expect(result[0].accessCode).toMatch(/^[23456789A-HJ-NP-Z]{4}-[23456789A-HJ-NP-Z]{4}$/);
+    expect(verifyInstitutionAccessCode(id, result[0].accessCode!)).toBe(true);
+    expect(result[1]).not.toHaveProperty("accessCode");
+    expect(result[2]).not.toHaveProperty("accessCode");
   });
 });
 
 describe("edit undangan dan integritas relasi", () => {
+  it("mempertahankan kode lembaga saat diedit, dimuat kembali, dan tautan dibuat ulang", async () => {
+    const created = await createInvitationService({ eventId, institutionId, invitationType: "INSTITUTION", invitationNumber: "UND-02" }, "actor", "request");
+    const edited = await editInvitationService(eventId, id, { invitationNumber: "UND-03", quota: 4 }, "actor", "request");
+    if (!("accessCode" in edited)) throw new Error("Kode lembaga harus tersedia setelah undangan diedit.");
+    expect(edited.accessCode).toBe(created.accessCode);
+    expect(verifyInstitutionAccessCode(id, edited.accessCode)).toBe(true);
+    expect(edited).not.toHaveProperty("publicUrl");
+    expect(mocks.rotate).not.toHaveBeenCalled();
+
+    const reloaded = await getInstitutionInvitationAccessCodeService(eventId, id, "actor", "request");
+    expect(reloaded).toEqual({ invitationId: id, accessCode: created.accessCode });
+    expect(mocks.audit).toHaveBeenCalledWith(expect.objectContaining({ action: "INVITATION_ACCESS_CODE_VIEWED", resourceId: id, eventId }));
+    expect(mocks.rotate).not.toHaveBeenCalled();
+
+    const regenerated = await regenerateInvitationLinkService(eventId, id, "actor", "request");
+    expect(regenerated.accessCode).toBe(created.accessCode);
+    expect(verifyInstitutionAccessCode(id, created.accessCode!)).toBe(true);
+  });
   it("menolak formulir dengan revisi yang sudah tertinggal", async () => {
     await expect(editInvitationService(eventId, id, { quota: 2, expectedUpdatedAt: "2025-01-01T00:00:00Z" }, "actor", "request")).rejects.toMatchObject({ statusCode: 409 });
     expect(mocks.update).not.toHaveBeenCalled();
@@ -223,6 +257,7 @@ describe("undangan perorangan", () => {
     mocks.find.mockResolvedValue(individual);
     const unchanged = await editInvitationService(eventId, id, { invitationNumber: "PR-02" }, "actor", "request");
     expect(unchanged).not.toHaveProperty("publicUrl");
+    expect(unchanged).not.toHaveProperty("accessCode");
     expect(mocks.update).toHaveBeenCalledWith(individual, expect.objectContaining({ ustadzId: otherId, quota: 1 }), undefined);
     const nextRecipient = "55555555-5555-4555-8555-555555555555";
     const changed = await editInvitationService(eventId, id, { ustadzId: nextRecipient }, "actor", "request");
@@ -251,6 +286,12 @@ describe("undangan perorangan", () => {
 });
 
 describe("keamanan lingkup event dan formulir publik", () => {
+  it("tidak menampilkan kode lembaga untuk event lain atau undangan individu", async () => {
+    await expect(getInstitutionInvitationAccessCodeService(otherId, id, "actor", "request")).rejects.toMatchObject({ statusCode: 404 });
+    mocks.find.mockResolvedValue({ ...invitation, invitationType: "INDIVIDUAL" });
+    await expect(getInstitutionInvitationAccessCodeService(eventId, id, "actor", "request")).rejects.toMatchObject({ statusCode: 422 });
+    expect(mocks.audit).not.toHaveBeenCalled();
+  });
   it.each([sendInvitationService, revokeInvitationService, regenerateInvitationLinkService])("menolak ID undangan dari event lain sebelum mutasi", async (action) => {
     await expect(action(otherId, id, "actor", "request")).rejects.toMatchObject({ statusCode: 404 });
     expect(mocks.status).not.toHaveBeenCalled(); expect(mocks.rotate).not.toHaveBeenCalled();

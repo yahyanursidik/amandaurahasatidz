@@ -45,6 +45,7 @@ import { IndividualInvitationForm, type IndividualInvitationRecipient, type Indi
 import { ParticipantPortalAccessAction } from "@/components/participants/ParticipantPortalAccessAction";
 import { ParticipantShareDialog } from "@/components/participants/ParticipantShareDialog";
 import { ParticipantManagementDialog } from "@/components/participants/ParticipantManagementDialog";
+import { DeleteParticipantDialog } from "@/components/participants/DeleteParticipantDialog";
 import { ParticipantExcelExport } from "@/components/participants/ParticipantExcelExport";
 import { participantStaffPermissions } from "@/lib/participantManagement";
 import { ManualParticipantDialog } from "@/components/participants/ManualParticipantDialog";
@@ -69,6 +70,7 @@ type Invitation = {
   institutionId: string | null;
   institutionName: string | null;
   institutionCode?: string | null;
+  accessCode?: string;
   institutionEmail?: string | null;
   institutionWhatsapp?: string | null;
   institutionPhone?: string | null;
@@ -487,7 +489,7 @@ export const EventRegistrationsPage: React.FC = () => {
       }
       const [deadlineData, result] = await Promise.all([settingsRequest,
         participantView ? apiEnvelope<Participant[]>(`/events/${id}/participants?${participantQuery}`, options)
-          : apiEnvelope<Invitation[]>(`/events/${id}/invitations`, options),
+          : apiEnvelope<Invitation[]>(`/events/${id}/invitations${canCreateInvitations ? "?includeAccessCodes=true" : ""}`, options),
       ]);
       if (!isCurrent()) return false;
       settingsCache.current = { id, at: reuseSettings ? settings.at : Date.now(), data: deadlineData };
@@ -504,7 +506,11 @@ export const EventRegistrationsPage: React.FC = () => {
             pending: list.filter((item) => item.approvalStatus === "PENDING_REVIEW").length,
             institution: list.filter((item) => participantSourceCategory(item.registrationSource) === "INSTITUTION").length, pendingEligible: eligibleApprovalIds(list, true).length } });
       } else {
-        setInvitations(result.data as Invitation[] || []);
+        const list = result.data as Invitation[] || [];
+        setInvitations(list);
+        setInvitationAccessCodes(canCreateInvitations ? Object.fromEntries(list
+          .filter((invitation) => invitation.invitationType !== "INDIVIDUAL" && invitation.status !== "REVOKED" && invitation.accessCode)
+          .map((invitation) => [invitation.id, invitation.accessCode!])) : {});
         if (canReadParticipants) {
           void apiEnvelope<ApprovalSelectionCandidate[]>(`/events/${id}/participants?page=1&pageSize=1&projection=selection`, options)
             .then((summary) => { if (isCurrent() && summary.meta) setParticipantMeta(summary.meta); }).catch(() => {});
@@ -547,7 +553,7 @@ export const EventRegistrationsPage: React.FC = () => {
     setParticipantMeta({ page: 1, pageSize: 25, total: 0, pageCount: 1, filteredEligible: 0, summary: emptyParticipantSummary() });
     setInvitations([]);
     setInstitutions([]);
-    setCreatedLink(""); setCreatedInvitation(null); setInvitationLinks({});
+    setCreatedLink(""); setCreatedInvitation(null); setInvitationLinks({}); setInvitationAccessCodes({});
     setEditingInvitation(null); setReplacementSource(""); setInvitationNotice(""); setInvitationFormError(""); setEventDeadline(null);
     setEditorSaved(false); editorInitialized.current = "";
     setInvitationAudience(searchParams.get("type") === "individual" ? "INDIVIDUAL" : "INSTITUTION");
@@ -781,7 +787,7 @@ export const EventRegistrationsPage: React.FC = () => {
             ? "OPENED" : editing?.status || "DRAFT", sentAt: editing?.sentAt || null, respondedAt: editing?.respondedAt || null,
           responseDeadline: payload.responseDeadline,
         };
-        created = { invitation, ...(!editing || (individual ? editing.ustadzId !== individualForm.ustadzId : editing.institutionId !== form.institutionId)
+        created = { invitation, ...(!individual ? { accessCode: "DEMO-2345" } : {}), ...(!editing || (individual ? editing.ustadzId !== individualForm.ustadzId : editing.institutionId !== form.institutionId)
           ? { publicUrl: individual ? `/invitation/individual/inv_ind_demo_${invitation.id}` : buildInstitutionInvitationPath(institutionName, `inv_inst_demo_${invitation.id}`) } : {}) };
         setInvitations((current) => editing ? current.map((item) => item.id === editing.id ? invitation : item) : [invitation, ...current]);
       } else {
@@ -1479,6 +1485,21 @@ export const EventRegistrationsPage: React.FC = () => {
                            : "Perubahan tersimpan, tetapi daftar belum diperbarui. Muat ulang sebelum melakukan aksi berikutnya.");
                          return refreshed;
                        }} />
+                     <DeleteParticipantDialog key={`delete-${participant.id}`} eventId={id}
+                       participant={{ id: participant.id, name: participant.ustadzName, participantCode: participant.participantCode }}
+                       permissions={staffPermissions} demoMode={demoMode}
+                       disabled={loading || Boolean(participantBusy) || Boolean(participantImportBusy) || Boolean(eventDeadline?.status && ["COMPLETED", "CANCELLED", "ARCHIVED"].includes(eventDeadline.status))}
+                       onBusyChange={(busy) => { if (mounted.current && activeEventId.current === id) { approvalBusyRef.current = busy; setParticipantBusy(busy ? participant.id : ""); } }}
+                       onDeleted={async () => {
+                         setParticipants((current) => current.filter((person) => person.id !== participant.id));
+                         setSelectedParticipants((current) => current.filter((participantId) => participantId !== participant.id));
+                         setSelectionCandidates((current) => current.filter((person) => person.id !== participant.id));
+                         const refreshed = await loadData();
+                         if (mounted.current && activeEventId.current === id) setApprovalMessage(refreshed
+                           ? "Peserta berhasil dihapus dari event."
+                           : "Peserta sudah dihapus, tetapi daftar belum diperbarui. Muat ulang sebelum melakukan aksi berikutnya.");
+                         return refreshed;
+                       }} />
                      {staffPermissions.includes("participants.manage_portal_access") && <ParticipantPortalAccessAction
                       eventId={id}
                       participant={{
@@ -1661,10 +1682,8 @@ export const EventRegistrationsPage: React.FC = () => {
                           {invitation.registeredCount ?? delegates.length} dari {invitation.invitationType === "INDIVIDUAL" ? 1 : invitation.quota || 1} peserta · {invitation.invitationType === "INDIVIDUAL" ? "Satu asatidz" : invitationIsSelfRegistration(invitation) ? "Daftar mandiri per asatidz" : invitationAllowsGroup(invitation) ? "Satu pengisian rombongan" : "Satu perwakilan"}
                         </p>
                         {invitation.responseDeadline && <p className="mt-2 text-sm text-slate-600">Batas respons: {formatEventDateTime(invitation.responseDeadline, eventDeadline?.timezone || "Asia/Jakarta")} {eventTimezoneLabel(eventDeadline?.timezone || "Asia/Jakarta")}</p>}
-                        {canCreateInvitations && invitation.invitationType !== "INDIVIDUAL" && invitation.status !== "REVOKED" && invitationAccessCodes[invitation.id] && <p className="mt-2 text-sm text-emerald-950">Kode unik lembaga: <strong className="break-all font-mono text-lg">{invitationAccessCodes[invitation.id]}</strong></p>}
                       </div>
                       <div className="flex flex-wrap gap-2">
-                        {canCreateInvitations && invitation.invitationType !== "INDIVIDUAL" && invitation.status !== "REVOKED" && <button type="button" onClick={() => invitationAccessCodes[invitation.id] ? void copyText(invitationAccessCodes[invitation.id], `code-${invitation.id}`) : void revealInvitationCode(invitation)} disabled={Boolean(linkBusy)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:opacity-50"><Clipboard className="h-4 w-4" />{linkBusy === invitation.id ? "Memuat kode…" : copied === `code-${invitation.id}` ? "Tersalin" : invitationAccessCodes[invitation.id] ? "Salin kode" : "Lihat kode unik"}</button>}
                         {canCreateInvitations && (invitation.institutionId || invitation.ustadzId) && invitation.status !== "REVOKED" && (
                           <Link
                             to={`/admin/events/${id}/invitations/${invitation.id}/edit`}
@@ -1707,6 +1726,16 @@ export const EventRegistrationsPage: React.FC = () => {
                       </div>
                     </div>
 
+                    {canCreateInvitations && invitation.invitationType !== "INDIVIDUAL" && invitation.status !== "REVOKED" && (
+                      <div className="flex flex-wrap items-center justify-between gap-3 border-t border-emerald-200 bg-emerald-50 px-4 py-3">
+                        <div><p className="text-sm font-bold text-emerald-950">Kode unik lembaga</p>
+                          {invitationAccessCodes[invitation.id]
+                            ? <p className="mt-1 break-all font-mono text-lg font-bold text-emerald-950">{invitationAccessCodes[invitation.id]}</p>
+                            : <p className="mt-1 text-sm text-emerald-900">Lihat kode untuk dibagikan bersama tautan undangan.</p>}</div>
+                        <button type="button" onClick={() => invitationAccessCodes[invitation.id] ? void copyText(invitationAccessCodes[invitation.id], `code-${invitation.id}`) : void revealInvitationCode(invitation)} disabled={Boolean(linkBusy)} className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-emerald-300 bg-white px-3 text-sm font-bold text-emerald-950 hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:opacity-50"><Clipboard className="h-4 w-4" />{linkBusy === invitation.id ? "Memuat kode…" : copied === `code-${invitation.id}` ? "Tersalin" : invitationAccessCodes[invitation.id] ? "Salin kode" : "Lihat kode unik"}</button>
+                      </div>
+                    )}
+
                     {invitation.status === "REVOKED" && <div className="border-t border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950">
                       <p>Undangan ini sudah dicabut. Tautan lama tidak dapat digunakan atau diaktifkan lewat edit.</p>
                       {canCreateInvitations && (invitation.institutionId || invitation.ustadzId) && <>
@@ -1728,7 +1757,6 @@ export const EventRegistrationsPage: React.FC = () => {
                     {invitationLinks[invitation.id] && isInvitationPending(invitation.status) && (
                       <div className="border-t border-emerald-200 bg-emerald-50 px-4 py-3">
                         <p className="text-sm font-bold text-emerald-950">Tautan formulir {invitation.invitationType === "INDIVIDUAL" ? "pribadi" : "khusus lembaga"}</p>
-                        {invitationAccessCodes[invitation.id] && <p className="my-2 text-sm">Kode unik lembaga: <strong className="font-mono text-lg">{invitationAccessCodes[invitation.id]}</strong></p>}
                         <div className="mt-2 flex min-w-0 flex-col gap-2 sm:flex-row sm:items-center">
                           <code className="min-w-0 flex-1 break-all rounded-lg bg-white px-3 py-2 text-sm leading-6 text-emerald-950">
                             {invitationLinks[invitation.id]}

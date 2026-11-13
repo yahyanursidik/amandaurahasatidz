@@ -51,6 +51,7 @@ export type PermissionCode =
   | "participants.approve"
   | "participants.waitlist"
   | "participants.cancel"
+  | "participants.delete"
   | "participants.replace"
   | "participants.export"
   | "participants.contact_batch"
@@ -84,7 +85,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     "institutions.read", "institutions.create", "institutions.update", "institutions.merge",
     "ustadz.read", "ustadz.create", "ustadz.update", "ustadz.merge",
     "invitations.read", "invitations.create", "invitations.send", "invitations.revoke",
-    "participants.read", "participants.create", "participants.update", "participants.approve", "participants.waitlist", "participants.cancel", "participants.replace", "participants.export", "participants.manage_portal_access", "participants.contact_batch",
+    "participants.read", "participants.create", "participants.update", "participants.approve", "participants.waitlist", "participants.cancel", "participants.delete", "participants.replace", "participants.export", "participants.manage_portal_access", "participants.contact_batch",
     "schedule.read", "schedule.manage",
     "announcements.read", "announcements.manage", "announcements.publish",
     "attendance.read", "attendance.record", "attendance.correct", "attendance.export",
@@ -113,7 +114,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   EVENT_ADMIN: [
     "events.read", "events.update", "events.publish",
     "invitations.read", "invitations.create", "invitations.send", "invitations.revoke",
-    "participants.read", "participants.create", "participants.update", "participants.approve", "participants.waitlist", "participants.cancel", "participants.replace", "participants.export", "participants.manage_portal_access", "participants.contact_batch",
+    "participants.read", "participants.create", "participants.update", "participants.approve", "participants.waitlist", "participants.cancel", "participants.delete", "participants.replace", "participants.export", "participants.manage_portal_access", "participants.contact_batch",
     "schedule.read", "schedule.manage",
     "announcements.read", "announcements.manage", "announcements.publish",
     "attendance.read", "attendance.record", "attendance.correct", "attendance.export",
@@ -122,7 +123,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
   COMMITTEE_ADMIN: [
     "events.read", "invitations.read",
     "participants.read", "participants.create", "participants.update", "participants.approve",
-    "participants.waitlist", "participants.cancel", "participants.replace", "participants.export",
+    "participants.waitlist", "participants.cancel", "participants.delete", "participants.replace", "participants.export",
     "participants.manage_portal_access",
     "schedule.read", "announcements.read", "attendance.read",
   ],
@@ -130,7 +131,7 @@ export const ROLE_PERMISSIONS: Record<RoleCode, PermissionCode[]> = {
     "events.read", "events.create", "events.update", "events.publish", "events.cancel",
     "invitations.read", "invitations.create", "invitations.send", "invitations.revoke",
     "participants.read", "participants.create", "participants.update", "participants.approve",
-    "participants.waitlist", "participants.cancel", "participants.replace", "participants.export",
+    "participants.waitlist", "participants.cancel", "participants.delete", "participants.replace", "participants.export",
     "participants.manage_portal_access", "participants.contact_batch",
     "schedule.read", "schedule.manage",
     "announcements.read", "announcements.manage", "announcements.publish",

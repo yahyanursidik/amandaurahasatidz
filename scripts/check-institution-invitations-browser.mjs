@@ -65,7 +65,7 @@ const fixture = {
           import {EventRegistrationsPage} from '/src/pages/admin/events/EventRegistrationsPage.tsx';
           import {InvitationRegistrationPage} from '/src/pages/public/InvitationRegistrationPage.tsx'; import '/src/index.css';
           import {ParticipantManagementDialog} from '/src/components/participants/ParticipantManagementDialog.tsx';
-          const authProvider={check:async()=>({authenticated:true}),getIdentity:async()=>({name:'Admin Uji',email:'admin@example.invalid',assignments:[{roleCode:'SUPER_ADMIN'}]}),logout:async()=>({success:true}),login:async()=>({success:true}),onError:async()=>({})};
+          const authProvider={check:async()=>({authenticated:true}),getIdentity:async()=>({name:'Admin Uji',email:'admin@example.invalid',assignments:[{roleCode:${JSON.stringify(url.searchParams.get('role') === 'viewer' ? 'REPORT_VIEWER' : 'SUPER_ADMIN')}}]}),logout:async()=>({success:true}),login:async()=>({success:true}),onError:async()=>({})};
           window.confirm=()=>true;
           function CommandFixture(){const [participant,setParticipant]=React.useState(${JSON.stringify(commandParticipant)});const [loading,setLoading]=React.useState(false);const [busy,setBusy]=React.useState(false);return React.createElement('main',{className:'mx-auto max-w-2xl p-6'},
             React.createElement('p',{id:'command-state'},participant.approvalStatus+'/'+participant.confirmationStatus),
@@ -86,30 +86,45 @@ const fixture = {
       const chunks = []; for await (const chunk of request) chunks.push(chunk);
       const body = chunks.length ? JSON.parse(Buffer.concat(chunks).toString()) : {};
       requests.push({ route, method, body, query: url.searchParams.toString() });
-      let data;
+      let data, meta;
       if (route === `/events/${eventId}/invitations/institutions`) data = [institution];
       else if (route === `/events/${eventId}/invitations/ustadz`) data = [ustadz];
-      else if (route === `/events/${eventId}/participants`) data = commandParticipant ? [commandParticipant]
-        : browserParticipants.filter((person) => {
+      else if (route === `/events/${eventId}/participants` && method === 'GET') {
+        data = commandParticipant ? [commandParticipant] : browserParticipants.filter((person) => {
           const source = url.searchParams.get('source') || 'ALL';
           return source === 'ALL' || source === 'REGULAR' && person.registrationSource === 'DIRECT_PUBLIC'
             || source === 'INSTITUTION' && person.registrationSource === 'INSTITUTION_DELEGATION'
             || source === 'INDIVIDUAL' && person.registrationSource === 'INDIVIDUAL_INVITATION';
         });
-      else if (route === `/events/${eventId}/participants/${commandId}/replacement-options`) data = [{ id: replacementId, fullName: 'Ustadz Pengganti', email: 'pengganti@example.invalid' }];
+        const all = commandParticipant ? [commandParticipant] : browserParticipants;
+        meta = { page: 1, pageSize: 25, total: data.length, pageCount: 1, filteredEligible: 0, summary: {
+          total: all.length, approved: all.filter((person) => person.approvalStatus === 'APPROVED').length,
+          pending: all.filter((person) => person.approvalStatus === 'PENDING_REVIEW').length,
+          institution: all.filter((person) => person.registrationSource === 'INSTITUTION_DELEGATION').length, pendingEligible: 0 } };
+      } else if (method === 'DELETE' && route.startsWith(`/events/${eventId}/participants/`)) {
+        const participantId = route.split('/').at(-1);
+        const index = browserParticipants.findIndex((person) => person.id === participantId);
+        assert.ok(index >= 0, 'delete references a participant in the selected event');
+        assert.ok(typeof body.reason === 'string' && body.reason.trim().length >= 3, 'delete includes a reason');
+        browserParticipants.splice(index, 1);
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        data = { id: participantId, deleted: true };
+      } else if (route === `/events/${eventId}/participants/${commandId}/replacement-options`) data = [{ id: replacementId, fullName: 'Ustadz Pengganti', email: 'pengganti@example.invalid' }];
       else if (method === 'POST' && route.startsWith(`/events/${eventId}/participants/${commandId}/`)) {
         const action = route.split('/').at(-1);
         commandParticipant = { ...commandParticipant, ...(action === 'waitlist' ? { approvalStatus: 'WAITLISTED' } : action === 'decline' ? { approvalStatus: 'DECLINED' } : { confirmationStatus: action === 'cancel' ? 'CANCELLED' : 'REPLACED' }) };
         data = commandParticipant;
       }
       else if (route === `/events/${eventId}` || route === `/events/${eventId}/registration-settings`) data = event;
-      else if (route === `/events/${eventId}/invitations` && method === 'GET') data = invitations;
+      else if (route === `/events/${eventId}/invitations` && method === 'GET') data = invitations.map((invitation) => ({ ...invitation,
+        ...(url.searchParams.get('includeAccessCodes') === 'true' && invitation.invitationType !== 'INDIVIDUAL' && invitation.status !== 'REVOKED' ? { accessCode: 'ABCD-2345' } : {}) }));
       else if (route.startsWith(`/events/${eventId}/invitations/`) && route.endsWith('/access-code') && method === 'GET') data = { accessCode: 'ABCD-2345' };
       else if (route.startsWith(`/events/${eventId}/invitations/`) && method === 'PATCH') {
         const index = invitations.findIndex((invitation) => invitation.id === route.split('/').at(-1));
         if (index < 0) throw new Error('Missing fixture invitation');
         const reopening = invitations[index].status === 'ACCEPTED' && body.registrationMode === 'INDIVIDUAL_SELF';
-        invitations[index] = { ...invitations[index], ...body, ...(reopening ? { status: 'OPENED' } : {}) }; data = { invitation: invitations[index] };
+        invitations[index] = { ...invitations[index], ...body, ...(reopening ? { status: 'OPENED' } : {}) };
+        data = { invitation: invitations[index], ...(invitations[index].invitationType === 'INDIVIDUAL' ? {} : { accessCode: 'ABCD-2345' }) };
       } else if (route === `/events/${eventId}/invitations` && method === 'POST') {
         const personal = body.invitationType === 'INDIVIDUAL';
         const invitation = { ...body, id: crypto.randomUUID(), institutionName: personal ? null : institution.name,
@@ -140,7 +155,7 @@ const fixture = {
           participants: [{ id: 'personal-person', participantCode: 'P-PERSONAL', approvalStatus: 'PENDING_REVIEW', confirmationStatus: 'INVITED', registrationStatusUrl: '/confirm#prc_personal.signature', whatsapp: null }],
           portalAccounts: [{ participantId: 'personal-person', participantName: ustadz.fullName, email: body.delegates[0].email, passwordSetupRequired: true, loginUrl: '/login/ustadz' }] };
       } else { failures.push(`Unexpected fixture ${method} ${route}`); response.statusCode = 404; data = null; }
-      response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ data, error: data === null ? { message: 'Unexpected test route' } : null }));
+      response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ data, ...(meta ? { meta } : {}), error: data === null ? { message: 'Unexpected test route' } : null }));
     });
   },
 };
@@ -208,8 +223,9 @@ try {
   await send('Runtime.enable'); await send('Page.enable');
   await navigate('mode=admin');
   await until(`document.querySelector('article h2')?.textContent===${JSON.stringify(institution.name)}`, 'admin invitation list', 300);
-  await click('Lihat kode unik');
-  await until(`document.body.textContent.includes('ABCD-2345')`, 'existing invitation code is visible without rotating the link');
+  await until(`document.body.textContent.includes('ABCD-2345')`, 'existing institution code restores immediately on initial load');
+  assert.ok(requests.some((item) => item.route === `/events/${eventId}/invitations` && item.query.includes('includeAccessCodes=true')), 'authorized list requests access codes in one read');
+  assert.equal(requests.filter((item) => item.route.endsWith('/access-code')).length, 0, 'initial code display does not issue per-invitation reads');
   assert.equal(requests.filter((item) => item.method === 'POST').length, 0, 'viewing code does not rotate or recreate the invitation');
   await clickLink('Edit undangan');
   await until(`document.querySelector('form[aria-label="Edit undangan lembaga"]')`, 'edit form');
@@ -223,6 +239,10 @@ try {
   const patch = requests.find((item) => item.method === 'PATCH');
   assert.equal(patch.body.allowGroup, false); assert.equal(patch.body.quota, 1);
   assert.equal(patch.body.responseDeadline, event.invitationResponseDeadline, 'unchanged deadlines preserve seconds and timezone');
+  assert.equal(await evaluate(`document.body.textContent.includes('ABCD-2345')`), true, 'saving an edit preserves the visible institution code');
+  await navigate('mode=admin');
+  await until(`document.querySelector('article h2')?.textContent===${JSON.stringify(institution.name)} && document.body.textContent.includes('ABCD-2345')`, 'institution code survives a full navigation after editing');
+  assert.equal(requests.filter((item) => item.route.endsWith('/access-code')).length, 0, 'restoring codes after edit avoids N+1 reads');
   await checkWidths('admin'); await screenshot('admin-desktop');
   await navigate('mode=new');
   await until(`document.querySelector('form[aria-label="Buat undangan lembaga"]')`, 'new invitation form');
@@ -429,6 +449,45 @@ try {
   await until(`document.querySelectorAll('.event-participants-table tbody tr').length===1`, 'personal participant filter');
   assert.equal(await evaluate(`document.querySelector('.event-participants-table tbody tr')?.textContent.includes('P-IND')`), true);
   assert.equal(requests.some((item) => item.route === `/events/${eventId}/participants` && item.query.includes('source=INDIVIDUAL')), true);
+  await fill('select[aria-label="Filter jalur pendaftaran"]', 'ALL');
+  await until(`document.querySelectorAll('.event-participants-table tbody tr').length===3`, 'return to all event participants');
+  const totalSummary = `Array.from(document.querySelectorAll('p')).find((element)=>element.textContent==='Total peserta')?.previousElementSibling?.textContent`;
+  assert.equal(await evaluate(totalSummary), '3', 'participant summary starts with all registrations');
+  const deletedId = browserParticipants[0].id, deletedName = browserParticipants[0].ustadzName;
+  const openDelete = () => evaluate(`document.querySelector('button[aria-label="Hapus peserta ${deletedName}"]').click()`);
+  const deleteCount = () => requests.filter((item) => item.method === 'DELETE').length;
+  await openDelete();
+  await until(`document.querySelector('dialog[open] h2')?.textContent==='Hapus peserta dari event?'`, 'delete confirmation dialog opens');
+  assert.equal(await evaluate(`document.querySelector('dialog[open] button[type="submit"]').disabled`), true, 'delete starts disabled');
+  assert.equal(await evaluate(`document.querySelector('dialog[open] form').checkValidity()`), false, 'delete requires reason and explicit acknowledgement');
+  await fill('dialog[open] textarea', 'Pendaftaran peserta tercatat dua kali');
+  assert.equal(await evaluate(`document.querySelector('dialog[open] button[type="submit"]').disabled`), true, 'reason without acknowledgement cannot delete');
+  await evaluate(`Array.from(document.querySelectorAll('dialog[open] button')).find((button)=>button.textContent.trim()==='Batal').click()`);
+  await until(`!document.querySelector('dialog[open]')`, 'cancel closes delete confirmation');
+  assert.equal(deleteCount(), 0, 'cancelling deletion sends no DELETE');
+  assert.equal(await evaluate(`document.querySelectorAll('.event-participants-table tbody tr').length`), 3, 'cancel preserves all participants');
+  await openDelete();
+  assert.equal(await evaluate(`document.querySelector('dialog[open] textarea').value`), '', 'reopening clears prior delete reason');
+  await evaluate(`document.querySelector('dialog[open] input[type="checkbox"]').click()`);
+  assert.equal(await evaluate(`document.querySelector('dialog[open] button[type="submit"]').disabled`), true, 'acknowledgement without reason cannot delete');
+  await fill('dialog[open] textarea', '  Pendaftaran peserta tercatat dua kali  ');
+  await checkWidths('participant delete confirmation'); await screenshot('participant-delete');
+  const participantReadsBeforeDelete = requests.filter((item) => item.method === 'GET' && item.route === `/events/${eventId}/participants`).length;
+  await evaluate(`(()=>{const button=document.querySelector('dialog[open] button[type="submit"]');button.click();button.click()})()`);
+  await until(`document.querySelectorAll('.event-participants-table tbody tr').length===2`, 'successful deletion refreshes event participant rows');
+  await until(`!document.querySelector('dialog[open]')`, 'successful delete closes dialog');
+  assert.equal(deleteCount(), 1, 'double-click commits one deletion');
+  const deleteRequest = requests.find((item) => item.method === 'DELETE');
+  assert.equal(deleteRequest.route, `/events/${eventId}/participants/${deletedId}`, 'delete request is scoped to selected event and participant');
+  assert.deepEqual(deleteRequest.body, { reason: 'Pendaftaran peserta tercatat dua kali' });
+  assert.equal(await evaluate(`document.querySelector('.event-participants-table').textContent.includes('P-REG')`), false, 'deleted registration disappears from table');
+  assert.equal(await evaluate(`document.querySelector('.event-participants-table').textContent.includes('P-INST') && document.querySelector('.event-participants-table').textContent.includes('P-IND')`), true, 'other registrations remain available');
+  assert.equal(await evaluate(totalSummary), '2', 'participant summary refreshes after deletion');
+  assert.ok(requests.filter((item) => item.method === 'GET' && item.route === `/events/${eventId}/participants`).length > participantReadsBeforeDelete, 'successful deletion reloads participant list');
+  await navigate('mode=participant&role=viewer');
+  await until(`document.querySelectorAll('.event-participants-table tbody tr').length===2`, 'read-only participant viewer');
+  assert.equal(await evaluate(`document.querySelectorAll('button[aria-label^="Hapus peserta "]').length`), 0, 'read-only roles have no delete controls');
+  assert.equal(deleteCount(), 1, 'read-only viewing sends no delete');
   invitations[0] = { ...invitations[0], registrationMode: 'DELEGATION', status: 'ACCEPTED', respondedAt: '2026-11-10T08:00:00Z',
     registeredCount: 1, quota: 15, allowGroup: true };
   await navigate('mode=editor');
@@ -450,7 +509,7 @@ try {
   assert.equal(await evaluate(`document.body.textContent.includes('Saya membawa rombongan')`), false);
   await checkWidths('converted public form');
   assert.deepEqual(failures, [], 'no browser exceptions or unexpected API requests');
-  console.log(JSON.stringify({ result: 'PASS', widths: [320, 375, 390, 414, 768, 1280], checks: ['master institution picker', 'dedicated create/edit pages', 'edit persists group policy', 'quota two from admin to same public invitation', 'unchecked group hides add button and clears members', 'admin disables public group controls', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection', 'revoked invitation replacement keeps old link disabled', 'personal picker and share', 'personal edit', 'personal public RSVP without early QR', 'participant route filters', 'participant mobile cards', 'accepted delegation converted to reusable institution invitation'], screenshots }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', widths: [320, 375, 390, 414, 768, 1280], checks: ['master institution picker', 'dedicated create/edit pages', 'edit persists group policy', 'quota two from admin to same public invitation', 'unchecked group hides add button and clears members', 'admin disables public group controls', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection', 'revoked invitation replacement keeps old link disabled', 'personal picker and share', 'personal edit', 'personal public RSVP without early QR', 'participant route filters', 'participant mobile cards', 'accepted delegation converted to reusable institution invitation', 'institution code visible after edit and reload without N+1 reads', 'delete confirmation requires reason and acknowledgement', 'cancel deletion sends no mutation', 'event-scoped deletion refreshes rows and summaries', 'read-only roles hide delete controls'], screenshots }, null, 2));
 } finally {
   socket?.close(); browser?.kill(); await server.close();
   await new Promise((resolve) => setTimeout(resolve, 400));

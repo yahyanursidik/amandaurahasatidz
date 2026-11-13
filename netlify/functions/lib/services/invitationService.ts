@@ -64,10 +64,13 @@ function assertInvitationResponseOpen(result: { invitation: any; event: any; lin
   }
 }
 
-export async function getInvitationsService(eventId?: string) {
+export async function getInvitationsService(eventId?: string, includeAccessCodes = false) {
   return (await findInvitationsRepository(eventId)).map((invitation) => ({ ...invitation,
     allowGroup: invitationAllowsGroup(invitation),
     responseDeadline: invitation.responseDeadline || invitation.eventResponseDeadline,
+    ...(includeAccessCodes && invitation.invitationType === "INSTITUTION" && invitation.status !== "REVOKED"
+      ? { accessCode: getInstitutionAccessCode(invitation.id) }
+      : {}),
   }));
 }
 
@@ -318,6 +321,7 @@ export async function editInvitationService(eventId: string, id: string, data: {
   await createAuditLog({ actorUserId, action: "INVITATION_UPDATED", resourceType: "INVITATION", resourceId: id,
     eventId, beforeData: invitation as any, afterData: updated as any, requestId });
   return { invitation: { ...updated, institutionName: institution?.name || null, allowGroup: invitationAllowsGroup(updated) },
+    accessCode: getInstitutionAccessCode(invitation.id),
     ...(token ? { publicUrl: buildInstitutionInvitationPath(institution?.name || "Lembaga", token.rawToken) } : {}) };
 }
 
