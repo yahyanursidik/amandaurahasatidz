@@ -21,6 +21,7 @@ import { assertAttendanceConfirmationAllowed } from "../services/deadlineService
 import { isAttendanceEventOpen } from "../services/attendanceModel";
 import { randomUUID } from "node:crypto";
 import type { ParticipantPageQuery } from "../validations/participantValidation";
+import { INSTITUTION_PARTICIPANT_SOURCES, INVITED_PARTICIPANT_SOURCES } from "../../../../src/lib/participantCatalog";
 
 export async function countInstitutionParticipantsRepository(eventId: string, institutionId: string): Promise<number> {
   const db = getDbClient();
@@ -105,8 +106,6 @@ export async function findParticipantPageRepository(eventId: string, query: Part
     when ${digits} like '8%' then '62' || ${digits} else ${digits} end) ~ '^[1-9][0-9]{8,14}$'`;
   const completeContact = sql`(${whatsappValid} and btrim(coalesce(${ustadzProfiles.email}, '')) <> '' and btrim(coalesce(${ustadzProfiles.address}, '')) <> '')`;
   const needsAction = sql`(${eventParticipants.approvalStatus} = 'PENDING_REVIEW' or not ${completeContact} or ${users.passwordHash} is null)`;
-  const institutionSources = ["INSTITUTION_DELEGATION", "INSTITUTION_DELEGATION_REPLACEMENT", "INSTITUTION_INVITATION"];
-  const invitationSources = [...institutionSources, "INDIVIDUAL_INVITATION"];
   const filter = and(
     eq(eventParticipants.eventId, eventId),
     query.search ? or(ilike(ustadzProfiles.fullName, searchPattern), ilike(eventParticipants.participantCode, searchPattern),
@@ -114,9 +113,9 @@ export async function findParticipantPageRepository(eventId: string, query: Part
       ilike(ustadzProfiles.phone, searchPattern), ilike(ustadzProfiles.whatsapp, searchPattern)) : undefined,
     query.institutionId ? eq(eventParticipants.institutionId, query.institutionId) : undefined,
     query.invitationId ? eq(eventParticipants.invitationId, query.invitationId) : undefined,
-    query.source === "INSTITUTION" ? inArray(eventParticipants.registrationSource, institutionSources)
+    query.source === "INSTITUTION" ? inArray(eventParticipants.registrationSource, INSTITUTION_PARTICIPANT_SOURCES)
       : query.source === "INDIVIDUAL" ? eq(eventParticipants.registrationSource, "INDIVIDUAL_INVITATION")
-        : query.source === "REGULAR" ? notInArray(eventParticipants.registrationSource, invitationSources) : undefined,
+        : query.source === "REGULAR" ? notInArray(eventParticipants.registrationSource, INVITED_PARTICIPANT_SOURCES) : undefined,
     query.institution && query.institution !== "ALL" ? query.institution === "INDIVIDUAL" ? isNull(institutions.name) : eq(institutions.name, query.institution) : undefined,
     query.status === "ALL" ? undefined : query.status === "NEEDS_ACTION" ? needsAction
       : query.status === "AWAITING_CONFIRMATION" ? and(eq(eventParticipants.approvalStatus, "APPROVED"), eq(eventParticipants.confirmationStatus, "INVITED"))
@@ -148,7 +147,7 @@ export async function findParticipantPageRepository(eventId: string, query: Part
       total: sql<number>`count(*)::int`,
       approved: sql<number>`count(*) filter (where ${eventParticipants.approvalStatus} = 'APPROVED')::int`,
       pending: sql<number>`count(*) filter (where ${eventParticipants.approvalStatus} = 'PENDING_REVIEW')::int`,
-      institution: sql<number>`count(*) filter (where ${inArray(eventParticipants.registrationSource, institutionSources)})::int`,
+      institution: sql<number>`count(*) filter (where ${inArray(eventParticipants.registrationSource, INSTITUTION_PARTICIPANT_SOURCES)})::int`,
       pendingEligible: sql<number>`count(*) filter (where ${eventParticipants.approvalStatus} = 'PENDING_REVIEW' and ${eligible})::int`,
       completeContacts: sql<number>`count(*) filter (where ${completeContact})::int`,
       portalReady: sql<number>`count(*) filter (where ${users.passwordHash} is not null)::int`,

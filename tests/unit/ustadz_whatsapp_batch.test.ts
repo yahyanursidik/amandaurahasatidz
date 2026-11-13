@@ -3,7 +3,9 @@ import {
   createWhatsAppBatch, readWhatsAppBatch, renderWhatsAppBatchMessage, updateWhatsAppBatchStatus,
   validateWhatsAppBatchMessage, whatsappBatchProgress, whatsappBatchTemplateMessage, whatsappBatchTemplates,
   whatsappBatchUrl, WHATSAPP_BATCH_STORAGE_PREFIX,
+  eventWhatsAppBatchTemplates, whatsappBatchStorageKey,
 } from "../../src/lib/ustadzWhatsAppBatch";
+import { eventWhatsAppCanConfirm, eventWhatsAppHref, isRepeatedEventWhatsAppNumber, parseEventWhatsAppFilters } from "../../src/lib/eventParticipantWhatsApp";
 
 const seed = () => createWhatsAppBatch({
   id: "session-1", ownerId: "admin-1", title: "Sapaan asatidz", template: "PROFILE_GREETING",
@@ -59,5 +61,49 @@ describe("admin sequential WhatsApp workbench", () => {
     const batch = seed();
     expect(createWhatsAppBatch({ ...batch, recipientIds: ["ustadz-1", "ustadz-1"] }).recipientIds).toEqual(["ustadz-1"]);
     expect(() => createWhatsAppBatch({ ...batch, recipientIds: Array.from({ length: 101 }, (_, index) => `ustadz-${index}`) })).toThrow(/Jumlah penerima/);
+  });
+
+  it("separates event sessions by event and administrator without changing the old directory key", () => {
+    const batch = createWhatsAppBatch({ ...seed(), eventId: "event-a", template: "EVENT_REMINDER",
+      message: whatsappBatchTemplateMessage("EVENT_REMINDER", true) });
+    const data = new Map([[whatsappBatchStorageKey("admin-1", "event-a"), JSON.stringify(batch)]]);
+    const storage = { getItem: (key: string) => data.get(key) || null };
+    expect(readWhatsAppBatch(storage, "admin-1", "event-a")?.eventId).toBe("event-a");
+    expect(readWhatsAppBatch(storage, "admin-1", "event-b")).toBeNull();
+    expect(readWhatsAppBatch(storage, "admin-2", "event-a")).toBeNull();
+    expect(readWhatsAppBatch(storage, "admin-1")).toBeNull();
+    expect(whatsappBatchStorageKey("admin-1")).toBe(`${WHATSAPP_BATCH_STORAGE_PREFIX}admin-1`);
+    expect(readWhatsAppBatch({ getItem: () => JSON.stringify(batch) }, "admin-1", "event-b")).toBeNull();
+    expect(JSON.stringify(batch)).not.toContain("https://wa.me");
+  });
+
+  it("uses event placeholders once and requires an individual status link only for confirmation", () => {
+    const draft = whatsappBatchTemplateMessage("EVENT_CONFIRMATION", true);
+    const scope = { eventId: "event-a", template: "EVENT_CONFIRMATION" as const };
+    expect(eventWhatsAppBatchTemplates.some(({ id }) => id === "EVENT_CONFIRMATION")).toBe(true);
+    expect(validateWhatsAppBatchMessage(draft, scope)).toBeNull();
+    expect(validateWhatsAppBatchMessage(draft.replace("{{tautan_status}}", ""), scope)).toMatch(/Sertakan/);
+    expect(validateWhatsAppBatchMessage(draft, { eventId: "event-a", template: "CUSTOM" })).toMatch(/Variabel/);
+    expect(validateWhatsAppBatchMessage(draft.replace("{{tautan_status}}", "https://contoh.id/confirm#pcf_foo.bar"), scope)).toMatch(/Jangan tempel/);
+    const personalized = renderWhatsAppBatchMessage(draft, "Nama $& {{pengirim}}", "Admin Uji", { event: "Daurah A", tautan_status: "https://contoh.id/confirm#pcf_one.signature" });
+    expect(personalized).toContain("Nama $& {{pengirim}}");
+    expect(personalized).toContain("Admin Uji dari panitia Daurah A");
+    expect(personalized).toContain("https://contoh.id/confirm#pcf_one.signature");
+    expect(() => whatsappBatchUrl("081234567890", "Nama\uD800")).not.toThrow();
+  });
+
+  it("round-trips filters, respects local deadlines, and flags only already-contacted duplicate numbers", () => {
+    const params = new URLSearchParams("page=2&source=INDIVIDUAL&search=Ustadz%20Sabar&status=WAITLISTED&invitationId=x");
+    const filters = parseEventWhatsAppFilters(params);
+    expect(filters).toMatchObject({ search: "Ustadz Sabar", source: "INDIVIDUAL", status: "WAITLISTED", invitationId: undefined });
+    expect(eventWhatsAppHref("event-a", filters, "wizard")).toBe("/admin/events/event-a/registrations/whatsapp?search=Ustadz+Sabar&source=INDIVIDUAL&status=WAITLISTED");
+    expect(eventWhatsAppHref("event-a", filters, "participants")).toMatch(/view=participants/);
+    expect(eventWhatsAppCanConfirm({ id: "a", name: "Daurah", slug: "daurah", startDate: "2026-11-13", endDate: "2026-11-13",
+      status: "ONGOING", timezone: "Asia/Makassar", venueName: null, attendanceConfirmationRequired: true,
+      attendanceConfirmationDeadline: null, lateConfirmationPolicy: "BLOCK" }, new Date("2026-11-13T16:00:00Z"))).toBe(false);
+    const first = { id: "a", fullName: "Ahmad", institutionName: null, number: "628123456789", numberSource: "WhatsApp" as const };
+    const second = { ...first, id: "b", fullName: "Hasan" };
+    expect(isRepeatedEventWhatsAppNumber(second, [first, second], { a: "MARKED_SENT", b: "PENDING" })).toBe(true);
+    expect(isRepeatedEventWhatsAppNumber(second, [first, second], { a: "SKIPPED", b: "PENDING" })).toBe(false);
   });
 });

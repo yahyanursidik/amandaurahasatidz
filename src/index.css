@@ -7543,6 +7543,23 @@
 @media (hover: hover) and (pointer: fine) { .wa-batch__primary:hover:not(:disabled) { filter: brightness(.94); } .wa-batch__secondary:hover:not(:disabled), .wa-batch__recipient-tools > button:hover:not(:disabled), .wa-batch__notice button:hover:not(:disabled) { background: var(--color-ustadz-paper-muted); } .wa-batch__recipient:hover:not([data-disabled="true"]) { background: var(--color-ustadz-paper-muted); } .wa-batch__text-button:hover, .wa-batch__history li > button:hover { text-decoration: underline; text-underline-offset: .2em; } }
 @media (prefers-reduced-motion: reduce) { .wa-batch button:active:not(:disabled), .wa-batch a:active { transform: none; } }
 
+/* Hallmark · component: event WhatsApp tools · genre: modern-minimal · theme: existing emerald-slate */
+.wa-batch__entry { display: inline-flex; align-items: center; justify-content: center; min-height: 3rem; gap: var(--space-ustadz-xs); border: 1px solid var(--color-ustadz-rule); border-radius: var(--radius-ustadz); padding-inline: var(--space-ustadz-md); font-size: var(--text-ustadz-small); font-weight: 750; text-decoration: none; white-space: nowrap; }
+.wa-batch__entry svg { width: 1rem; height: 1rem; flex: none; }
+.wa-batch__entry:focus-visible, .wa-batch summary:focus-visible { outline: 2px solid var(--color-ustadz-focus); outline-offset: 2px; }
+.wa-batch__entry:active { filter: brightness(.92); }
+.wa-batch__filters { display: grid; gap: var(--space-ustadz-sm); }
+.wa-batch__paging, .wa-batch__scope { display: flex; align-items: center; flex-wrap: wrap; justify-content: space-between; gap: var(--space-ustadz-xs); }
+.wa-batch__selected { border: 1px solid var(--color-ustadz-rule); border-radius: var(--radius-ustadz); padding-inline: var(--space-ustadz-md); }
+.wa-batch__selected summary { min-height: 2.75rem; align-content: center; cursor: pointer; font-weight: 700; }
+.wa-batch__selected[open] { padding-bottom: var(--space-ustadz-md); }
+.wa-batch__selected ul { max-height: 15rem; overflow-y: auto; margin-block: 0 var(--space-ustadz-md); }
+.wa-batch__selected li { display: flex; align-items: center; justify-content: space-between; gap: var(--space-ustadz-xs); border-top: 1px solid var(--color-ustadz-rule); padding-block: var(--space-ustadz-xs); }
+.wa-batch__selected li span, .wa-batch__section-head h2, .wa-batch__current-head h3 { overflow-wrap: anywhere; min-width: 0; }
+.wa-batch__paging .wa-batch__secondary, .wa-batch__entry, .wa-batch__actions button, .wa-batch__send-actions > button, .wa-batch__send-actions > a { white-space: nowrap; }
+@media (min-width: 40rem) { .wa-batch__filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .wa-batch__scope { grid-column: 1 / -1; } }
+@media (hover: hover) and (pointer: fine) { .wa-batch__entry:hover { filter: brightness(.95); } }
+
 /* Hallmark · kiosk QR · genre: modern-minimal · macrostructure: Split Studio
  * tone: calm-operational · anchor hue: emerald · theme: existing emerald-slate · contrast: pass (40–41)
  * nav: existing brand-only · footer: none · slop: pass (42–49) · mobile: pass (34, 49–57)

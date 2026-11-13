@@ -39,13 +39,14 @@ export const EventWorkspaceNav: React.FC<Props> = ({ eventId }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const items = buildItems(eventId);
+  const participantArea = location.pathname.endsWith("/registrations/whatsapp") || new URLSearchParams(location.search).get("view") === "participants";
   const current = items.find((item) => {
     const targetPath = item.href.split("?")[0];
     if (item.label === "Undangan") {
-      return location.pathname.includes("/invitations/") || location.pathname.includes("/registrations") && !location.search.includes("view=participants");
+      return location.pathname.includes("/invitations/") || location.pathname.includes("/registrations") && !participantArea;
     }
     if (item.label === "Peserta") {
-      return location.pathname.includes("/registrations") && location.search.includes("view=participants");
+      return location.pathname.includes("/registrations") && participantArea;
     }
     if (item.label === "Kehadiran") return location.pathname.startsWith(targetPath);
     return location.pathname === targetPath;
@@ -73,6 +74,7 @@ export const EventWorkspaceNav: React.FC<Props> = ({ eventId }) => {
             <button
               key={item.href}
               type="button"
+              aria-current={active ? "page" : undefined}
               onClick={() => navigate(item.href)}
               className={cn(
                 "inline-flex min-h-[56px] items-center gap-2 whitespace-nowrap border-b-2 px-4 text-sm font-bold outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-emerald-700 active:bg-emerald-100",

@@ -166,6 +166,9 @@ import {
   replaceParticipantSchema,
   replacementCandidateQuerySchema,
   participantPageQuerySchema,
+  participantWhatsAppQuerySchema,
+  resolveParticipantWhatsAppSchema,
+  participantWhatsAppEventIdSchema,
   approveParticipantSchema,
   waitlistParticipantSchema,
   declineParticipantSchema,
@@ -196,6 +199,7 @@ import {
   bulkApproveParticipantsService,
   provisionParticipantPortalAccountService,
 } from "./lib/services/participantService";
+import { listEventWhatsAppRecipientsService, resolveEventWhatsAppRecipientsService } from "./lib/services/participantWhatsAppService";
 
 import { enqueueEmailSchema, retryEmailJobSchema } from "./lib/validations/emailValidation";
 import { emailWebhookPayloadSchema } from "./lib/validations/webhookValidation";
@@ -931,6 +935,21 @@ export const handler: Handler = async (event, _context) => {
     }
 
     // 6. Participants Management Endpoints
+    const participantWhatsAppMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/whatsapp$/i);
+    if (participantWhatsAppMatch && (method === "GET" || method === "POST")) {
+      const eventId = validateRequestData(participantWhatsAppEventIdSchema, participantWhatsAppMatch[1].toLowerCase());
+      const session = requireAuth(userSession);
+      requirePermission(session, "participants.read", eventId);
+      requirePermission(session, "participants.contact_batch", eventId);
+      const result = method === "GET"
+        ? await listEventWhatsAppRecipientsService(eventId, validateRequestData(participantWhatsAppQuerySchema, event.queryStringParameters || {}))
+        : await (async () => {
+          const input = validateRequestData(resolveParticipantWhatsAppSchema, event.body ? JSON.parse(event.body) : {});
+          return resolveEventWhatsAppRecipientsService(eventId, input.participantIds, input.confirmation, input.statusLinkFor);
+        })();
+      const response = buildSuccessResponse(result, requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
+    }
     const participantExportPageMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/export$/i);
     if (participantExportPageMatch && method === "GET") {
       const session = requireAuth(userSession);

@@ -19,6 +19,7 @@ import {
   Link2,
   Loader2,
   Mail,
+  MessageCircle,
   Plus,
   PencilLine,
   Search,
@@ -55,6 +56,7 @@ import { eventTimezoneLabel, formatEventDateTime, fromEventIso, toEventIso } fro
 import { invitationAllowsGroup, invitationIsSelfRegistration, invitationStatusLabel, isInvitationPending, type InstitutionInvitationValues, type InvitationInstitutionOption, type InvitationRegistrationMode } from "@/lib/institutionInvitation";
 import { approvalSelectionCandidate, emptyParticipantSummary, participantApprovalLabel, participantConfirmationLabel, participantSourceCategory, participantSourceLabel, type ParticipantSourceFilter, type ParticipantPageMeta, type ApprovalSelectionCandidate } from "@/lib/participantCatalog";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
+import { eventWhatsAppHref, parseEventWhatsAppFilters } from "@/lib/eventParticipantWhatsApp";
 
 type Invitation = {
   id: string;
@@ -346,6 +348,7 @@ export const EventRegistrationsPage: React.FC = () => {
   const permissionsKey = staffPermissions.slice().sort().join(",");
   const canReadParticipants = staffPermissions.includes("participants.read");
   const canExportParticipants = staffPermissions.includes("participants.export");
+  const canContactParticipants = canReadParticipants && staffPermissions.includes("participants.contact_batch");
   const canReadInvitations = staffPermissions.includes("invitations.read");
   const canCreateInvitations = staffPermissions.includes("invitations.create");
   const canSendInvitations = staffPermissions.includes("invitations.send");
@@ -1154,12 +1157,14 @@ export const EventRegistrationsPage: React.FC = () => {
   }
 
   if (participantView) {
+    const whatsappFilters = parseEventWhatsAppFilters(new URLSearchParams(participantQuery));
     return (
       <AdminLayout>
         <PageHeader
           title="Peserta event"
           description="Tinjau kesiapan setiap individu, termasuk asatidz yang didaftarkan melalui lembaga."
           breadcrumbs={[{ label: "Admin", href: "/admin" }, { label: "Event", href: "/admin/events" }, { label: "Peserta" }]}
+          actions={canContactParticipants && !demoMode ? <Link className="wa-batch__primary wa-batch__entry" to={eventWhatsAppHref(id, whatsappFilters, "wizard")}><MessageCircle aria-hidden="true" /> WhatsApp bertahap</Link> : undefined}
         />
         <EventWorkspaceNav eventId={id} />
         {(requestedInstitutionId || requestedInvitationId) && <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950"><span>{requestedInvitationId ? "Peserta dari undangan terpilih" : `Peserta dari ${institutions.find((institution) => institution.id === requestedInstitutionId)?.name || "lembaga terpilih"}`}</span><Link className="font-bold underline" to={`/admin/events/${id}/registrations?view=participants`}>Tampilkan semua</Link></div>}

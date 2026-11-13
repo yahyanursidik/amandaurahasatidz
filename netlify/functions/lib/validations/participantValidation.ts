@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { normalizeName, normalizePhone } from "../utils/normalization";
+import { MAX_WHATSAPP_BATCH_RECIPIENTS } from "../../../../src/lib/ustadzWhatsAppBatch";
 
 export const participantPageQuerySchema = z.object({
   page: z.coerce.number().int().min(1).max(100000).default(1),
@@ -17,6 +18,22 @@ export const participantPageQuerySchema = z.object({
   projection: z.enum(["full", "selection"]).default("full"),
 });
 export type ParticipantPageQuery = z.infer<typeof participantPageQuerySchema>;
+
+export const participantWhatsAppQuerySchema = participantPageQuerySchema.pick({
+  page: true, pageSize: true, search: true, source: true, institutionId: true, invitationId: true,
+}).extend({
+  status: z.enum(["ALL", "AWAITING_CONFIRMATION", "PENDING_REVIEW", "APPROVED", "WAITLISTED", "DECLINED", "CANCELLED"]).default("ALL"),
+}).strict();
+export type ParticipantWhatsAppQuery = z.infer<typeof participantWhatsAppQuerySchema>;
+export const participantWhatsAppEventIdSchema = z.string().uuid("ID event tidak valid.");
+
+export const resolveParticipantWhatsAppSchema = z.object({
+  participantIds: z.array(z.string().uuid().transform((id) => id.toLowerCase())).min(1).max(MAX_WHATSAPP_BATCH_RECIPIENTS)
+    .refine((ids) => new Set(ids).size === ids.length, "Peserta tidak boleh duplikat."),
+  confirmation: z.boolean().default(false),
+  statusLinkFor: z.string().uuid().transform((id) => id.toLowerCase()).optional(),
+}).strict().refine((input) => !input.statusLinkFor || (input.confirmation && input.participantIds.includes(input.statusLinkFor)),
+  "Tautan konfirmasi harus untuk satu peserta dalam permintaan ini.");
 
 // Local to manual entry: accept Indonesian mobile numbers beginning with 8,
 // 08, 62 or +62 without changing the shared normalization helper.

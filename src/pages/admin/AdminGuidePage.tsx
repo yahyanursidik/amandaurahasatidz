@@ -76,6 +76,7 @@ export const ADMIN_GUIDE_STAGES: GuideStage[] = [
       "Buat tautan unik per lembaga. Pilih perwakilan yang mengisi sekali atau asatidz yang mengisi masing-masing sampai kuota penuh; bagikan tautan melalui WhatsApp atau email.",
       "Pantau jumlah pendaftar per undangan. Peserta menerima bukti tanpa QR, tautan status pribadi, dan akses portal. Peserta reguler dapat mendaftar lewat formulir publik atau diimpor admin.",
       "Setujui peserta, lalu gunakan Bagikan akses bila ingin mengirim ulang tautan status. Setiap asatidz—termasuk anggota rombongan—dapat melihat status tanpa login. QR presensi hanya tersedia setelah persetujuan dan konfirmasi hadir bila diwajibkan.",
+      "Untuk menghubungi beberapa peserta, buka Peserta → WhatsApp bertahap. Pilih template dan penerima, lalu kirim satu per satu melalui WhatsApp. Tandai hanya pesan yang benar-benar sudah dikirim.",
     ],
     actions: [
       { label: "Undangan", to: "/registrations?view=invitations", eventScoped: true },
