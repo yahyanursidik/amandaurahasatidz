@@ -4,12 +4,13 @@ import { useGetIdentity, useIsAuthenticated } from "@refinedev/core";
 import { AuthIdentity } from "@/lib/refine/authProvider";
 import { LoadingState } from "./LoadingState";
 import { isCommitteeOrganizerOnly } from "@/lib/committeeOrganizerAccess";
+import { LOCATION_CHECKIN_PATH, locationCheckinHash, parseLocationCheckinHash } from "@/lib/locationCheckin";
 
 export type PortalAccess = "admin" | "committee" | "ustadz";
 
 export const PORTAL_ROLE_ACCESS: Record<PortalAccess, string[]> = {
   admin: ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD", "REPORT_VIEWER", "EVENT_ADMIN", "COMMITTEE_ORGANIZER"],
-  committee: ["COMMITTEE_ORGANIZER", "COMMITTEE_ADMIN", "COMMITTEE_LEAD", "REGISTRATION_OFFICER", "CHECKIN_OFFICER", "INFORMATION_OFFICER", "EVENT_VIEWER"],
+  committee: ["SUPER_ADMIN", "EVENT_ADMIN", "COMMITTEE_ORGANIZER", "COMMITTEE_ADMIN", "COMMITTEE_LEAD", "REGISTRATION_OFFICER", "CHECKIN_OFFICER", "INFORMATION_OFFICER", "EVENT_VIEWER"],
   ustadz: ["USTADZ"],
 };
 
@@ -44,7 +45,8 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
 
   if (!data?.authenticated) {
     const loginPath = portal === "committee" ? "/login/committee" : portal === "ustadz" ? "/login/ustadz" : "/login/admin";
-    return <Navigate to={loginPath} replace state={{ from: location.pathname }} />;
+    const scan = location.pathname === LOCATION_CHECKIN_PATH ? parseLocationCheckinHash(location.hash) : null;
+    return <Navigate to={loginPath} replace state={{ from: location.pathname + (scan ? locationCheckinHash(scan) : "") }} />;
   }
 
   const assignments = identity?.assignments || [];

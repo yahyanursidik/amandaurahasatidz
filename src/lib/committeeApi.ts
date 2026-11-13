@@ -1,4 +1,5 @@
 import { eventApi } from "./eventApi";
+import type { PermissionCode } from "@/config/permissions";
 
 export type CommitteeRole =
   | "EVENT_ADMIN"
@@ -15,7 +16,7 @@ export type CommitteeAssignment = {
   eventCode: string;
   eventSlug?: string;
   eventStatus: string;
-  committeeRole: CommitteeRole | "COMMITTEE_ORGANIZER";
+  committeeRole: CommitteeRole | "COMMITTEE_ORGANIZER" | "SUPER_ADMIN";
   permissions?: string[] | null;
   startsAt?: string | null;
   endsAt?: string | null;
@@ -41,6 +42,18 @@ export type CommitteeMember = {
 
 export const committeeApi = eventApi;
 
+export function committeeEventsFor(assignments: CommitteeAssignment[], permission: PermissionCode) {
+  const events = new Map<string, CommitteeAssignment>();
+  for (const assignment of assignments) {
+    if (!assignment.effectivePermissions?.includes(permission)) continue;
+    const previous = events.get(assignment.eventId);
+    events.set(assignment.eventId, previous ? { ...previous,
+      effectivePermissions: [...new Set([...(previous.effectivePermissions || []), ...assignment.effectivePermissions])],
+    } : assignment);
+  }
+  return [...events.values()];
+}
+
 export const COMMITTEE_ROLES: Array<{ value: CommitteeRole; label: string; purpose: string }> = [
   { value: "EVENT_ADMIN", label: "Admin Event", purpose: "Konfigurasi dan kendali operasional event." },
   { value: "COMMITTEE_ADMIN", label: "Admin Panitia Event", purpose: "Putuskan dan selesaikan kasus peserta pada event yang ditugaskan." },
@@ -57,7 +70,7 @@ export const COMMITTEE_ORGANIZER_ROLE = {
 export const COMMITTEE_ACCOUNT_ROLES = [COMMITTEE_ORGANIZER_ROLE, ...COMMITTEE_ROLES];
 
 export const roleLabel = (role: string) =>
-  COMMITTEE_ACCOUNT_ROLES.find((item) => item.value === role)?.label || role.replaceAll("_", " ");
+  role === "SUPER_ADMIN" ? "Super Admin" : COMMITTEE_ACCOUNT_ROLES.find((item) => item.value === role)?.label || role.replaceAll("_", " ");
 
 export const formatCommitteeDate = (value?: string | null) =>
   value ? new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "Tidak dibatasi";

@@ -1,88 +1,162 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
+import { useGetIdentity } from "@refinedev/core";
 import { ArrowLeft, Printer } from "lucide-react";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { CommitteeLayout } from "@/components/layouts/CommitteeLayout";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge } from "@/components/common/StatusBadge";
 import { eventApi } from "@/lib/eventApi";
+import type { AuthIdentity } from "@/lib/refine/authProvider";
+import { participantStaffPermissions } from "@/lib/participantManagement";
+import { attendanceLabels, checkinMethodLabels } from "@/lib/attendance";
+import { eventTimezoneLabel, formatEventDate, formatEventDateTime } from "@/lib/eventDateTime";
+import "@/styles/attendance-workspace.css";
 
+type Unit = { unitId: string; type: "DAY" | "SESSION"; title: string; date: string; status: string; dayId: string;
+  sessionId: string | null; qrEnabled: boolean; recordId: string | null; checkinAt: string | null; checkinMethod: string | null; canMark: boolean };
 type Report = {
   generatedAt: string;
-  event: { code: string; name: string; startDate: string; endDate: string; venueName?: string | null; attendanceMode: string };
-  participant: { participantCode: string; registrationSource: string; confirmationStatus: string; approvalStatus: string; ustadzName: string; institutionName?: string | null };
-  attendance: {
-    totalUnitsAttended: number;
-    fulfilledUnits: number;
-    requiredUnits: number;
-    completionPercentage: number;
-    statusCategory: string;
-    unitStatuses: Array<{ unitId: string; type: "DAY" | "SESSION"; title: string; date: string; status: string }>;
-  };
+  event: { code: string; name: string; startDate: string; endDate: string; venueName?: string | null; timezone: string };
+  participant: { participantCode: string; registrationSource: string; ustadzName: string; institutionName?: string | null };
+  attendance: { eligible: boolean; blockReason: string | null; fulfilledUnits: number; requiredUnits: number;
+    completionPercentage: number; statusCategory: string; unitStatuses: Unit[] };
 };
-
-const statusVariant = (status: string) =>
-  ["PRESENT", "LATE", "HADIR_PENUH"].includes(status)
-    ? "success" as const
-    : ["EXCUSED", "PERMITTED", "HADIR_SEBAGIAN", "IZIN_LENGKAP"].includes(status)
-      ? "warning" as const
-      : ["ABSENT", "TIDAK_HADIR"].includes(status)
-        ? "danger" as const
-        : "neutral" as const;
-
-const previewReport: Report = {
-  generatedAt: new Date().toISOString(),
-  event: { code: "ADA-2026-BDG", name: "Daurah Asatidz Nasional 2026", startDate: "2026-08-15", endDate: "2026-08-17", venueName: "Bandung", attendanceMode: "DAILY_AND_SESSION" },
-  participant: { participantCode: "ADA-BDG-001", registrationSource: "INSTITUTION_DELEGATION", confirmationStatus: "CONFIRMED", approvalStatus: "APPROVED", ustadzName: "Ustadz Abdullah, Lc.", institutionName: "Ma'had Ilmu Sunnah Bandung" },
-  attendance: { totalUnitsAttended: 3, fulfilledUnits: 3, requiredUnits: 4, completionPercentage: 75, statusCategory: "HADIR_SEBAGIAN", unitStatuses: [
-    { unitId: "DAY:1", type: "DAY", title: "Kehadiran harian · Hari 1", date: "2026-08-15", status: "PRESENT" },
-    { unitId: "SESSION:1", type: "SESSION", title: "Pembukaan", date: "2026-08-15", status: "PRESENT" },
-    { unitId: "DAY:2", type: "DAY", title: "Kehadiran harian · Hari 2", date: "2026-08-17", status: "PRESENT" },
-    { unitId: "SESSION:2", type: "SESSION", title: "Materi penutup", date: "2026-08-17", status: "NOT_RECORDED" },
-  ] },
-};
-
-const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+const statuses = ["PRESENT", "LATE", "EXCUSED", "PERMITTED", "ABSENT"];
+const statusVariant = (status: string) => ["PRESENT", "LATE", "HADIR_PENUH"].includes(status) ? "success" as const
+  : ["EXCUSED", "PERMITTED", "HADIR_SEBAGIAN", "IZIN_LENGKAP"].includes(status) ? "warning" as const
+  : ["ABSENT", "TIDAK_HADIR"].includes(status) ? "danger" as const : "neutral" as const;
+const isUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
 export const AttendanceReportPage: React.FC = () => {
   const { id = "", participantId = "" } = useParams();
   const committeeMode = useLocation().pathname.startsWith("/committee/");
-  const backHref = committeeMode ? "/committee/attendance" : `/admin/events/${id}/attendance`;
-  const [report, setReport] = useState<Report | null>(null);
-  const [error, setError] = useState("");
+  const backHref = committeeMode ? `/committee/attendance?eventId=${encodeURIComponent(id)}` : `/admin/events/${id}/attendance`;
+  const { data: identity } = useGetIdentity<AuthIdentity>();
+  const permissions = participantStaffPermissions(identity?.assignments, id);
+  const scope = `${id}/${participantId}`;
+  const [loaded, setLoaded] = useState<{ scope: string; data: Report } | null>(null);
+  const report = loaded?.scope === scope ? loaded.data : null;
+  const [loadError, setLoadError] = useState("");
+  const [actionError, setActionError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState<Unit | null>(null);
+  const [status, setStatus] = useState("PRESENT");
+  const [reason, setReason] = useState("");
+  const [reload, setReload] = useState(0);
+  const mutation = useRef<AbortController | null>(null);
+  const activeScope = useRef(scope);
+  activeScope.current = scope;
+  const canMark = permissions.includes("attendance.record");
+  const canCorrect = permissions.includes("attendance.correct");
 
   useEffect(() => {
+    const controller = new AbortController();
+    setLoaded(null); setEditing(null); setLoadError(""); setActionError(""); setNotice(""); setBusy(false);
     if (!isUuid(id) || !isUuid(participantId)) {
-      setReport(previewReport);
+      setLoadError("Rapor memerlukan event dan peserta yang tersimpan."); setLoading(false);
       return;
     }
-    void eventApi<Report>(`/events/${id}/attendance/${participantId}/report`)
-      .then(setReport)
-      .catch((cause) => setError(cause instanceof Error ? cause.message : "Rapor tidak dapat dimuat."));
-  }, [id, participantId]);
+    setLoading(true);
+    void eventApi<Report>(`/events/${id}/attendance/${participantId}/report`, { signal: controller.signal })
+      .then((data) => { if (!controller.signal.aborted) setLoaded({ scope, data }); })
+      .catch((cause) => { if (!controller.signal.aborted) setLoadError(cause.message); })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => { controller.abort(); mutation.current?.abort(); mutation.current = null; };
+  }, [id, participantId, reload, scope]);
 
-  const content = (
-    <>
-      <div className="attendance-report-actions">
-        <PageHeader title="Rapor kehadiran peserta" description="Ringkasan resmi kehadiran harian dan sesi untuk satu peserta." breadcrumbs={committeeMode ? [{ label: "Panitia", href: "/committee" }, { label: "Kehadiran", href: "/committee/attendance" }, { label: "Rapor" }] : [{ label: "Admin", href: "/admin" }, { label: "Event", href: "/admin/events" }, { label: "Kehadiran", href: backHref }, { label: "Rapor" }]} actions={<div className="flex gap-2"><Link to={backHref} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-700"><ArrowLeft className="h-4 w-4" />Kembali</Link><button type="button" onClick={() => window.print()} disabled={!report} className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white disabled:opacity-50"><Printer className="h-4 w-4" />Cetak / PDF</button></div>} />
-      </div>
-      {error ? <div role="alert" className="border-y border-rose-200 bg-rose-50 p-4 text-sm font-bold text-rose-900">{error}</div> : !report ? <div className="h-96 animate-pulse bg-slate-100" /> : (
-        <article className="attendance-report mx-auto max-w-5xl border border-slate-200 bg-white">
-          <header className="border-b-4 border-emerald-700 p-6 sm:p-8">
-            <img src="/images/tarbiyah-sunnah-logo.svg" alt="Tarbiyah Sunnah" width="170" height="48" className="mb-4 h-auto w-[150px] object-contain sm:w-[170px]" />
-            <p className="text-xs font-black uppercase tracking-widest text-emerald-700">Daurah Duat dan Pegiat Dakwah · {report.event.code}</p>
-            <h1 className="mt-3 text-2xl font-black text-slate-950">{report.event.name}</h1>
-            <p className="mt-2 text-sm text-slate-600">{new Date(`${report.event.startDate}T00:00:00`).toLocaleDateString("id-ID", { dateStyle: "long" })}–{new Date(`${report.event.endDate}T00:00:00`).toLocaleDateString("id-ID", { dateStyle: "long" })} · {report.event.venueName || "Lokasi belum dicatat"}</p>
-          </header>
-          <section className="grid border-b border-slate-200 md:grid-cols-[minmax(0,1fr)_18rem]">
-            <div className="p-6 sm:p-8"><p className="text-xs font-black uppercase tracking-wide text-slate-400">Peserta</p><h2 className="mt-2 text-xl font-black text-slate-950">{report.participant.ustadzName}</h2><p className="mt-2 text-sm text-slate-600">{report.participant.participantCode} · {report.participant.institutionName || "Peserta individual"}</p><p className="mt-1 text-xs text-slate-500">Jalur: {report.participant.registrationSource.replaceAll("_", " ")}</p></div>
-            <div className="border-t border-slate-200 bg-slate-50 p-6 md:border-l md:border-t-0"><p className="text-4xl font-black tabular-nums text-emerald-800">{report.attendance.completionPercentage}%</p><p className="mt-1 text-sm font-bold text-slate-600">{report.attendance.fulfilledUnits}/{report.attendance.requiredUnits} unit terpenuhi</p><div className="mt-3"><StatusBadge label={report.attendance.statusCategory.replaceAll("_", " ")} variant={statusVariant(report.attendance.statusCategory)} /></div></div>
-          </section>
-          <section className="p-6 sm:p-8"><h2 className="text-base font-black text-slate-950">Rincian hari dan sesi</h2><div className="mt-4 overflow-x-auto"><table className="min-w-full text-left text-sm"><thead className="bg-slate-50 text-xs font-black uppercase tracking-wide text-slate-500"><tr><th className="px-4 py-3">Tanggal</th><th className="px-4 py-3">Jenis</th><th className="px-4 py-3">Unit kehadiran</th><th className="px-4 py-3">Status</th></tr></thead><tbody className="divide-y divide-slate-100">{report.attendance.unitStatuses.map((unit) => <tr key={unit.unitId}><td className="whitespace-nowrap px-4 py-3">{new Date(`${unit.date}T00:00:00`).toLocaleDateString("id-ID")}</td><td className="px-4 py-3 font-bold">{unit.type === "DAY" ? "Harian" : "Sesi"}</td><td className="px-4 py-3">{unit.title}</td><td className="px-4 py-3"><StatusBadge label={unit.status.replaceAll("_", " ")} variant={statusVariant(unit.status)} /></td></tr>)}</tbody></table></div></section>
-          <footer className="border-t border-slate-200 bg-slate-50 px-6 py-4 text-xs text-slate-500 sm:px-8">Dibuat {new Date(report.generatedAt).toLocaleString("id-ID")} · Data mengikuti catatan kehadiran dan koreksi panitia.</footer>
-        </article>
-      )}
-    </>
-  );
+  const save = async (form: React.FormEvent) => {
+    form.preventDefault();
+    if (!editing || !report || mutation.current || (editing.recordId ? !canCorrect || reason.trim().length < 3 : !canMark || !editing.canMark)) return;
+    const controller = new AbortController();
+    mutation.current = controller;
+    setBusy(true); setActionError(""); setNotice("");
+    const base = `/events/${id}/attendance`;
+    try {
+      if (editing.recordId) {
+        await eventApi(`${base}/${editing.recordId}/correct`, { method: "POST", signal: controller.signal,
+          body: JSON.stringify({ attendanceStatus: status, reason: reason.trim() }) });
+      } else {
+        await eventApi(`${base}/manual-mark`, { method: "POST", signal: controller.signal,
+          body: JSON.stringify({ participantId, attendanceStatus: status, notes: reason.trim() || null,
+            ...(editing.type === "DAY" ? { dayId: editing.dayId } : { sessionId: editing.sessionId }) }) });
+      }
+      if (controller.signal.aborted || activeScope.current !== scope) return;
+      setEditing(null);
+      setNotice(`${attendanceLabels[status]} tersimpan untuk ${editing.title}.`);
+      try {
+        const data = await eventApi<Report>(`${base}/${participantId}/report`, { signal: controller.signal });
+        if (!controller.signal.aborted && activeScope.current === scope) setLoaded({ scope, data });
+      } catch {
+        if (!controller.signal.aborted && activeScope.current === scope) {
+          setLoaded(null); setLoadError("Perubahan tersimpan, tetapi rapor belum diperbarui. Muat ulang sebelum mengedit lagi.");
+        }
+      }
+    } catch (cause) {
+      if (!controller.signal.aborted && activeScope.current === scope) setActionError(cause instanceof Error ? cause.message : "Kehadiran gagal disimpan.");
+    } finally {
+      if (mutation.current === controller) { mutation.current = null; setBusy(false); }
+    }
+  };
+
+  const startEdit = (unit: Unit) => {
+    setEditing(unit); setActionError(""); setNotice(""); setReason("");
+    setStatus(statuses.includes(unit.status) ? unit.status : "PRESENT");
+  };
+
+  const content = <>
+    <div className="attendance-report-actions">
+      <PageHeader title="Rapor kehadiran peserta" description="Kehadiran harian dan sesi untuk satu peserta."
+        breadcrumbs={[{ label: committeeMode ? "Panitia" : "Admin", href: committeeMode ? "/committee" : "/admin" }, { label: "Kehadiran", href: backHref }, { label: "Rapor" }]}
+        actions={<div className="attendance-actions"><Link to={backHref} className="attendance-control"><ArrowLeft size={16} aria-hidden="true" /> Kembali</Link>
+          <button type="button" className="attendance-control" onClick={() => window.print()} disabled={!report || busy}><Printer size={16} aria-hidden="true" /> Cetak / PDF</button></div>} />
+    </div>
+    {notice && <div className="attendance-report-actions attendance-feedback mb-4" data-tone="success" role="status">{notice}</div>}
+    {loadError ? <div className="attendance-panel"><div className="attendance-feedback" data-tone="error" role="alert">{loadError}</div>
+      {isUuid(id) && isUuid(participantId) && <div className="attendance-actions"><button type="button" className="attendance-control" onClick={() => setReload((value) => value + 1)}>Muat ulang</button></div>}
+    </div> : loading || !report ? <p role="status" className="p-4">Memuat rapor…</p> :
+      <article className="attendance-report mx-auto max-w-5xl border border-[var(--color-event-rule)] bg-[var(--color-event-paper)]">
+        <header className="border-b border-[var(--color-event-rule)] p-5 sm:p-8">
+          <img src="/images/tarbiyah-sunnah-logo.svg" alt="Tarbiyah Sunnah" width="170" height="48" className="mb-4 h-auto w-[150px] object-contain" />
+          <p className="text-sm font-bold text-[var(--color-event-accent)]">Daurah Duat dan Pegiat Dakwah · {report.event.code}</p>
+          <h1 className="mt-2 break-words text-2xl font-black text-[var(--color-event-ink)]">{report.event.name}</h1>
+          <p className="mt-2 text-sm text-[var(--color-event-muted)]">{formatEventDate(report.event.startDate)}–{formatEventDate(report.event.endDate)} · {report.event.venueName || "Lokasi belum dicatat"}</p>
+        </header>
+        <section className="grid gap-4 border-b border-[var(--color-event-rule)] p-5 sm:p-8 md:grid-cols-[minmax(0,1fr)_16rem]">
+          <div><h2 className="break-words text-xl font-black">{report.participant.ustadzName}</h2><p className="mt-1 text-sm">{report.participant.participantCode} · {report.participant.institutionName || "Peserta individual"}</p>
+            {report.attendance.blockReason && <p className="mt-2 text-sm">Tidak dihitung dalam presensi wajib: {report.attendance.blockReason}</p>}</div>
+          <div>{report.attendance.eligible && <p className="mb-2 text-lg font-bold tabular-nums">{report.attendance.completionPercentage}% · {report.attendance.fulfilledUnits}/{report.attendance.requiredUnits} unit terpenuhi</p>}
+            <StatusBadge label={attendanceLabels[report.attendance.statusCategory] || report.attendance.statusCategory} variant={statusVariant(report.attendance.statusCategory)} /></div>
+        </section>
+        <section className="p-5 sm:p-8">
+          <h2 className="text-lg font-black">Rincian hari dan sesi</h2>
+          {!report.attendance.unitStatuses.length && <p className="mt-3 text-sm">Belum ada unit presensi yang dijadwalkan.</p>}
+          <ol className="mt-3 grid divide-y divide-[var(--color-event-rule)]">{report.attendance.unitStatuses.map((unit) => <li key={unit.unitId} className="grid min-w-0 gap-2 py-4">
+            <div className="flex flex-wrap items-start justify-between gap-2"><div className="min-w-0">
+              <p className="text-sm text-[var(--color-event-muted)]">{formatEventDate(unit.date)} · {unit.type === "DAY" ? "Harian" : "Sesi"}{!unit.qrEnabled && " · Manual saja"}</p>
+              <h3 className="break-words font-bold">{unit.title}</h3></div>
+              <StatusBadge label={attendanceLabels[unit.status] || unit.status} variant={statusVariant(unit.status)} /></div>
+            {unit.checkinAt && <p className="text-sm">{formatEventDateTime(unit.checkinAt, report.event.timezone)} {eventTimezoneLabel(report.event.timezone)}{unit.checkinMethod && ` · ${checkinMethodLabels[unit.checkinMethod] || unit.checkinMethod}`}</p>}
+            {(unit.recordId ? canCorrect : canMark && unit.canMark) && editing?.unitId !== unit.unitId &&
+              <div className="attendance-report-actions attendance-actions"><button type="button" className="attendance-control" disabled={busy} onClick={() => startEdit(unit)}>
+                {unit.recordId ? "Koreksi" : "Catat manual"}</button></div>}
+            {editing?.unitId === unit.unitId && <form className="attendance-report-actions attendance-panel" onSubmit={(form) => void save(form)} aria-label={unit.recordId ? "Koreksi presensi" : "Catat manual"}>
+              <label>Status kehadiran<select value={status} onChange={(change) => setStatus(change.target.value)} disabled={busy}>
+                {statuses.map((value) => <option key={value} value={value}>{attendanceLabels[value]}</option>)}</select></label>
+              <label>{unit.recordId ? "Alasan koreksi (wajib)" : "Catatan (opsional)"}
+                <textarea value={reason} disabled={busy} required={Boolean(unit.recordId)} minLength={unit.recordId ? 3 : undefined} maxLength={500} rows={2}
+                  onChange={(change) => setReason(change.target.value)} /></label>
+              {actionError && <div className="attendance-feedback" data-tone="error" role="alert">{actionError}</div>}
+              <div className="attendance-actions"><button type="submit" className="attendance-control" data-primary disabled={busy || Boolean(unit.recordId) && reason.trim().length < 3}>
+                {busy ? "Menyimpan…" : unit.recordId ? "Simpan koreksi" : "Simpan presensi"}</button>
+                <button type="button" className="attendance-control" disabled={busy} onClick={() => setEditing(null)}>Batal</button></div>
+            </form>}
+          </li>)}</ol>
+        </section>
+        <footer className="border-t border-[var(--color-event-rule)] p-5 text-sm text-[var(--color-event-muted)]">Dibuat {formatEventDateTime(report.generatedAt, report.event.timezone)} {eventTimezoneLabel(report.event.timezone)} · Mengikuti catatan dan koreksi panitia.</footer>
+      </article>}
+  </>;
   return committeeMode ? <CommitteeLayout>{content}</CommitteeLayout> : <AdminLayout>{content}</AdminLayout>;
 };

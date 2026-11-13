@@ -80,6 +80,8 @@ export function createSessionToken(
 const PORTAL_ROLES: Record<string, RoleCode[]> = {
   admin: ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD", "REPORT_VIEWER", "EVENT_ADMIN", "COMMITTEE_ORGANIZER"],
   committee: [
+    "SUPER_ADMIN",
+    "EVENT_ADMIN",
     "COMMITTEE_ORGANIZER",
     "COMMITTEE_ADMIN",
     "COMMITTEE_LEAD",

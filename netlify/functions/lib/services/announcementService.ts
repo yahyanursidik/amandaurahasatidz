@@ -5,6 +5,7 @@ import { eq, and, desc, inArray, asc, isNull, ne, or, lte, gte, sql } from "driz
 import { ConflictError, NotFoundError, ValidationError } from "../utils/errors";
 import { enqueueEmailJob } from "./emailQueueService";
 import { createAuditLog } from "./auditService";
+import { ATTENDED_STATUSES } from "./attendanceModel";
 import { buildCommunicationPreview, communicationVariables, legacyCommunicationText, normalizeCommunicationEmail,
   renderFinalCommunication, type CommunicationRecipient } from "./communicationRendering";
 
@@ -210,8 +211,9 @@ export async function resolveTargetRecipients(eventId: string, audienceType: str
     .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
     .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id));
   const rows = audienceType === "ATTENDED_SPECIFIC_DAY"
-    ? await query.innerJoin(attendanceRecords, eq(eventParticipants.id, attendanceRecords.participantId))
-      .where(and(...filters, eq(attendanceRecords.attendanceStatus, "PRESENT"))).orderBy(asc(eventParticipants.id))
+    ? await query.innerJoin(attendanceRecords, and(eq(eventParticipants.id, attendanceRecords.participantId),
+      eq(attendanceRecords.eventId, eventId)))
+      .where(and(...filters, inArray(attendanceRecords.attendanceStatus, ATTENDED_STATUSES))).orderBy(asc(eventParticipants.id))
     : await query.where(and(...filters)).orderBy(asc(eventParticipants.id));
   return [...new Map(rows.map((row) => [row.participantId, { ...row, userId: null }])).values()];
 }

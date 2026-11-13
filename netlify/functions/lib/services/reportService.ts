@@ -10,8 +10,10 @@ import {
   eventSessions,
   events,
 } from "../db/schema";
-import { eq, and, count, countDistinct, desc, sql, isNull, isNotNull } from "drizzle-orm";
+import { eq, and, count, countDistinct, desc, sql, isNull, isNotNull, inArray } from "drizzle-orm";
 import { ValidationError } from "../utils/errors";
+import { eventNoShowCondition } from "../repositories/attendanceRepository";
+import { ATTENDED_STATUSES } from "./attendanceModel";
 
 export interface PaginationParams {
   page?: number;
@@ -180,21 +182,11 @@ export async function getPaginatedReportService(
     }
 
     case "no-show": {
-      const noAttendance = sql`not exists (
-        select 1 from attendance_records ar
-        where ar.participant_id = ${eventParticipants.id}
-          and ar.attendance_status in ('PRESENT', 'LATE')
-      )`;
-      const noShowCondition = params.eventId
-        ? and(
-            eq(eventParticipants.confirmationStatus, "CONFIRMED"),
-            eq(eventParticipants.eventId, params.eventId),
-            noAttendance,
-          )
-        : and(eq(eventParticipants.confirmationStatus, "CONFIRMED"), noAttendance);
+      const noShowCondition = eventNoShowCondition(params.eventId);
       const totalRes = await db
         .select({ total: count() })
         .from(eventParticipants)
+        .innerJoin(events, eq(eventParticipants.eventId, events.id))
         .where(noShowCondition);
       total = totalRes[0]?.total || 0;
 
@@ -207,9 +199,11 @@ export async function getPaginatedReportService(
           confirmationStatus: eventParticipants.confirmationStatus,
         })
         .from(eventParticipants)
+        .innerJoin(events, eq(eventParticipants.eventId, events.id))
         .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
         .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
         .where(noShowCondition)
+        .orderBy(desc(events.endDate), eventParticipants.id)
         .limit(pageSize)
         .offset(offset);
       break;
@@ -229,7 +223,8 @@ export async function getPaginatedReportService(
         })
         .from(ustadzProfiles)
         .innerJoin(eventParticipants, eq(ustadzProfiles.id, eventParticipants.ustadzId))
-        .innerJoin(attendanceRecords, eq(eventParticipants.id, attendanceRecords.participantId))
+        .innerJoin(attendanceRecords, and(eq(eventParticipants.id, attendanceRecords.participantId),
+          eq(eventParticipants.eventId, attendanceRecords.eventId), inArray(attendanceRecords.attendanceStatus, ATTENDED_STATUSES)))
         .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
         .groupBy(ustadzProfiles.id, ustadzProfiles.fullName, ustadzProfiles.email)
         .having(sql`count(distinct ${eventParticipants.eventId}) > 1`)

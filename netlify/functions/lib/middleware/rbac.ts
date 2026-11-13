@@ -122,6 +122,13 @@ export function requirePermission(
   }
 }
 
+/** Participant portal assignments only confer access to the user's own history. */
+export function requireStaffAttendanceRead(userSession: UserContext | null, eventId: string) {
+  const session = requireAuth(userSession);
+  requirePermission({ ...session, assignments: session.assignments.filter((assignment) =>
+    !["USTADZ", "INSTITUTION_REPRESENTATIVE"].includes(assignment.roleCode)) }, "attendance.read", eventId);
+}
+
 /** Unscoped system-wide reads must never be authorized by an event role. */
 export function requireGlobalPermission(userSession: UserContext | null, action: PermissionCode): void {
   const session = requireAuth(userSession);

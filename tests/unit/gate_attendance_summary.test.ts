@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const { scheduleMock, getDbMock } = vi.hoisted(() => ({ scheduleMock: vi.fn(), getDbMock: vi.fn() }));
-vi.mock("../../netlify/functions/lib/repositories/attendanceRepository", () => ({ findAttendanceScheduleForEventRepository: scheduleMock }));
+vi.mock(import("../../netlify/functions/lib/repositories/attendanceRepository"), async (original) => ({
+  ...await original(), findAttendanceScheduleForEventRepository: scheduleMock,
+}));
 vi.mock("../../netlify/functions/lib/db/client", () => ({ getDbClient: getDbMock }));
 
 import { getGateAttendanceSummaryService } from "../../netlify/functions/lib/services/attendanceService";
@@ -20,8 +22,8 @@ describe("ringkasan gate per hari", () => {
   });
 
   it("menghitung belum hadir dari peserta yang terdaftar di hari pilihan", async () => {
-    getDbMock.mockReturnValue({ select: () => ({ from: () => ({ where: async () => [{ total: 5, present: 2 }] }) }) });
+    getDbMock.mockReturnValue({ select: () => ({ from: () => ({ where: async () => [{ total: 5, present: 2, excused: 1 }] }) }) });
     expect(await getGateAttendanceSummaryService("event-1", "DAY:00000000-0000-4000-8000-000000000001"))
-      .toEqual({ unitId: "DAY:00000000-0000-4000-8000-000000000001", total: 5, present: 2, absent: 3 });
+      .toEqual({ unitId: "DAY:00000000-0000-4000-8000-000000000001", total: 5, present: 2, excused: 1, absent: 2 });
   });
 });

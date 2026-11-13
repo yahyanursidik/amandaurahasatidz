@@ -1,99 +1,146 @@
-import React, { useState, useEffect } from "react";
-import { QrCode, RefreshCw, ShieldCheck, Clock, Sparkles } from "lucide-react";
+/* Hallmark · macrostructure: Workbench · theme: existing emerald-slate · nav: N3 · footer: Ft2
+ * Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4 */
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import { Link, useSearchParams } from "react-router-dom";
+import { QRCodeSVG } from "qrcode.react";
+import { QrCode, RefreshCw, ScanLine } from "lucide-react";
+import { CommitteeLayout } from "@/components/layouts/CommitteeLayout";
+import { committeeApi, committeeEventsFor, type CommitteeAssignment } from "@/lib/committeeApi";
+import { attendanceUnitSelection, pickCheckinUnit, type CheckinSchedule } from "@/lib/attendance";
+import { eventTimezoneLabel, formatEventDate, formatEventDateTime } from "@/lib/eventDateTime";
+import { locationCheckinUrl, type LocationCheckinTarget } from "@/lib/locationCheckin";
+import "@/styles/attendance-workspace.css";
+
+type LocationQr = Omit<LocationCheckinTarget, "rawLocationQrToken"> & { rawToken: string; validForMs: number };
 
 export const CommitteeQrDisplayPage: React.FC = () => {
-  const [countdown, setCountdown] = useState(30);
-  const [rotationCount, setRotationCount] = useState(1);
-
-  const mockSession = {
-    eventName: "Daurah Asatidz Nasional 2026 - Bandung",
-    title: "Sesi 2: Pengantar Fiqih Daurah Modern",
-    date: "15 Agustus 2026",
-    timeWindow: "10:00 - 12:00 WIB",
-  };
+  const [params, setParams] = useSearchParams();
+  const [events, setEvents] = useState<CommitteeAssignment[]>([]);
+  const [schedule, setSchedule] = useState<CheckinSchedule | null>(null);
+  const [unitId, setUnitId] = useState("");
+  const [qr, setQr] = useState<(LocationCheckinTarget & { displayUntil: number }) | null>(null);
+  const [now, setNow] = useState(Date.now);
+  const [display, setDisplay] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [reload, setReload] = useState(0);
+  const request = useRef<AbortController | null>(null);
+  const requestedEventId = params.get("eventId");
+  const event = requestedEventId ? events.find((item) => item.eventId === requestedEventId) : events[0];
+  const eventId = event?.eventId;
+  const unit = schedule?.units.find((item) => item.id === unitId);
+  const seconds = qr ? Math.max(0, Math.ceil((qr.displayUntil - now) / 1000)) : 0;
 
   useEffect(() => {
-    const timer = setInterval(() => {
-      setCountdown((prev) => {
-        if (prev <= 1) {
-          setRotationCount((c) => c + 1);
-          return 30; // Auto-rotate every 30 seconds
-        }
-        return prev - 1;
-      });
-    }, 1000);
+    const controller = new AbortController();
+    setLoading(true); setError("");
+    void committeeApi<{ assignments: CommitteeAssignment[] }>("/committee/context", { signal: controller.signal })
+      .then((data) => { if (!controller.signal.aborted) setEvents(committeeEventsFor(data.assignments, "attendance.record")); })
+      .catch((cause) => { if (!controller.signal.aborted) { setEvents([]); setError(cause.message); } })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [reload]);
 
-    return () => clearInterval(timer);
+  const stopDisplay = useCallback(() => {
+    request.current?.abort(); request.current = null;
+    setDisplay(false); setQr(null); setBusy(false);
   }, []);
+  useEffect(() => () => request.current?.abort(), []);
 
-  const handleManualRotate = () => {
-    setCountdown(30);
-    setRotationCount((c) => c + 1);
-  };
+  useEffect(() => {
+    setSchedule(null); setUnitId(""); stopDisplay();
+    if (!eventId) return;
+    const controller = new AbortController();
+    const load = () => void committeeApi<CheckinSchedule>(`/events/${eventId}/sessions/active`, { signal: controller.signal })
+      .then((data) => { if (!controller.signal.aborted) { setSchedule(data); setUnitId((previous) => pickCheckinUnit(data.units, previous)); } })
+      .catch((cause) => { if (!controller.signal.aborted) { setSchedule(null); stopDisplay(); setError(cause.message); } });
+    load();
+    const timer = window.setInterval(() => { if (!document.hidden) load(); }, 45_000);
+    return () => { controller.abort(); window.clearInterval(timer); };
+  }, [eventId, reload, stopDisplay]);
 
-  return (
-    <div className="min-h-screen bg-slate-950 text-white flex flex-col items-center justify-center p-6 space-y-8 select-none">
-      {/* Header Banner */}
-      <div className="text-center space-y-2 max-w-2xl">
-        <span className="text-[11px] font-mono font-bold tracking-widest text-emerald-400 uppercase bg-emerald-950/80 border border-emerald-500/30 px-3 py-1 rounded-full inline-block mb-1">
-          Layar Presensi Lokasi Dinamis (Dynamic Location QR)
-        </span>
-        <h1 className="text-2xl md:text-3xl font-extrabold text-white tracking-tight">
-          {mockSession.eventName}
-        </h1>
-        <p className="text-sm font-medium text-emerald-300">
-          {mockSession.title} ({mockSession.timeWindow})
-        </p>
-      </div>
+  const issue = useCallback(async (rotate = false) => {
+    if (!eventId || !unit?.isOpen || request.current || document.hidden) return;
+    const controller = new AbortController();
+    request.current = controller;
+    setBusy(true); setError("");
+    try {
+      const started = Date.now();
+      const result = await committeeApi<LocationQr>(`/events/${eventId}/location-qr`, { method: "POST", signal: controller.signal,
+        body: JSON.stringify({ ...attendanceUnitSelection(unit), rotate }) });
+      if (!controller.signal.aborted) {
+        const { rawToken, validForMs, ...target } = result;
+        setQr({ ...target, rawLocationQrToken: rawToken, displayUntil: started + validForMs });
+        setNow(Date.now());
+      }
+    } catch (cause) {
+      if (!controller.signal.aborted) {
+        setQr(null); setDisplay(false);
+        setError(cause instanceof Error ? cause.message : "QR Lokasi tidak dapat dibuat.");
+      }
+    } finally {
+      if (request.current === controller) { request.current = null; setBusy(false); }
+    }
+  }, [eventId, unit?.id, unit?.isOpen]);
 
-      {/* Dynamic QR Box with Countdown Timer Visualizer */}
-      <div className="bg-slate-900 border-4 border-slate-800 rounded-3xl p-8 shadow-2xl text-center space-y-6 max-w-md w-full relative overflow-hidden">
-        {/* Top Rotator Status */}
-        <div className="flex justify-between items-center text-xs font-mono border-b border-slate-800 pb-4">
-          <span className="text-slate-400 flex items-center space-x-1">
-            <ShieldCheck className="w-4 h-4 text-emerald-400" />
-            <span>Anti-Foto Statis (Rev #{rotationCount})</span>
-          </span>
-          <span className="text-emerald-400 font-bold bg-emerald-950 px-2.5 py-0.5 rounded border border-emerald-500/40">
-            Rotasi: {countdown}s
-          </span>
-        </div>
+  useEffect(() => {
+    if (!display) return;
+    if (!unit?.isOpen) { stopDisplay(); return; }
+    const tick = () => {
+      setNow(Date.now());
+      if (!document.hidden && (!qr || qr.displayUntil <= Date.now())) void issue();
+    };
+    tick();
+    const timer = window.setInterval(tick, 500);
+    document.addEventListener("visibilitychange", tick);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", tick); };
+  }, [display, unit?.isOpen, qr, issue, stopDisplay]);
 
-        {/* QR Visualizer Container */}
-        <div className="w-64 h-64 bg-white rounded-2xl mx-auto flex flex-col items-center justify-center p-4 relative shadow-inner">
-          <QrCode className="w-52 h-52 text-slate-950" />
-          <div className="absolute bottom-2 bg-slate-950/90 text-emerald-400 text-[9px] font-mono px-2 py-0.5 rounded border border-emerald-500/30">
-            loc_qr_rot_{rotationCount}_tok
+  const qrValue = display && unit?.isOpen && qr?.eventId === eventId &&
+    (qr?.sessionId || qr?.dayId) === (unit.sessionId || unit.dayId) && qr && seconds > 0 ? locationCheckinUrl(window.location.origin, qr) : null;
+
+  return <CommitteeLayout>
+    <div className="attendance-workspace">
+      <header className="attendance-workspace__head">
+        <h1>QR Lokasi</h1>
+        <p>Tampilkan QR untuk dicatat sendiri oleh asatidz yang berada di lokasi.</p>
+      </header>
+      {error && <div className="attendance-feedback" role="alert" data-tone="error">{error}</div>}
+      <div className="attendance-workspace__grid">
+        <section className="attendance-workspace__controls" aria-label="Pengaturan QR Lokasi">
+          <label>Event penugasan<select aria-label="Event penugasan" value={eventId || ""} disabled={loading || !events.length}
+            onChange={(change) => { stopDisplay(); setSchedule(null); setUnitId(""); setError(""); setParams({ eventId: change.target.value }, { replace: true }); }}>
+            {!event && <option value="">{loading ? "Memuat event…" : events.length ? "Pilih event penugasan" : "Tidak ada penugasan"}</option>}
+            {events.map((item) => <option key={item.eventId} value={item.eventId}>{item.eventName}</option>)}
+          </select></label>
+          <label>Hari atau sesi<select aria-label="Hari atau sesi" value={unitId} disabled={!schedule?.units.length}
+            onChange={(change) => { stopDisplay(); setError(""); setUnitId(change.target.value); }}>
+            <option value="">Pilih hari atau sesi</option>
+            {schedule?.units.map((item) => <option key={item.id} value={item.id}>{formatEventDate(item.date)} · {item.type === "DAY" ? "Harian" : "Sesi"} · {item.title}{item.isOpen ? " · Dibuka" : ""}</option>)}
+          </select></label>
+          {unit && schedule ? <p>{unit.isOpen ? "Check-in dibuka hingga" : "Jadwal check-in"} {unit.isOpen ? "" : `${formatEventDateTime(unit.openAt, schedule.timezone)} – `}{formatEventDateTime(unit.closeAt, schedule.timezone)} {eventTimezoneLabel(schedule.timezone)}.</p>
+            : <p>{loading ? "Memeriksa penugasan…" : requestedEventId && !event ? "Akun ini tidak memiliki akses QR untuk event pada tautan. Pilih event penugasan Anda."
+              : !events.length ? "Hubungi admin untuk mendapat akses pencatatan." : schedule?.manualUnitCount && !schedule.units.length ? "Jadwal ini menggunakan pencatatan manual melalui rapor." : "Pilih unit yang sedang membuka check-in."}</p>}
+          <div className="attendance-actions">
+            {display ? <><button type="button" className="attendance-control" onClick={stopDisplay}>Jeda layar</button>
+              <button type="button" className="attendance-control" disabled={busy || !unit?.isOpen} onClick={() => void issue(true)}><RefreshCw size={16} aria-hidden="true" /> Putar QR</button></>
+              : <button type="button" className="attendance-control" data-primary disabled={busy || !unit?.isOpen} onClick={() => { setError(""); setDisplay(true); }}><QrCode size={18} aria-hidden="true" /> Tampilkan QR</button>}
+            {eventId && <Link className="attendance-control" to={`/committee/check-in?eventId=${encodeURIComponent(eventId)}`}><ScanLine size={16} aria-hidden="true" /> Scanner peserta</Link>}
+            {error && !display && <button className="attendance-control" type="button" onClick={() => setReload((value) => value + 1)}>Muat ulang</button>}
           </div>
-        </div>
-
-        {/* Progress Bar */}
-        <div className="w-full bg-slate-800 h-2 rounded-full overflow-hidden">
-          <div
-            className="bg-emerald-500 h-full transition-all duration-1000 ease-linear"
-            style={{ width: `${(countdown / 30) * 100}%` }}
-          />
-        </div>
-
-        <p className="text-xs text-slate-300 leading-relaxed font-medium">
-          Pindai QR ini menggunakan fitur <span className="text-emerald-400 font-bold">Self Check-in</span> di Portal Ustadz pada ponsel Anda.
-        </p>
-
-        {/* Manual Refresh Button */}
-        <button
-          onClick={handleManualRotate}
-          className="w-full bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs py-2.5 px-4 rounded-xl border border-slate-700 flex items-center justify-center space-x-2 transition-colors"
-        >
-          <RefreshCw className="w-3.5 h-3.5 text-emerald-400" />
-          <span>Putar Token QR Sekarang</span>
-        </button>
-      </div>
-
-      {/* Footer Instructions */}
-      <div className="text-center text-xs text-slate-400 space-y-1">
-        <p className="font-mono text-emerald-400/90">Daurah Duat dan Pegiat Dakwah • Panitia On-Site Display</p>
-        <p className="text-[11px] text-slate-400">Token lokasi kedaluwarsa secara otomatis setiap 30 detik untuk menjamin kehadiran nyata di tempat acara.</p>
+        </section>
+        <section className="attendance-workspace__display" aria-label="Layar QR Lokasi">
+          <h2>{unit?.title || "Check-in mandiri"}</h2>
+          {event && <p>{event.eventName}{unit && ` · ${formatEventDate(unit.date)}`}</p>}
+          {qrValue ? <>
+            <QRCodeSVG value={qrValue} size={384} marginSize={4} level="M" className="attendance-workspace__qr" title="Pindai QR Lokasi dengan kamera ponsel" />
+            <p className="attendance-workspace__countdown">Berganti dalam <strong>{seconds} dtk</strong></p>
+            <p>Masuk ke Portal Asatidz, pindai QR ini, lalu tekan <strong>Catat kehadiran</strong>.</p>
+          </> : <div className="attendance-workspace__empty" role="status"><QrCode size={42} aria-hidden="true" />
+            <p>{display ? "Menyiapkan QR terbaru…" : "QR belum ditampilkan."}</p></div>}
+        </section>
       </div>
     </div>
-  );
+  </CommitteeLayout>;
 };

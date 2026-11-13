@@ -12,6 +12,7 @@ export const EventEditPage: React.FC = () => {
   const { id = "" } = useParams<{ id: string }>();
   const previewMode = import.meta.env.DEV && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
   const [values, setValues] = useState<EventFormValues | null>(null);
+  const [scheduleLocks, setScheduleLocks] = useState({ mode: false, timezone: false });
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
 
@@ -54,7 +55,10 @@ export const EventEditPage: React.FC = () => {
         return;
       }
       try {
-        const event = await eventApi<any>(`/events/${id}`);
+        const event = await eventApi<any>(`/events/${id}?view=attendance-setup`);
+        const modeLocked = Boolean(event.attendanceSetup?.hasAttendanceRecords || event.attendanceSetup?.scheduleClosed);
+        setScheduleLocks({ mode: modeLocked, timezone: modeLocked || Boolean(event.sessions?.length) ||
+          Boolean(event.days?.some((day: { checkinOpenAt?: string; checkinCloseAt?: string }) => day.checkinOpenAt || day.checkinCloseAt)) });
         setValues({
           code: event.code || "",
           slug: event.slug || "",
@@ -131,7 +135,7 @@ export const EventEditPage: React.FC = () => {
       <EventWorkspaceNav eventId={id} />
       {previewMode && <div role="status" className="mb-5 border-t-2 border-amber-500 bg-amber-50 p-3 text-xs text-amber-950">Mode pratinjau: formulir dapat dicoba, tetapi perubahan tidak disimpan.</div>}
       {error && <div id="event-submit-error" tabIndex={-1} role="alert" className="mb-5 border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-700">{error}</div>}
-      {values ? <EventForm key={id} initialValues={values} lockIdentity submitLabel="Simpan perubahan" submitting={submitting} onCancel={() => navigate(`/admin/events/${id}`)} onSubmit={submit} /> : !error && <div className="h-96 animate-pulse bg-slate-100" />}
+      {values ? <EventForm key={id} initialValues={values} lockIdentity lockAttendance={scheduleLocks.mode} lockTimezone={scheduleLocks.timezone} submitLabel="Simpan perubahan" submitting={submitting} onCancel={() => navigate(`/admin/events/${id}`)} onSubmit={submit} /> : !error && <div className="h-96 animate-pulse bg-slate-100" />}
     </AdminLayout>
   );
 };

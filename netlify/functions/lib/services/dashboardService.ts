@@ -1,5 +1,6 @@
 import { sql } from "drizzle-orm";
 import { getDbClient } from "../db/client";
+import { eventNoShowCondition } from "../repositories/attendanceRepository";
 
 /** Independent scalar aggregates share one database round trip and snapshot. */
 export async function getAdminDashboardMetricsService() {
@@ -17,7 +18,7 @@ export async function getAdminDashboardMetricsService() {
       (select jsonb_build_object('id', e.id, 'name', e.name) from events e
         where exists (select 1 from event_participants p where p.event_id = e.id and p.approval_status = 'PENDING_REVIEW')
         order by e.start_date desc, e.id desc limit 1) as "pendingEvent",
-      (select count(*)::int from attendance_records where attendance_status = 'PRESENT') as "totalAttendedCount",
+      (select count(*)::int from attendance_records where attendance_status in ('PRESENT','LATE')) as "totalAttendedCount",
       (select count(*)::int from email_jobs where status in ('FAILED','DEAD_LETTER')) as "failedEmailsCount",
       coalesce((select jsonb_agg(recent) from (
         select id, code, name, status, start_date as "startDate", end_date as "endDate" from events
@@ -52,9 +53,8 @@ export async function getCommitteeDashboardMetricsService(eventId: string) {
       ) recent), '[]'::jsonb) as "recentCheckins",
       (select count(*)::int from checkin_logs where ${scope} and result = 'FAILED') as "checkinIssuesCount",
       (select count(*)::int from checkin_logs where ${scope} and result = 'DUPLICATE') as "duplicateScansCount",
-      (select count(*)::int from event_participants p where ${scope} and confirmation_status = 'CONFIRMED'
-        and not exists (select 1 from attendance_records a where a.participant_id = p.id
-          and a.attendance_status in ('PRESENT','LATE'))) as "noShowParticipantsCount"
+      (select count(*)::int from event_participants join events on events.id = event_participants.event_id
+        where ${eventNoShowCondition(eventId)}) as "noShowParticipantsCount"
   `);
   return result.rows[0] as unknown as {
     totalParticipantsCount: number; pendingReviewCount: number; waitlistedCount: number; awaitingConfirmationCount: number;

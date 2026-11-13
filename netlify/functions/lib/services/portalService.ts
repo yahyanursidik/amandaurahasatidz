@@ -77,6 +77,7 @@ export async function getPortalOverviewService(userId: string, email: string) {
         eventName: events.name,
         eventSubtitle: events.subtitle,
         eventStatus: events.status,
+        timezone: events.timezone,
         posterUrl: events.posterUrl,
         posterAlt: events.posterAlt,
         startDate: events.startDate,
@@ -107,12 +108,17 @@ export async function getPortalOverviewService(userId: string, email: string) {
             checkinAt: attendanceRecords.checkinAt,
             checkoutAt: attendanceRecords.checkoutAt,
             checkinMethod: attendanceRecords.checkinMethod,
+            dayId: attendanceRecords.eventDayId,
             sessionId: eventSessions.id,
             sessionTitle: eventSessions.title,
             sessionStartAt: eventSessions.startAt,
+            dayTitle: eventDays.title,
+            dayNumber: eventDays.dayNumber,
+            dayDate: eventDays.date,
           })
           .from(attendanceRecords)
           .leftJoin(eventSessions, eq(attendanceRecords.eventSessionId, eventSessions.id))
+          .leftJoin(eventDays, eq(attendanceRecords.eventDayId, eventDays.id))
           .where(inArray(attendanceRecords.participantId, participantIds))
           .orderBy(desc(attendanceRecords.checkinAt))
       : Promise.resolve([]),

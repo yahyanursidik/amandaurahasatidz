@@ -36,7 +36,8 @@ const eventDateSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Tanggal harus b
 
 export const createEventSchema = z.object({
   code: z.string().min(2, "Kode event minimal 2 karakter"),
-  slug: z.string().min(2, "Slug event minimal 2 karakter"),
+  slug: z.string().min(2, "Slug event minimal 2 karakter").max(100)
+    .regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, "Alamat event hanya boleh berisi huruf kecil, angka, dan tanda hubung."),
   name: z.string().min(3, "Nama event minimal 3 karakter"),
   subtitle: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
@@ -90,11 +91,11 @@ export const transitionEventSchema = z.object({
 });
 
 export const createEventDaySchema = z.object({
-  dayNumber: z.coerce.number().min(1),
-  date: z.string(),
+  dayNumber: z.coerce.number().int().min(1),
+  date: eventDateSchema,
   title: z.string().optional().nullable(),
-  checkinOpenAt: z.string().optional().nullable(),
-  checkinCloseAt: z.string().optional().nullable(),
+  checkinOpenAt: z.string().datetime({ offset: true }).optional().nullable(),
+  checkinCloseAt: z.string().datetime({ offset: true }).optional().nullable(),
 });
 
 export const updateEventDaySchema = createEventDaySchema.partial().refine(
@@ -108,13 +109,13 @@ export const createEventSessionSchema = z.object({
   sessionType: z.enum(["MATERIAL", "BREAK", "OPENING", "CLOSING"]).default("MATERIAL"),
   speakerUstadzId: z.string().uuid().optional().nullable(),
   moderatorName: z.string().optional().nullable(),
-  startAt: z.string(),
-  endAt: z.string(),
+  startAt: z.string().datetime({ offset: true }),
+  endAt: z.string().datetime({ offset: true }),
   room: z.string().optional().nullable(),
   attendanceRequired: z.boolean().default(true),
   checkinRequired: z.boolean().default(true),
-  checkinOpenAt: z.string().optional().nullable(),
-  checkinCloseAt: z.string().optional().nullable(),
+  checkinOpenAt: z.string().datetime({ offset: true }).optional().nullable(),
+  checkinCloseAt: z.string().datetime({ offset: true }).optional().nullable(),
   sortOrder: z.coerce.number().default(0),
 });
 

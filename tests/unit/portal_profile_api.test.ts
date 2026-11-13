@@ -43,8 +43,8 @@ describe("portal profile API", () => {
   it("self-checkin ignores stale cached profile id and never uses hardcoded demo fallback", async () => {
     const input = { eventId: actorId, sessionId: "22222222-2222-4222-8222-222222222222", rawLocationQrToken: `loc_qr_${"a".repeat(64)}` };
     expect((await request("POST", "/portal/self-checkin", input)).statusCode).toBe(200);
-    expect(mocks.resolve).toHaveBeenCalledExactlyOnceWith(actorId, loginEmail);
-    expect(mocks.checkin).toHaveBeenCalledExactlyOnceWith("own-resolved-profile", input.eventId, input.sessionId, input.rawLocationQrToken, actorId, "profile-api-test");
+    expect(mocks.resolve).not.toHaveBeenCalled();
+    expect(mocks.checkin).toHaveBeenCalledExactlyOnceWith(input, actorId, "profile-api-test");
   });
   it("self-checkin rejects unknown spoofed IDs and malformed payload before calling services", async () => {
     expect((await request("POST", "/portal/self-checkin", { ustadzId: "someone-else" })).statusCode).toBe(422);

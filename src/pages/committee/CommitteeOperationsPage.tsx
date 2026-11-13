@@ -4,7 +4,7 @@
  * Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -21,16 +21,19 @@ import { StatusBadge } from "@/components/common/StatusBadge";
 import { EventCommunicationCenter, canSwitchCommunicationEvent, type CommunicationNavigationState } from "@/components/admin/events/EventCommunicationCenter";
 import {
   committeeApi,
+  committeeEventsFor,
   CommitteeAssignment,
   formatCommitteeDate,
   roleLabel,
 } from "@/lib/committeeApi";
+import { attendanceLabels } from "@/lib/attendance";
 
 type AttendanceRecap = {
   eventId: string;
   attendanceMode?: string;
-  requiredUnits?: Array<{ id: string; type: "DAY" | "SESSION"; title: string; date: string }>;
+  requiredUnits?: Array<{ id: string; type: "DAY" | "SESSION"; title: string; date: string; qrEnabled?: boolean }>;
   totalParticipants: number;
+  historicalParticipantCount?: number;
   recapSummary: {
     fullAttendance: number;
     partialAttendance: number;
@@ -47,6 +50,7 @@ type AttendanceRecap = {
     totalUnitsAttended?: number;
     requiredUnits?: number;
     completionPercentage?: number;
+    eligible?: boolean;
     statusCategory: string;
     unitStatuses?: Array<{ unitId: string; status: string }>;
   }>;
@@ -74,66 +78,12 @@ const previewAssignments: CommitteeAssignment[] = [
   },
 ];
 
-const previewRecap: AttendanceRecap = {
-  eventId: "preview-event",
-  attendanceMode: "DAILY_AND_SESSION",
-  requiredUnits: [
-    { id: "DAY:preview-1", type: "DAY", title: "Kehadiran harian", date: "2026-08-15" },
-    { id: "SESSION:preview-1", type: "SESSION", title: "Pembukaan", date: "2026-08-15" },
-    { id: "SESSION:preview-2", type: "SESSION", title: "Materi utama", date: "2026-08-15" },
-  ],
-  totalParticipants: 3,
-  recapSummary: {
-    fullAttendance: 1,
-    partialAttendance: 1,
-    lateAttendance: 0,
-    excused: 0,
-    absent: 1,
-  },
-  participantDetails: [
-    {
-      participantId: "preview-1",
-      participantCode: "ADA-BDG-001",
-      ustadzName: "Ustadz Abdullah, Lc.",
-      institutionName: "Ma'had Ilmu Sunnah Bandung",
-      totalSessionsAttended: 2,
-      totalUnitsAttended: 3,
-      requiredUnits: 3,
-      completionPercentage: 100,
-      statusCategory: "HADIR_PENUH",
-      unitStatuses: [{ unitId: "DAY:preview-1", status: "PRESENT" }, { unitId: "SESSION:preview-1", status: "PRESENT" }, { unitId: "SESSION:preview-2", status: "PRESENT" }],
-    },
-    {
-      participantId: "preview-2",
-      participantCode: "ADA-BDG-002",
-      ustadzName: "Ustadz Ahmad",
-      institutionName: "Markaz Sunnah",
-      totalSessionsAttended: 1,
-      totalUnitsAttended: 2,
-      requiredUnits: 3,
-      completionPercentage: 67,
-      statusCategory: "HADIR_SEBAGIAN",
-      unitStatuses: [{ unitId: "DAY:preview-1", status: "PRESENT" }, { unitId: "SESSION:preview-1", status: "PRESENT" }, { unitId: "SESSION:preview-2", status: "NOT_RECORDED" }],
-    },
-    {
-      participantId: "preview-3",
-      participantCode: "ADA-BDG-003",
-      ustadzName: "Ustadz Hasan",
-      institutionName: "Peserta individual",
-      totalSessionsAttended: 0,
-      totalUnitsAttended: 0,
-      requiredUnits: 3,
-      completionPercentage: 0,
-      statusCategory: "TIDAK_HADIR",
-      unitStatuses: [{ unitId: "DAY:preview-1", status: "ABSENT" }, { unitId: "SESSION:preview-1", status: "ABSENT" }, { unitId: "SESSION:preview-2", status: "ABSENT" }],
-    },
-  ],
-};
-
 export const CommitteeOperationsPage: React.FC<{
   mode: "attendance" | "announcements";
 }> = ({ mode }) => {
   const attendanceMode = mode === "attendance";
+  const [params, setParams] = useSearchParams();
+  const requestedEventId = params.get("eventId") || "";
   const [assignments, setAssignments] = useState<CommitteeAssignment[]>([]);
   const [eventId, setEventId] = useState("");
   const [communicationNavigation, setCommunicationNavigation] = useState<CommunicationNavigationState>({ hasUnsavedChanges: false, pending: false });
@@ -142,8 +92,8 @@ export const CommitteeOperationsPage: React.FC<{
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(false);
   const [search, setSearch] = useState("");
-  const [attendanceFilter, setAttendanceFilter] = useState<"ALL" | "HADIR" | "TIDAK_HADIR">("ALL");
-  const activeAssignment = assignments.find((item) => item.eventId === eventId) || assignments[0];
+  const [attendanceFilter, setAttendanceFilter] = useState<"ALL" | "HADIR" | "TIDAK_HADIR" | "RIWAYAT">("ALL");
+  const activeAssignment = assignments.find((item) => item.eventId === eventId);
   const loadContext = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -151,22 +101,24 @@ export const CommitteeOperationsPage: React.FC<{
       const context = await committeeApi<{ assignments: CommitteeAssignment[] }>(
         "/committee/context",
       );
-      if (context.assignments.length === 0) {
-        setPreview(import.meta.env.DEV);
-        setAssignments(import.meta.env.DEV ? previewAssignments : []);
-        setEventId(import.meta.env.DEV ? "preview-event" : "");
+      const available = committeeEventsFor(context.assignments, attendanceMode ? "attendance.read" : "announcements.read");
+      if (!available.length) {
+        setPreview(import.meta.env.DEV && !attendanceMode);
+        setAssignments(import.meta.env.DEV && !attendanceMode ? previewAssignments : []);
+        setEventId(import.meta.env.DEV && !attendanceMode ? "preview-event" : "");
         setError(
           "Akun ini belum memiliki penugasan event aktif. Hubungi admin untuk mengatur akses.",
         );
       } else {
         setPreview(false);
-        setAssignments(context.assignments);
-        setEventId((current) => current || context.assignments[0]?.eventId || "");
+        setAssignments(available);
+        setEventId((current) => requestedEventId ? available.find((item) => item.eventId === requestedEventId)?.eventId || ""
+          : available.find((item) => item.eventId === current)?.eventId || available[0].eventId);
       }
     } catch (loadError) {
-      setPreview(import.meta.env.DEV);
-      setAssignments(import.meta.env.DEV ? previewAssignments : []);
-      setEventId(import.meta.env.DEV ? "preview-event" : "");
+      setPreview(import.meta.env.DEV && !attendanceMode);
+      setAssignments(import.meta.env.DEV && !attendanceMode ? previewAssignments : []);
+      setEventId(import.meta.env.DEV && !attendanceMode ? "preview-event" : "");
       setError(
         loadError instanceof Error
           ? loadError.message
@@ -175,49 +127,49 @@ export const CommitteeOperationsPage: React.FC<{
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [attendanceMode, requestedEventId]);
 
   useEffect(() => {
     void loadContext();
   }, [loadContext]);
 
-  const loadOperationalData = useCallback(async () => {
+  const loadOperationalData = useCallback(async (signal?: AbortSignal) => {
     if (!attendanceMode || !eventId) return;
     setLoading(true);
     setError("");
     try {
-      if (preview) {
-        setRecap(previewRecap);
-      } else {
-        setRecap(await committeeApi<AttendanceRecap>(`/events/${eventId}/attendance/recap`));
-      }
+      const next = await committeeApi<AttendanceRecap>(`/events/${eventId}/attendance/recap`, { signal });
+      if (!signal?.aborted) setRecap(next);
     } catch (loadError) {
-      setError(
+      if (!signal?.aborted) setError(
         loadError instanceof Error ? loadError.message : "Data operasional gagal dimuat.",
       );
     } finally {
-      setLoading(false);
+      if (!signal?.aborted) setLoading(false);
     }
-  }, [attendanceMode, eventId, preview]);
+  }, [attendanceMode, eventId]);
 
   useEffect(() => {
-    void loadOperationalData();
+    const controller = new AbortController();
+    setRecap(null);
+    void loadOperationalData(controller.signal);
+    return () => controller.abort();
   }, [loadOperationalData]);
 
   const filteredParticipants = useMemo(() => {
     const needle = search.trim().toLowerCase();
-    return (recap?.participantDetails || []).filter((participant) => {
+    return (recap?.eventId === eventId ? recap.participantDetails : []).filter((participant) => {
       const matchesSearch =
         !needle ||
         participant.ustadzName.toLowerCase().includes(needle) ||
         participant.participantCode.toLowerCase().includes(needle) ||
         (participant.institutionName || "").toLowerCase().includes(needle);
-      const isAttended = !["TIDAK_HADIR", "BELUM_DIATUR", "BELUM_DIMULAI"].includes(participant.statusCategory);
-      const matchesStatus = attendanceFilter === "ALL" ||
-        (attendanceFilter === "HADIR" ? isAttended : !isAttended);
+      const isAttended = (participant.totalUnitsAttended ?? participant.totalSessionsAttended) > 0;
+      const matchesStatus = attendanceFilter === "ALL" || (attendanceFilter === "RIWAYAT" ? participant.eligible === false
+        : participant.eligible !== false && (attendanceFilter === "HADIR" ? isAttended : !isAttended));
       return matchesSearch && matchesStatus;
     });
-  }, [attendanceFilter, recap?.participantDetails, search]);
+  }, [attendanceFilter, recap, search, eventId]);
 
   if (loading && assignments.length === 0) {
     return (
@@ -248,9 +200,9 @@ export const CommitteeOperationsPage: React.FC<{
           { label: attendanceMode ? "Kehadiran" : "Pengumuman" },
         ]}
         actions={
-          attendanceMode ? (
+          attendanceMode && activeAssignment?.effectivePermissions?.includes("attendance.record") ? (
             <Link
-              to="/committee/check-in"
+              to={`/committee/check-in?eventId=${encodeURIComponent(eventId)}`}
               className="inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg bg-teal-800 px-4 text-sm font-black text-white hover:bg-teal-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
             >
               <ScanLine className="h-4 w-4" />
@@ -290,7 +242,8 @@ export const CommitteeOperationsPage: React.FC<{
           <p className="mt-1 text-sm text-slate-600">
             {activeAssignment
               ? `${roleLabel(activeAssignment.committeeRole)} · konfirmasi ditutup ${formatCommitteeDate(activeAssignment.attendanceConfirmationDeadline)}`
-              : "Data hanya dapat dibuka sesuai lingkup penugasan akun."}
+              : requestedEventId && assignments.length ? "Akun ini tidak memiliki akses rekap untuk event pada tautan. Pilih event penugasan Anda."
+                : "Data hanya dapat dibuka sesuai lingkup penugasan akun."}
           </p>
         </div>
         <div>
@@ -307,9 +260,11 @@ export const CommitteeOperationsPage: React.FC<{
                 window.confirm("Draft atau template belum disimpan. Buang perubahan dan pindah event?"))) return;
               setCommunicationNavigation({ hasUnsavedChanges: false, pending: false });
               setEventId(nextEvent);
+              if (attendanceMode) setParams({ eventId: nextEvent }, { replace: true });
             }}
             className="mt-2 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold outline outline-2 outline-transparent focus-visible:outline-teal-700"
           >
+            {!eventId && <option value="">Pilih event penugasan</option>}
             {assignments.map((assignment) => (
               <option key={assignment.id} value={assignment.eventId}>
                 {assignment.eventCode} · {assignment.eventName}
@@ -325,7 +280,7 @@ export const CommitteeOperationsPage: React.FC<{
           <p className="mt-1 text-xs">{error}</p>
           <button
             type="button"
-            onClick={() => void (attendanceMode ? loadOperationalData() : loadContext())}
+            onClick={() => void (attendanceMode && eventId ? loadOperationalData() : loadContext())}
             className="mt-3 inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap text-xs font-black underline underline-offset-4"
           >
             <RefreshCcw className="h-4 w-4" />
@@ -336,10 +291,10 @@ export const CommitteeOperationsPage: React.FC<{
 
       {attendanceMode ? (
         <div className="space-y-5">
-          <section className="grid grid-cols-2 gap-3 lg:grid-cols-5">
+          <section className="grid grid-cols-2 gap-3 lg:grid-cols-6">
             {[
               {
-                label: "Peserta",
+                label: "Wajib presensi",
                 value: recap?.totalParticipants ?? "—",
                 icon: Users,
               },
@@ -354,15 +309,17 @@ export const CommitteeOperationsPage: React.FC<{
                 icon: ClipboardCheck,
               },
               {
-                label: "Terlambat/izin",
-                value:
-                  recap
-                    ? recap.recapSummary.lateAttendance + recap.recapSummary.excused
-                    : "—",
+                label: "Terlambat",
+                value: recap?.recapSummary.lateAttendance ?? "—",
                 icon: AlertTriangle,
               },
               {
-                label: "Belum hadir",
+                label: "Izin",
+                value: recap?.recapSummary.excused ?? "—",
+                icon: ClipboardCheck,
+              },
+              {
+                label: "Tidak hadir",
                 value: recap?.recapSummary.absent ?? "—",
                 icon: Eye,
               },
@@ -376,6 +333,7 @@ export const CommitteeOperationsPage: React.FC<{
               </div>
             ))}
           </section>
+          <p className="text-sm text-slate-600">Hanya peserta yang memenuhi syarat check-in dihitung. Catatan lama peserta yang tidak lagi aktif tetap tersedia di rapor.</p>
 
           <section className="border border-slate-200 bg-white">
             <div className="grid gap-3 border-b border-slate-200 p-4 md:grid-cols-[minmax(0,1fr)_12rem_auto]">
@@ -400,7 +358,7 @@ export const CommitteeOperationsPage: React.FC<{
                   value={attendanceFilter}
                   onChange={(event) =>
                     setAttendanceFilter(
-                      event.target.value as "ALL" | "HADIR" | "TIDAK_HADIR",
+                      event.target.value as "ALL" | "HADIR" | "TIDAK_HADIR" | "RIWAYAT",
                     )
                   }
                   className="mt-2 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold outline outline-2 outline-transparent focus-visible:outline-teal-700"
@@ -408,6 +366,7 @@ export const CommitteeOperationsPage: React.FC<{
                   <option value="ALL">Semua status</option>
                   <option value="HADIR">Sudah hadir</option>
                   <option value="TIDAK_HADIR">Belum hadir</option>
+                  <option value="RIWAYAT">Riwayat di luar daftar wajib</option>
                 </select>
               </div>
               <button
@@ -433,10 +392,11 @@ export const CommitteeOperationsPage: React.FC<{
                     </p>
                   </div>
                   <p className="text-sm font-bold text-slate-700">
-                    {participant.totalUnitsAttended ?? participant.totalSessionsAttended}/{participant.requiredUnits ?? "—"} unit
+                    {participant.eligible === false ? `${participant.totalUnitsAttended ?? participant.totalSessionsAttended} unit historis`
+                      : `${participant.totalUnitsAttended ?? participant.totalSessionsAttended}/${participant.requiredUnits ?? "—"} unit`}
                   </p>
                   <StatusBadge
-                    label={participant.statusCategory.replaceAll("_", " ")}
+                    label={attendanceLabels[participant.statusCategory] || participant.statusCategory}
                     variant={participant.statusCategory === "HADIR_PENUH" ? "success" : participant.statusCategory === "TIDAK_HADIR" ? "danger" : participant.statusCategory === "BELUM_DIMULAI" ? "neutral" : "warning"}
                   />
                   <Link to={`/committee/attendance/${eventId}/${participant.participantId}/report`} className="inline-flex min-h-[40px] items-center justify-center whitespace-nowrap rounded-lg border border-teal-300 bg-teal-50 px-3 text-xs font-black text-teal-900 hover:bg-teal-100">Rapor</Link>
@@ -457,8 +417,28 @@ export const CommitteeOperationsPage: React.FC<{
               </div>
               <div className="overflow-x-auto">
                 <table className="min-w-max text-left text-xs">
-                  <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500"><tr><th className="sticky left-0 z-10 min-w-56 border-r border-slate-200 bg-slate-50 px-4 py-3">Peserta</th>{recap.requiredUnits.map((unit) => <th key={unit.id} className="min-w-36 border-r border-slate-200 px-3 py-3"><span className="block text-teal-800">{unit.type === "DAY" ? "Harian" : "Sesi"} · {new Date(`${unit.date}T00:00:00`).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}</span><span className="mt-1 block normal-case tracking-normal text-slate-700">{unit.title}</span></th>)}</tr></thead>
-                  <tbody className="divide-y divide-slate-100">{filteredParticipants.map((participant) => <tr key={participant.participantId}><th className="sticky left-0 z-10 border-r border-slate-200 bg-white px-4 py-3"><span className="block font-black text-slate-900">{participant.ustadzName}</span><span className="mt-1 block font-mono text-[10px] text-slate-500">{participant.participantCode}</span></th>{recap.requiredUnits!.map((unit) => { const status = participant.unitStatuses?.find((item) => item.unitId === unit.id)?.status || "NOT_RECORDED"; return <td key={unit.id} className="border-r border-slate-100 px-3 py-3"><StatusBadge label={status.replaceAll("_", " ")} variant={["PRESENT", "LATE"].includes(status) ? "success" : ["EXCUSED", "PERMITTED"].includes(status) ? "warning" : status === "ABSENT" ? "danger" : "neutral"} /></td>; })}</tr>)}</tbody>
+                  <thead className="bg-slate-50 text-xs font-bold text-slate-600">
+                    <tr>
+                      <th scope="col" className="sticky left-0 z-10 min-w-40 border-r border-slate-200 bg-slate-50 px-4 py-3">Peserta</th>
+                      {recap.requiredUnits.map((unit) => <th key={unit.id} scope="col" className="min-w-36 border-r border-slate-200 px-3 py-3">
+                        <span className="block text-teal-800">{unit.type === "DAY" ? "Harian" : unit.qrEnabled === false ? "Sesi manual" : "Sesi QR"} · {new Date(`${unit.date}T00:00:00`).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}</span>
+                        <span className="mt-1 block">{unit.title}</span>
+                      </th>)}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">{filteredParticipants.map((participant) => {
+                    const byUnit = new Map(participant.unitStatuses?.map((item) => [item.unitId, item.status]));
+                    return <tr key={participant.participantId}>
+                      <th scope="row" className="sticky left-0 z-10 max-w-48 border-r border-slate-200 bg-white px-4 py-3">
+                        <span className="block break-words font-bold text-slate-900">{participant.ustadzName}</span>
+                        <span className="mt-1 block break-all font-mono text-slate-600">{participant.participantCode}</span>
+                      </th>
+                      {recap.requiredUnits!.map((unit) => {
+                        const status = byUnit.get(unit.id) || "NOT_RECORDED";
+                        return <td key={unit.id} className="border-r border-slate-100 px-3 py-3"><StatusBadge label={attendanceLabels[status] || status} variant={["PRESENT", "LATE"].includes(status) ? "success" : ["EXCUSED", "PERMITTED"].includes(status) ? "warning" : status === "ABSENT" ? "danger" : "neutral"} /></td>;
+                      })}
+                    </tr>;
+                  })}</tbody>
                 </table>
               </div>
             </section>

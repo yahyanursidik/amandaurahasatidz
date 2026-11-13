@@ -25,9 +25,12 @@ export const CommitteeDashboardPage: React.FC = () => {
   const [eventId, setEventId] = useState("");
 
   useEffect(() => {
+    const controller = new AbortController();
     const load = async () => {
+      setMetrics(null); setError(""); setOffline(false);
       try {
-        const context = await committeeApi<{ assignments: CommitteeAssignment[] }>("/committee/context");
+        const context = await committeeApi<{ assignments: CommitteeAssignment[] }>("/committee/context", { signal: controller.signal });
+        if (controller.signal.aborted) return;
         const now = Date.now();
         const active = context.assignments.filter((assignment) =>
           (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= now)
@@ -35,16 +38,18 @@ export const CommitteeDashboardPage: React.FC = () => {
         setAssignments(active);
         const selectedEventId = active.some((assignment) => assignment.eventId === eventId)
           ? eventId : active[0]?.eventId || "";
-        if (selectedEventId !== eventId) setEventId(selectedEventId);
-        if (!selectedEventId) { setMetrics(null); setOffline(false); return; }
-        setMetrics(await committeeApi<CommitteeMetrics>(`/dashboard/committee?eventId=${selectedEventId}`));
-        setOffline(false); setError("");
+        if (selectedEventId !== eventId) { setEventId(selectedEventId); return; }
+        if (!selectedEventId || !active.some((assignment) => assignment.eventId === selectedEventId && assignment.effectivePermissions?.includes("attendance.read"))) return;
+        const next = await committeeApi<CommitteeMetrics>(`/dashboard/committee?eventId=${selectedEventId}`, { signal: controller.signal });
+        if (!controller.signal.aborted) setMetrics(next);
       } catch (cause) {
+        if (controller.signal.aborted) return;
         setOffline(true);
         setError(cause instanceof Error ? cause.message : "Dashboard panitia belum dapat dimuat.");
       }
     };
     void load();
+    return () => controller.abort();
   }, [eventId]);
 
   const activeAssignment = assignments.find((assignment) => assignment.eventId === eventId);
@@ -53,6 +58,7 @@ export const CommitteeDashboardPage: React.FC = () => {
   const canReadParticipants = eventPermissions.has("participants.read");
   const canApprove = eventPermissions.has("participants.approve");
   const canScan = eventPermissions.has("attendance.record");
+  const canReadAttendance = eventPermissions.has("attendance.read");
 
   return (
     <CommitteeLayout>
@@ -109,7 +115,7 @@ export const CommitteeDashboardPage: React.FC = () => {
           <p className="mt-2 text-sm leading-6 text-slate-700">{metrics?.awaitingConfirmationCount ?? "—"} peserta disetujui belum menyatakan hadir. Buka daftar untuk menghubungi mereka.</p>
         </Link>}
         {canScan && <Link
-          to="/committee/check-in"
+          to={`/committee/check-in?eventId=${encodeURIComponent(eventId)}`}
           className="group rounded-xl bg-slate-950 p-6 text-white transition hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
         >
           <div className="flex items-start justify-between">
@@ -119,11 +125,11 @@ export const CommitteeDashboardPage: React.FC = () => {
             <ArrowRight className="h-5 w-5 text-slate-500 transition-transform group-hover:translate-x-1 group-hover:text-teal-300" />
           </div>
           <h2 className="mt-6 text-lg font-black">Scanner check-in</h2>
-          <p className="mt-2 text-xs leading-5 text-slate-300">Pindai QR peserta atau masukkan kode fallback secara manual.</p>
+          <p className="mt-2 text-sm leading-5 text-slate-300">Pindai QR pribadi, cari nama, atau masukkan kode peserta.</p>
         </Link>}
 
         {canScan && <Link
-          to="/committee/location-qr"
+          to={`/committee/location-qr?eventId=${encodeURIComponent(eventId)}`}
           className="group rounded-xl border border-teal-200 bg-teal-50 p-6 transition hover:-translate-y-0.5 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-700"
         >
           <div className="flex items-start justify-between">
@@ -133,7 +139,7 @@ export const CommitteeDashboardPage: React.FC = () => {
             <ArrowRight className="h-5 w-5 text-teal-300 transition-transform group-hover:translate-x-1 group-hover:text-teal-800" />
           </div>
           <h2 className="mt-6 text-lg font-black text-slate-950">Tampilkan QR lokasi</h2>
-          <p className="mt-2 text-xs leading-5 text-slate-600">Buka layar QR dinamis untuk self check-in peserta di ruangan.</p>
+          <p className="mt-2 text-sm leading-5 text-slate-600">Tampilkan QR agar asatidz dapat check-in mandiri dari portal.</p>
         </Link>}
 
         {canReadParticipants && <Link
@@ -151,13 +157,13 @@ export const CommitteeDashboardPage: React.FC = () => {
         </Link>}
       </section>
 
-      <section className="mt-6 rounded-xl border border-slate-200 bg-white">
+      {canReadAttendance && <section className="mt-6 rounded-xl border border-slate-200 bg-white">
         <div className="flex items-center justify-between gap-3 border-b border-slate-200 p-4">
           <div>
             <h2 className="text-sm font-black text-slate-900">Aktivitas terbaru</h2>
             <p className="mt-1 text-[11px] text-slate-500">Hasil check-in yang baru diproses.</p>
           </div>
-          <Link to="/committee/attendance" className="min-h-[44px] whitespace-nowrap px-2 py-3 text-xs font-bold text-teal-800">
+          <Link to={`/committee/attendance?eventId=${encodeURIComponent(eventId)}`} className="min-h-[44px] whitespace-nowrap px-2 py-3 text-sm font-bold text-teal-800">
             Lihat rekap
           </Link>
         </div>
@@ -175,7 +181,7 @@ export const CommitteeDashboardPage: React.FC = () => {
             <p className="py-6 text-center text-xs text-slate-500">Belum ada aktivitas check-in untuk ditampilkan.</p>
           )}
         </div>
-      </section>
+      </section>}
     </CommitteeLayout>
   );
 };
