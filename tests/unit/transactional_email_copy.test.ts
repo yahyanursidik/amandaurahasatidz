@@ -5,18 +5,18 @@ import { DEFAULT_TRANSACTIONAL_EMAIL_COPY, parseTransactionalEmailCopy,
 
 describe("pembuka email transaksional", () => {
   it("menyapa asatidz tanpa salam ganda dan mempertahankan tautan pribadi", () => {
-    const cardLink = "https://contoh.id/card?token=pqr_abc.def";
+    const registrationStatusLink = "https://contoh.id/confirm#pcf_abc.def";
     const message = renderHtmlEmailTemplate("REGISTRATION_APPROVED", {
       ustadzName: "Ustadz Hasan", eventName: "Daurah", participantCode: "P-001",
-      cardLink, rundownLink: "https://contoh.id/events/daurah#jadwal-kegiatan",
+      registrationStatusLink, rundownLink: "https://contoh.id/events/daurah#jadwal-kegiatan",
       portalLink: "https://contoh.id/login/ustadz", email: "hasan@contoh.id",
     });
     expect(message.textBody).toContain("بسم الله الرحمن الرحيم");
     expect(message.textBody).toContain("Al Ustadz Al Faadhil Hasan");
     expect(message.textBody).not.toContain("Assalamu'alaikum Ustadz Hasan");
-    expect(message.textBody).toContain(cardLink);
+    expect(message.textBody).toContain(registrationStatusLink);
     expect(message.htmlBody).toContain('dir="rtl" lang="ar"');
-    expect(message.htmlBody).toContain(`href="${cardLink}"`);
+    expect(message.htmlBody).toContain(`href="${registrationStatusLink}"`);
     expect(message.htmlBody.match(/بسم الله الرحمن الرحيم/g)).toHaveLength(1);
   });
 
@@ -39,12 +39,12 @@ describe("pembuka email transaksional", () => {
       individualSalutation: "Yang kami hormati {{name}} <script>alert(1)</script>," };
     const message = renderHtmlEmailTemplate("REGISTRATION_RECEIVED", {
       ustadzName: "Ustadz Salim", eventName: "Daurah", participantCode: "P-002",
-      cardLink: "https://contoh.id/card", rundownLink: "https://contoh.id/jadwal", portalLink: "https://contoh.id/login",
+      registrationStatusLink: "https://contoh.id/confirm#pcf_abc.def", rundownLink: "https://contoh.id/jadwal", portalLink: "https://contoh.id/login",
     }, copy);
     expect(message.textBody).toContain("Yang kami hormati Salim <script>alert(1)</script>,");
     expect(message.htmlBody).not.toContain("<script>");
     expect(message.htmlBody).toContain("&lt;script&gt;");
-    expect(message.htmlBody).toContain("Buka bukti pendaftaran");
+    expect(message.htmlBody).toContain("Lihat status pendaftaran");
   });
 
   it("menolak variabel tidak dikenal dan memakai default saat konfigurasi rusak", () => {

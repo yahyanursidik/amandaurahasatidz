@@ -1,7 +1,11 @@
+import { ATTENDANCE_EVENT_STATUSES } from "../../../../src/lib/registrationStatus";
+
 export type AttendanceMode = "DAILY_ONLY" | "SESSION_ONLY" | "DAILY_AND_SESSION";
-export const CHECKIN_EVENT_STATUSES = ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING"];
 export const CLOSED_EVENT_STATUSES = ["COMPLETED", "CANCELLED", "ARCHIVED"];
-export const ATTENDANCE_INACTIVE_CONFIRMATIONS = ["CANCELLED", "REPLACED"];
+export {
+  ATTENDANCE_EVENT_STATUSES as CHECKIN_EVENT_STATUSES,
+  INACTIVE_CONFIRMATION_STATUSES as ATTENDANCE_INACTIVE_CONFIRMATIONS,
+} from "../../../../src/lib/registrationStatus";
 export const ATTENDED_STATUSES = ["PRESENT", "LATE"];
 export const EXCUSED_STATUSES = ["EXCUSED", "PERMITTED"];
 
@@ -46,6 +50,14 @@ export function eventCalendarDate(date: Date, timezone: string) {
   const parts = new Intl.DateTimeFormat("en-CA", { timeZone: timezone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(date);
   const part = (type: string) => parts.find((item) => item.type === type)?.value;
   return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
+export function isAttendanceEventOpen(
+  event: { status: string; endDate: string; timezone: string; archivedAt?: Date | null },
+  now = new Date(),
+) {
+  return !event.archivedAt && ATTENDANCE_EVENT_STATUSES.includes(event.status)
+    && event.endDate >= eventCalendarDate(now, event.timezone);
 }
 
 function dayBoundaryInTimeZone(dateKey: string, timezone: string, end = false) {

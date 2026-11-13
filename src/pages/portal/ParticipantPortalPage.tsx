@@ -38,7 +38,8 @@ import { participantSourceLabel } from "@/lib/participantCatalog";
 import { LocationSelfCheckinPanel, type LocationCheckinResult } from "@/components/portal/LocationSelfCheckinPanel";
 import { parseLocationCheckinHash, type LocationCheckinTarget } from "@/lib/locationCheckin";
 import { attendanceLabels, checkinMethodLabels } from "@/lib/attendance";
-import { eventTimezoneLabel, formatEventDate, formatEventDateTime } from "@/lib/eventDateTime";
+import { eventTimezoneLabel, formatEventDate, formatEventDateTime, fromEventIso } from "@/lib/eventDateTime";
+import { ATTENDANCE_EVENT_STATUSES, isAttendanceQrEligible, registrationStage, registrationStageCopy } from "@/lib/registrationStatus";
 
 type PortalTab =
   | "HOME"
@@ -106,6 +107,7 @@ type PortalParticipation = {
   invitationResponseDeadline?: string | null;
   attendanceConfirmationDeadline?: string | null;
   attendanceConfirmationRequired?: boolean | null;
+  lateConfirmationPolicy?: string | null;
   sessions: PortalSession[];
   attendance: PortalAttendance[];
 };
@@ -344,6 +346,11 @@ const todayLocal = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 };
 
+const eventHasEnded = (item: PortalParticipation) =>
+  item.endDate < fromEventIso(new Date().toISOString(), item.timezone || "Asia/Jakarta").slice(0, 10) ||
+    ["COMPLETED", "CANCELLED", "ARCHIVED"].includes(item.eventStatus);
+const eventCanIssueQr = (item: PortalParticipation) => !eventHasEnded(item) && ATTENDANCE_EVENT_STATUSES.includes(item.eventStatus);
+
 export const ParticipantPortalPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -465,9 +472,7 @@ export const ParticipantPortalPage: React.FC = () => {
   );
   const checkinParticipations = useMemo(() => (overview?.participations || []).map((item) => ({
     eventId: item.eventId, eventName: item.eventName,
-    eligible: item.approvalStatus === "APPROVED" && !["CANCELLED", "REPLACED"].includes(item.confirmationStatus) &&
-      (item.attendanceConfirmationRequired === false || item.confirmationStatus === "CONFIRMED") &&
-      ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING"].includes(item.eventStatus),
+    eligible: eventCanIssueQr(item) && isAttendanceQrEligible(item),
   })), [overview]);
   const selectLocationScan = (scan: LocationCheckinTarget | null) => {
     setLocationScan(scan); setInvalidLocationScan(false);
@@ -482,19 +487,20 @@ export const ParticipantPortalPage: React.FC = () => {
       }, ...item.attendance.filter((record) => record.id !== result.attendanceRecordId)],
     }) } : current);
   };
-  const eventFinished = Boolean(selectedParticipation &&
-    (selectedParticipation.endDate < todayLocal() || ["COMPLETED", "CANCELLED", "ARCHIVED"].includes(selectedParticipation.eventStatus)));
-  const qrReady = selectedParticipation?.approvalStatus === "APPROVED" &&
-    !["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus) && !eventFinished;
-  const confirmationNeeded = Boolean(selectedParticipation && !eventFinished && selectedParticipation.attendanceConfirmationRequired !== false &&
-    selectedParticipation.confirmationStatus !== "CONFIRMED");
-  const checkinReady = qrReady && !confirmationNeeded;
-  const canSelfConfirm = Boolean(selectedParticipation && confirmationNeeded &&
-    !["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus) &&
-    !["CANCELLED", "ARCHIVED"].includes(selectedParticipation.eventStatus) &&
-    selectedParticipation.approvalStatus === "APPROVED");
-  const participationUnavailable = Boolean(selectedParticipation &&
-    (["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus) || selectedParticipation.approvalStatus === "DECLINED"));
+  const eventFinished = selectedParticipation ? eventHasEnded(selectedParticipation) : false;
+  const eventOpen = selectedParticipation ? eventCanIssueQr(selectedParticipation) : false;
+  const stage = selectedParticipation ? registrationStage(selectedParticipation) : "PENDING_REVIEW";
+  const confirmationNeeded = eventOpen && stage === "AWAITING_CONFIRMATION";
+  const deadlinePassed = Boolean(selectedParticipation?.attendanceConfirmationDeadline &&
+    Date.parse(selectedParticipation.attendanceConfirmationDeadline) < Date.now());
+  const confirmationBlocked = confirmationNeeded && deadlinePassed && (selectedParticipation?.lateConfirmationPolicy ?? "BLOCK") === "BLOCK";
+  const checkinReady = eventOpen && stage === "READY";
+  const canSelfConfirm = confirmationNeeded && !confirmationBlocked;
+  const participationUnavailable = stage === "INACTIVE" || stage === "DECLINED";
+  const statusCopy = eventFinished ? { label: "Acara sudah ditutup", next: "Riwayat kehadiran tetap bisa dilihat." }
+    : !eventOpen && !participationUnavailable ? { label: "Acara belum aktif", next: "Presensi belum tersedia. Hubungi panitia bila perlu." }
+      : confirmationBlocked ? { label: "Disetujui · tenggat konfirmasi lewat", next: "QR belum diterbitkan. Hubungi panitia untuk peninjauan." }
+        : registrationStageCopy[stage];
   const unreadAnnouncements = announcements.filter((item) => !item.isRead).length;
   const nextSession = selectedParticipation?.sessions
     .filter((session) => Date.parse(session.endAt) >= Date.now())
@@ -805,10 +811,10 @@ export const ParticipantPortalPage: React.FC = () => {
         </section>
       )}
 
-      {activeTab !== "HOME" && selectedParticipation && !eventFinished && selectedParticipation.approvalStatus !== "APPROVED" && (
+      {activeTab !== "HOME" && activeTab !== "QR" && selectedParticipation && !checkinReady && !eventFinished && (
         <div className="portal-status-guide" role="status">
           <Info aria-hidden="true" />
-          <p><strong>Pendaftaran tersimpan, menunggu pemeriksaan panitia.</strong> Anda dapat melengkapi profil dan membaca jadwal. QR belum dapat digunakan untuk check-in sampai status disetujui.</p>
+          <p><strong>{statusCopy.label}.</strong> {statusCopy.next}</p>
         </div>
       )}
 
@@ -894,8 +900,10 @@ export const ParticipantPortalPage: React.FC = () => {
           <section className="portal-home__status" data-state={checkinReady ? "ready" : canSelfConfirm ? "confirm" : "waiting"} aria-labelledby="portal-status-heading">
             <div>
               <span>Status keikutsertaan</span>
-              <h2 id="portal-status-heading">{eventFinished ? "Acara telah selesai" : participationUnavailable ? "Kepesertaan tidak aktif" : canSelfConfirm ? "Konfirmasi kehadiran Anda" : checkinReady ? "Siap menunjukkan QR" : "Menunggu persetujuan panitia"}</h2>
-              <p>{eventFinished ? "Riwayat check-in Anda tetap dapat dilihat." : participationUnavailable ? "Lihat status pendaftaran atau hubungi panitia bila perlu." : canSelfConfirm ? `Batas konfirmasi: ${formatDate(selectedParticipation.attendanceConfirmationDeadline, true)}.` : checkinReady ? "QR ini milik Anda sendiri, termasuk jika didaftarkan oleh lembaga." : "Pantau status pendaftaran; QR aktif setelah syarat kehadiran terpenuhi."}</p>
+              <h2 id="portal-status-heading">{statusCopy.label}</h2>
+              <p>{canSelfConfirm && selectedParticipation.attendanceConfirmationDeadline
+                ? `${statusCopy.next} Batas: ${formatEventDateTime(selectedParticipation.attendanceConfirmationDeadline, selectedParticipation.timezone || "Asia/Jakarta")} ${eventTimezoneLabel(selectedParticipation.timezone || "Asia/Jakarta")}.`
+                : statusCopy.next}</p>
             </div>
             {canSelfConfirm ? <button type="button" onClick={() => void confirmAttendance()} disabled={confirmBusy || preview}>
               <CheckCircle2 aria-hidden="true" />
@@ -1012,8 +1020,9 @@ export const ParticipantPortalPage: React.FC = () => {
                     }}
                     className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 active:translate-y-px"
                   >
-                    <QrCode className="h-4 w-4" />
-                    Buka QR
+                    {eventCanIssueQr(participation) && isAttendanceQrEligible(participation)
+                      ? <><QrCode className="h-4 w-4" /> Buka QR presensi</>
+                      : <><ClipboardCheck className="h-4 w-4" /> Lihat status pendaftaran</>}
                   </button>
                 </div>
               </div>
@@ -1213,7 +1222,7 @@ export const ParticipantPortalPage: React.FC = () => {
           <div className="border border-slate-200 bg-white p-5 text-center sm:p-8 print:border-0">
             <p className="mx-auto mb-5 text-sm font-black tracking-tight text-emerald-900">Daurah Duat dan Pegiat Dakwah</p>
             <StatusBadge
-              label={checkinReady ? "QR kehadiran individu" : "Kartu pendaftaran peserta"}
+              label={checkinReady ? "QR presensi pribadi" : "Bukti pendaftaran"}
               variant={checkinReady ? "success" : "neutral"}
               icon={<ShieldCheck className="h-3.5 w-3.5" />}
             />
@@ -1227,44 +1236,35 @@ export const ParticipantPortalPage: React.FC = () => {
                 "Peserta individual"}
             </p>
             {qrError && <p role="alert" className="mt-4 rounded-lg bg-rose-50 p-3 text-sm text-rose-800">{qrError}</p>}
-            <div className="mx-auto mt-7 grid min-h-[248px] w-full max-w-[248px] place-items-center rounded-2xl border-8 border-slate-950 bg-white p-4 shadow-lg">
-              {eventFinished ? (
-                <div className="max-w-[190px] text-sm font-bold text-slate-700">
-                  <p>Acara telah selesai. Lihat catatan kehadiran Anda.</p>
-                  <Link to="/portal/attendance" className="mt-3 inline-flex min-h-11 items-center text-emerald-800 underline">Riwayat hadir</Link>
-                </div>
-              ) : selectedParticipation.approvalStatus !== "APPROVED" ? (
-                <p className="max-w-[190px] text-sm font-bold text-slate-700">QR tersedia setelah panitia menyetujui pendaftaran.</p>
-              ) : ["CANCELLED", "REPLACED"].includes(selectedParticipation.confirmationStatus) ? (
-                <p className="max-w-[190px] text-sm font-bold text-slate-700">QR tidak aktif karena pendaftaran dibatalkan atau diganti.</p>
-              ) : confirmationNeeded ? (
-                <div className="max-w-[190px] text-sm font-bold text-slate-700">
-                  <p>Konfirmasi kehadiran dahulu agar QR dapat dipakai check-in.</p>
-                  <Link to="/portal" className="mt-3 inline-flex min-h-11 items-center text-emerald-800 underline">Ke beranda</Link>
-                </div>
-              ) : qrLoading ? (
-                <Loader2 className="h-8 w-8 animate-spin text-emerald-700 motion-reduce:animate-none" />
-              ) : !qr ? (
-                <p className="max-w-[190px] text-sm font-bold text-slate-700">QR belum dapat dimuat. Coba buka kembali halaman ini atau hubungi panitia.</p>
-              ) : (
+            {checkinReady && qr && qr.participantId === selectedParticipation.participantId && (preview || qr.opaqueQrToken.startsWith("pqr_")) ? (
+              <div className="mx-auto mt-7 grid w-full max-w-[248px] place-items-center rounded-xl border-2 border-slate-300 bg-white p-3">
                 <QRCodeSVG
                   value={qr.opaqueQrToken}
-                  size={200}
-                  level="H"
-                  marginSize={1}
-                  title={`QR check-in ${qr.ustadzName}`}
+                  size={224}
+                  level="M"
+                  marginSize={4}
+                  className="h-auto w-full"
+                  title={`QR presensi ${qr.ustadzName}`}
                 />
-              )}
-            </div>
+              </div>
+            ) : <div className="mx-auto mt-6 max-w-md rounded-xl border border-slate-200 bg-slate-50 p-4 text-sm leading-6 text-slate-700">
+              {checkinReady ? <p role="status">{qrLoading ? "Memuat QR presensi…" : "QR belum dapat dimuat. Coba muat ulang atau hubungi panitia."}</p> :
+                <div role="status"><strong>{statusCopy.label}</strong><p>{statusCopy.next}</p></div>}
+              {canSelfConfirm && <button type="button" onClick={() => void confirmAttendance()} disabled={confirmBusy || preview}
+                className="mt-3 min-h-11 rounded-lg bg-emerald-800 px-4 py-2 font-bold text-white disabled:opacity-50">
+                {confirmBusy ? "Menyimpan…" : "Insya Allah hadir"}
+              </button>}
+              {eventFinished && <Link to="/portal/attendance" className="mt-2 inline-flex min-h-11 items-center font-bold text-emerald-800 underline">Riwayat hadir</Link>}
+              {confirmError && <p role="alert" className="mt-2 text-rose-800">{confirmError}</p>}
+            </div>}
             <div className="mx-auto mt-6 max-w-md rounded-xl border border-slate-200 bg-slate-50 p-4">
-              <p className="text-xs font-bold text-slate-500">Kode peserta{checkinReady ? " · fallback manual" : " · belum berlaku untuk presensi"}</p>
+              <p className="text-sm font-bold text-slate-600">{checkinReady ? "Kode presensi manual" : "Kode pendaftaran · bukan untuk presensi"}</p>
               <p className="mt-2 font-mono text-lg font-black tracking-wider text-emerald-900">
                 {selectedParticipation.participantCode}
               </p>
               <button
                 type="button"
                 onClick={copyParticipantCode}
-                disabled={!checkinReady}
                 className="mt-3 inline-flex min-h-[44px] items-center gap-2 whitespace-nowrap rounded-lg px-3 text-xs font-black text-emerald-800 hover:bg-emerald-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {copyDone ? <Check className="h-4 w-4" /> : <Copy className="h-4 w-4" />}
@@ -1274,22 +1274,22 @@ export const ParticipantPortalPage: React.FC = () => {
             </div>
           </div>
           <aside className="space-y-4">
-            <div className="border-t-4 border-emerald-800 bg-emerald-950 p-5 text-white">
+            {checkinReady && <div className="border-t-4 border-emerald-800 bg-emerald-950 p-5 text-white print:hidden">
               <QrCode className="h-6 w-6 text-emerald-300" />
               <h2 className="mt-4 font-black">Cara menggunakan</h2>
               <ol className="mt-4 space-y-3 text-sm text-emerald-100">
                 <li>1. Buka kartu ini sebelum tiba di meja registrasi.</li>
                 <li>2. Naikkan kecerahan layar agar mudah dipindai.</li>
-                <li>3. Jika gagal, sebutkan kode fallback kepada petugas.</li>
+                <li>3. Jika gagal, sebutkan kode presensi manual kepada petugas.</li>
               </ol>
-            </div>
+            </div>}
             <button
               type="button"
               onClick={() => window.print()}
               className="inline-flex min-h-[44px] w-full items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-black text-slate-800 hover:bg-slate-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 print:hidden"
             >
               <FileText className="h-4 w-4" />
-              Cetak bukti pendaftaran
+              {checkinReady && qr?.participantId === selectedParticipation.participantId ? "Cetak kartu presensi" : "Cetak bukti pendaftaran"}
             </button>
           </aside>
         </section>

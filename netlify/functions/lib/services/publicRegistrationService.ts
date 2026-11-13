@@ -8,14 +8,13 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { createAuditLog } from "./auditService";
 import { resolveRegistrationInstitution } from "./registrationInstitutionService";
-import { signCardForParticipant, cardPath } from "./participantCardService";
 import { queueRegistrationReceivedEmails } from "./participantCardEmailService";
 import { logError } from "../utils/logger";
 import { hashPassword } from "../utils/password";
 import { canIssueImmediatePassword, generateMemorableTemporaryPassword } from "../utils/memorablePassword";
 import { lockRegistrationEvent, assertRegistrationCapacity } from "./registrationCapacity";
 import { initialParticipantReviewState } from "./registrationReviewState";
-import { participantConfirmationPath, signConfirmationForParticipant } from "./participantConfirmationLink";
+import { registrationStatusPath } from "./participantConfirmationLink";
 
 type PublicRegistrationInput = {
   fullName: string;
@@ -174,9 +173,9 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
         publicGroupId, isDelegationLead: Boolean(publicGroupId && index === 0), participantCode,
         ...initialParticipantReviewState(currentEvent.attendanceConfirmationRequired),
       }).returning())[0];
-      const qrToken = signCardForParticipant(participant);
       registered.push({ participantId: participant.id, fullName: person.fullName, email: person.email, whatsapp: person.whatsapp,
-        participantCode, qrToken, cardUrl: cardPath(qrToken), passwordSetupRequired: !user.passwordHash,
+        participantCode, registrationStatusUrl: registrationStatusPath(participant, currentEvent.endDate),
+        approvalStatus: participant.approvalStatus, confirmationStatus: participant.confirmationStatus, passwordSetupRequired: !user.passwordHash,
         temporaryPassword, temporaryPasswordIssued: Boolean(temporaryPassword) });
     }
     return {
@@ -196,10 +195,9 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
     eventId: event.id,
     afterData: { participantCode: result.participantCode, approvalStatus: result.approvalStatus, publicGroupId: result.publicGroupId, participantCount: result.participants.length, consentConfirmed: input.consentConfirmed },
     requestId,
-  }), queueRegistrationReceivedEmails({ id: event.id, name: event.name, slug: event.slug,
-    endDate: event.endDate, attendanceConfirmationRequired: event.attendanceConfirmationRequired }, result.participants.map((person) => ({
+  }), queueRegistrationReceivedEmails(event, result.participants.map((person) => ({
     participantId: person.participantId, ustadzName: person.fullName, email: person.email,
-    participantCode: person.participantCode, qrToken: person.qrToken,
+    participantCode: person.participantCode,
   })))]);
   if (auditResult.status === "rejected") logError(requestId, "Audit pendaftaran reguler gagal disimpan", auditResult.reason);
   if (emailResult.status === "rejected") logError(requestId, "Antrean pemberitahuan pendaftaran reguler gagal disimpan", emailResult.reason);
@@ -210,10 +208,10 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
     portalLoginUrl: result.portalLoginUrl,
     passwordSetupRequired: result.passwordSetupRequired,
     publicGroupId: result.publicGroupId,
-    participants: result.participants.map(({ participantId, fullName, email, whatsapp, participantCode, qrToken, cardUrl, passwordSetupRequired, temporaryPassword, temporaryPasswordIssued }) => ({
-      fullName, email, whatsapp, participantCode, qrToken, cardUrl, passwordSetupRequired, temporaryPassword, temporaryPasswordIssued,
-      confirmationUrl: event.attendanceConfirmationRequired
-        ? participantConfirmationPath(signConfirmationForParticipant({ id: participantId, eventId: event.id }, event.endDate)) : null,
+    participants: result.participants.map(({ fullName, email, whatsapp, participantCode, approvalStatus, confirmationStatus, registrationStatusUrl, passwordSetupRequired, temporaryPassword, temporaryPasswordIssued }) => ({
+      fullName, email, whatsapp, participantCode, approvalStatus, confirmationStatus, registrationStatusUrl,
+      passwordSetupRequired, temporaryPassword, temporaryPasswordIssued,
+      confirmationUrl: event.attendanceConfirmationRequired ? registrationStatusUrl : null,
     })),
     emailQueued,
   };

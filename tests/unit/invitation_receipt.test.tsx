@@ -17,8 +17,8 @@ describe("bukti konfirmasi undangan", () => {
       result: {
         message: "Konfirmasi tersimpan", emailQueued: 2,
         participants: [
-          { id: "person-a", participantCode: "P-AAA", qrToken: "pqr_one.signature", cardUrl: "/card?token=pqr_one.signature" },
-          { id: "person-b", participantCode: "P-BBB", qrToken: "pqr_two.signature", cardUrl: "/card?token=pqr_two.signature" },
+          { id: "person-a", participantCode: "P-AAA", registrationStatusUrl: "/confirm#pcf_one.signature" },
+          { id: "person-b", participantCode: "P-BBB", registrationStatusUrl: "/confirm#pcf_two.signature" },
         ],
         portalAccounts: [
           { participantId: "person-a", participantName: "Ustadz Ahmad", email: "ahmad@example.id",
@@ -35,13 +35,15 @@ describe("bukti konfirmasi undangan", () => {
       <Routes><Route path="/invitation/institution/:token" element={<InvitationRegistrationPage />} /></Routes>
     </MemoryRouter>);
     expect(html).toContain("Pilih peserta");
-    expect(html.match(/aria-label="QR peserta/g)).toHaveLength(1);
+    expect(html).not.toMatch(/aria-label="QR presensi|pqr_/);
+    expect(html).toContain("https://contoh.id/confirm#pcf_one.signature");
+    expect(html).toContain("Simpan bukti pendaftaran");
     expect(html).toContain("BukuTamanPagiSabar123456");
     expect(html).toContain("Ustadz Hasan · P-BBB");
     expect(html).toContain("/events/daurah-ilmu#jadwal-kegiatan");
     expect(html).toContain("https://wa.me/6281234567890?text=");
     expect(html).toContain("/login/ustadz");
-    expect(html.indexOf('id="akses-portal"')).toBeLessThan(html.indexOf('id="kartu-qr"'));
+    expect(html.indexOf('id="akses-portal"')).toBeLessThan(html.indexOf('id="bukti-pendaftaran"'));
     expect(html).not.toContain("pqr_two.signature");
   });
 });

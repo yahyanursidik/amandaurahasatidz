@@ -38,9 +38,8 @@ import {
   verifyInstitutionAccessVerification,
 } from "./institutionAccessCodeService";
 import { buildInstitutionInvitationPath } from "../../../../src/lib/invitationUrl";
-import { signCardForParticipant, cardPath } from "./participantCardService";
 import { queueRegistrationReceivedEmails } from "./participantCardEmailService";
-import { participantConfirmationPath, signConfirmationForParticipant } from "./participantConfirmationLink";
+import { registrationStatusPath } from "./participantConfirmationLink";
 import { countApprovedParticipantsBySourceRepository, countApprovedParticipantsForEventRepository } from "../repositories/participantRepository";
 import { logError } from "../utils/logger";
 import { invitationAllowsGroup, invitationIsSelfRegistration, invitationParticipantLimit, isInvitationPending } from "../../../../src/lib/institutionInvitation";
@@ -655,7 +654,7 @@ export async function submitInstitutionResponseService(
   const cards = saved.participants.map((person, index) => ({ participantId: person.id,
     ustadzName: payload.delegates[index].fullName, email: payload.delegates[index].email,
     whatsapp: payload.delegates[index].whatsapp || payload.delegates[index].phone || null,
-    participantCode: person.participantCode, qrToken: signCardForParticipant(person),
+    participantCode: person.participantCode,
   }));
   const portalAccounts = cards.map((person) => {
     const credential = saved.portalCredentials.find((item) => item.participantId === person.participantId);
@@ -668,8 +667,7 @@ export async function submitInstitutionResponseService(
   });
 
   const [emailResult, auditResult] = await Promise.allSettled([
-    queueRegistrationReceivedEmails({ id: event.id, name: event.name, slug: event.slug,
-      endDate: event.endDate, attendanceConfirmationRequired: event.attendanceConfirmationRequired }, cards),
+    queueRegistrationReceivedEmails(event, cards),
     payload.isFinal ? createAuditLog({
       actorUserId: null,
       action: "INVITATION_FINAL_RESPONSE_SUBMITTED",
@@ -686,15 +684,18 @@ export async function submitInstitutionResponseService(
 
   return {
     response: savedResponse,
-    participants: saved.participants.map((person, index) => ({ ...person, whatsapp: cards[index].whatsapp, qrToken: cards[index].qrToken,
-      cardUrl: cardPath(cards[index].qrToken), confirmationUrl: event.attendanceConfirmationRequired
-        ? participantConfirmationPath(signConfirmationForParticipant(person, event.endDate)) : null })),
+    participants: saved.participants.map((person, index) => {
+      const registrationStatusUrl = registrationStatusPath(person, event.endDate);
+      return { id: person.id, participantCode: person.participantCode, approvalStatus: person.approvalStatus,
+        confirmationStatus: person.confirmationStatus, whatsapp: cards[index].whatsapp, registrationStatusUrl,
+        confirmationUrl: event.attendanceConfirmationRequired ? registrationStatusUrl : null };
+    }),
     portalAccounts,
     emailQueued,
     message: payload.isFinal
       ? invitationIsSelfRegistration(invitation)
-        ? "Pendaftaran Anda tersimpan. QR tersedia sebagai bukti; tunggu persetujuan admin sebelum QR dipakai untuk presensi."
-        : "Konfirmasi undangan tersimpan. Data perwakilan menunggu persetujuan admin sebelum QR dapat dipakai untuk presensi."
+        ? "Pendaftaran Anda tersimpan dan menunggu persetujuan panitia. QR presensi belum diterbitkan."
+        : "Jawaban undangan tersimpan. Data tiap perwakilan menunggu persetujuan panitia. QR presensi belum diterbitkan."
       : "Draft respon undangan berhasil disimpan sementara.",
   };
 }
@@ -786,7 +787,7 @@ export async function submitIndividualResponseService(rawToken: string, payload:
   const cards = saved.participants.map((person, index) => ({ participantId: person.id,
     ustadzName: payload.delegates?.[index]?.fullName || "Peserta", email: payload.delegates?.[index]?.email || "",
     whatsapp: payload.delegates?.[index]?.whatsapp || payload.delegates?.[index]?.phone || null,
-    participantCode: person.participantCode, qrToken: signCardForParticipant(person),
+    participantCode: person.participantCode,
   }));
   const portalAccounts = cards.map((person) => {
     const credential = saved.portalCredentials.find((item) => item.participantId === person.participantId);
@@ -798,8 +799,7 @@ export async function submitIndividualResponseService(rawToken: string, payload:
       shownOnce: Boolean(credential?.temporaryPassword) };
   });
 
-  const [emailResult, auditResult] = await Promise.allSettled([queueRegistrationReceivedEmails({ id: event.id, name: event.name, slug: event.slug,
-    endDate: event.endDate, attendanceConfirmationRequired: event.attendanceConfirmationRequired }, cards), createAuditLog({
+  const [emailResult, auditResult] = await Promise.allSettled([queueRegistrationReceivedEmails(event, cards), createAuditLog({
     actorUserId: null,
     action: "INDIVIDUAL_INVITATION_RSVP_SUBMITTED",
     resourceType: "INVITATION_RESPONSE",
@@ -814,13 +814,16 @@ export async function submitIndividualResponseService(rawToken: string, payload:
 
   return {
     response: saved.response,
-    participants: saved.participants.map((person, index) => ({ ...person, whatsapp: cards[index].whatsapp, qrToken: cards[index].qrToken,
-      cardUrl: cardPath(cards[index].qrToken), confirmationUrl: event.attendanceConfirmationRequired
-        ? participantConfirmationPath(signConfirmationForParticipant(person, event.endDate)) : null })),
+    participants: saved.participants.map((person, index) => {
+      const registrationStatusUrl = registrationStatusPath(person, event.endDate);
+      return { id: person.id, participantCode: person.participantCode, approvalStatus: person.approvalStatus,
+        confirmationStatus: person.confirmationStatus, whatsapp: cards[index].whatsapp, registrationStatusUrl,
+        confirmationUrl: event.attendanceConfirmationRequired ? registrationStatusUrl : null };
+    }),
     portalAccounts,
     emailQueued,
     message: payload.responseStatus === "ACCEPTED"
-      ? "Jawaban undangan tersimpan. Pendaftaran menunggu persetujuan admin sebelum QR dapat dipakai untuk presensi."
+      ? "Jawaban undangan tersimpan. Pendaftaran menunggu persetujuan panitia. QR presensi belum diterbitkan."
       : "Jawaban undangan ditolak berhasil disimpan.",
   };
 }

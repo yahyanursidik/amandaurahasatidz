@@ -124,20 +124,6 @@ function ctaButton(text: string, url: string): string {
   </tr>`;
 }
 
-function qrCodeBadge(qrUrl: string, code: string): string {
-  return `<tr>
-    <td align="center" style="padding:20px 0;">
-      <div style="display:inline-block;background-color:${BRAND_LIGHT};border:2px dashed #a8d5b5;border-radius:12px;padding:20px 32px;text-align:center;">
-        <p style="margin:0 0 8px 0;font-size:11px;color:#8a9b8a;text-transform:uppercase;letter-spacing:1px;font-weight:600;">QR Code Presensi</p>
-        <div style="background:#ffffff;border-radius:8px;padding:12px;display:inline-block;margin-bottom:12px;">
-          <img src="${qrUrl}" alt="QR Code Presensi" width="140" height="140" style="display:block;border:0;" />
-        </div>
-        <p style="margin:0;font-size:16px;font-weight:700;color:${BRAND_PRIMARY};letter-spacing:2px;font-family:monospace;">${code}</p>
-        <p style="margin:4px 0 0;font-size:11px;color:#8a9b8a;">Kode Fallback Manual</p>
-      </div>
-    </td>
-  </tr>`;
-}
 
 // ─── Template 1: Undangan Lembaga ─────────────────────────────────────────────
 
@@ -196,61 +182,15 @@ export function renderInvitationInstitutionHtml(vars: {
 
 // ─── Template 2: Bukti Pendaftaran / Konfirmasi Peserta ───────────────────────
 
-export function renderRegistrationConfirmedHtml(vars: {
+function renderRegistrationConfirmedHtml(vars: {
   ustadzName: string;
   eventName: string;
-  eventDates: string;
-  eventVenue?: string;
   participantCode: string;
-  qrCodeUrl: string;
 }): string {
-  const body = `
-  <tr>
-    <td style="padding:36px 40px 20px;">
-      <div style="text-align:center;margin-bottom:20px;">
-        <div style="display:inline-block;background-color:#d4edda;border-radius:50%;width:56px;height:56px;line-height:56px;font-size:28px;text-align:center;">✅</div>
-        <h2 style="margin:12px 0 4px;font-size:20px;color:${BRAND_PRIMARY};font-weight:700;">Pendaftaran Berhasil</h2>
-        <p style="margin:0;font-size:13px;color:#8a9b8a;">Bukti Keikutsertaan Resmi</p>
-      </div>
-
-      <p style="margin:0 0 20px;font-size:14px;color:${BRAND_TEXT};line-height:1.6;">
-        Assalamu'alaikum Warahmatullah Wabarakatuh,<br/><br/>
-        Alhamdulillah, pendaftaran <strong>${vars.ustadzName}</strong> sebagai peserta resmi pada kegiatan di bawah ini telah berhasil dikonfirmasi.
-      </p>
-
-      <!-- Info Card -->
-      <div style="background-color:${BRAND_LIGHT};border-left:4px solid ${BRAND_ACCENT};border-radius:0 8px 8px 0;padding:20px 24px;margin-bottom:24px;">
-        <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-          ${infoBadge("Nama Ustadz", vars.ustadzName)}
-          ${infoBadge("Kode Peserta", `<span style="font-family:monospace;font-size:16px;color:${BRAND_PRIMARY};font-weight:700;">${vars.participantCode}</span>`)}
-          ${infoBadge("Nama Kegiatan", vars.eventName)}
-          ${infoBadge("Tanggal", vars.eventDates)}
-          ${vars.eventVenue ? infoBadge("Lokasi", vars.eventVenue) : ""}
-        </table>
-      </div>
-
-      <!-- QR Code Section -->
-      <table role="presentation" cellpadding="0" cellspacing="0" width="100%">
-        ${qrCodeBadge(vars.qrCodeUrl, vars.participantCode)}
-      </table>
-
-      <div style="background-color:#fff8e1;border:1px solid #ffe082;border-radius:8px;padding:14px 20px;margin:16px 0 24px;">
-        <p style="margin:0;font-size:13px;color:#856404;line-height:1.6;">
-          <strong>📌 Petunjuk:</strong> Tunjukkan QR Code ini kepada petugas saat check-in di lokasi acara. Simpan email ini sebagai bukti pendaftaran resmi.
-        </p>
-      </div>
-    </td>
-  </tr>
-  <tr>
-    <td style="padding:0 40px 32px;">
-      <p style="margin:0;font-size:13px;color:#5a6b5c;line-height:1.7;">
-        Jazakumullah Khairan. Semoga kegiatan ini memberikan keberkahan dan manfaat yang besar.<br/>
-        <strong style="color:${BRAND_PRIMARY};">Panitia Daurah Duat dan Pegiat Dakwah</strong>
-      </p>
-    </td>
-  </tr>`;
-
-  return wrapHtmlLayout(`Bukti Pendaftaran — ${vars.participantCode}`, body);
+  return renderBrandedTextEmailHtml(
+    `Pendaftaran ${vars.ustadzName} untuk ${vars.eventName} telah tersimpan.\nKode pendaftaran: ${vars.participantCode}\nIni bukan kartu presensi. Periksa status di Portal Asatidz.`,
+    "Bukti Pendaftaran",
+  );
 }
 
 // ─── Template 3: Ucapan Terima Kasih (Konfirmasi Hadir) ──────────────────────
@@ -495,24 +435,16 @@ export function renderHtmlByTemplateCode(
       });
 
     case "INVITATION_INDIVIDUAL":
-      // Render sebagai REGISTRATION_CONFIRMED style untuk individu
-      return renderRegistrationConfirmedHtml({
-        ustadzName: variables.ustadzName || "",
-        eventName: variables.eventName || "",
-        eventDates: variables.eventDates || "",
-        eventVenue: variables.eventVenue,
-        participantCode: variables.participantCode || "-",
-        qrCodeUrl: variables.qrCodeUrl || "",
-      });
+      return renderBrandedTextEmailHtml(
+        `Kepada ${variables.ustadzName || "Ustadz"},\n\nKami mengundang Ustadz pada ${variables.eventName || "kegiatan daurah"}. Silakan isi formulir undangan pribadi.`,
+        "Undangan Daurah", variables.invitationLink, "Buka undangan pribadi",
+      );
 
     case "REGISTRATION_CONFIRMED":
       return renderRegistrationConfirmedHtml({
         ustadzName: variables.ustadzName || "",
         eventName: variables.eventName || "",
-        eventDates: variables.eventDates || "",
-        eventVenue: variables.eventVenue,
         participantCode: variables.participantCode || "",
-        qrCodeUrl: variables.qrCodeUrl || "",
       });
 
     case "THANK_YOU_CONFIRMED":

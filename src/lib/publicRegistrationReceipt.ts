@@ -1,7 +1,12 @@
 import type { ParticipantCardDetails } from "@/components/public/ParticipantQrCard";
 import { buildEventWhatsAppUrl } from "@/lib/eventWhatsApp";
 
-export type ReceiptParticipant = ParticipantCardDetails & {
+export type ReceiptParticipant = Pick<ParticipantCardDetails, "fullName" | "participantCode"> & {
+  email?: string;
+  registrationStatusUrl?: string | null;
+  approvalStatus?: string;
+  confirmationStatus?: string;
+  whatsapp?: string | null;
   confirmationUrl?: string | null;
   passwordSetupRequired: boolean;
   temporaryPassword?: string | null;
@@ -17,15 +22,13 @@ export function buildRegistrationAttendanceMessage(
   participants: Pick<ReceiptParticipant, "fullName" | "participantCode">[],
 ) {
   const names = participants.map((person) => `• ${person.fullName} — ${person.participantCode}`).join("\n");
-  const attendance = participants.length > 1 ? "kami berencana hadir" : "saya berencana hadir";
   return [
     "Assalamu’alaikum warahmatullahi wabarakatuh.",
     "",
-    `Saya ingin mengabari panitia bahwa pendaftaran untuk ${eventName} telah tersimpan. Insya Allah ${attendance}:`,
+    `Saya ingin menanyakan informasi pendaftaran untuk ${eventName}:`,
     names,
     "",
-    "Kami menunggu persetujuan admin. Bila diwajibkan, setiap asatidz akan mengonfirmasi lewat tautan pribadi sebelum QR dapat digunakan untuk absensi.",
-    "Mohon kabari bila ada perubahan informasi kegiatan. Jazakumullahu khairan.",
+    "Mohon bantuan panitia untuk memeriksa statusnya. Jazakumullahu khairan.",
   ].join("\n");
 }
 

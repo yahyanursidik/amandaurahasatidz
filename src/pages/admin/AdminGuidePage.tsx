@@ -74,8 +74,8 @@ export const ADMIN_GUIDE_STAGES: GuideStage[] = [
     description: "Pilih pengisian rombongan sekali atau mandiri per asatidz dalam kuota lembaga.",
     steps: [
       "Buat tautan unik per lembaga. Pilih perwakilan yang mengisi sekali atau asatidz yang mengisi masing-masing sampai kuota penuh; bagikan tautan melalui WhatsApp atau email.",
-      "Pantau jumlah pendaftar per undangan. Pada pola mandiri, setiap asatidz menerima QR dan akses portal sendiri; admin tetap meninjau persetujuannya. Peserta reguler dapat mendaftar lewat formulir publik atau diimpor admin.",
-      "Setujui peserta, lalu kirim tautan konfirmasi pribadi dari tombol Bagikan akses. Setiap asatidz—termasuk anggota rombongan—memilih hadir atau berhalangan tanpa login; QR aktif setelah konfirmasi bila diwajibkan.",
+      "Pantau jumlah pendaftar per undangan. Peserta menerima bukti tanpa QR, tautan status pribadi, dan akses portal. Peserta reguler dapat mendaftar lewat formulir publik atau diimpor admin.",
+      "Setujui peserta, lalu gunakan Bagikan akses bila ingin mengirim ulang tautan status. Setiap asatidz—termasuk anggota rombongan—dapat melihat status tanpa login. QR presensi hanya tersedia setelah persetujuan dan konfirmasi hadir bila diwajibkan.",
     ],
     actions: [
       { label: "Undangan", to: "/registrations?view=invitations", eventScoped: true },

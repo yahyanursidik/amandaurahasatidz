@@ -17,6 +17,8 @@ import { eq, and, count, desc, inArray, notInArray, or, sql, isNull, ilike, notE
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../utils/errors";
 import { lockRegistrationEvent, assertRegistrationCapacity } from "../services/registrationCapacity";
+import { assertAttendanceConfirmationAllowed } from "../services/deadlineService";
+import { isAttendanceEventOpen } from "../services/attendanceModel";
 import { randomUUID } from "node:crypto";
 import type { ParticipantPageQuery } from "../validations/participantValidation";
 
@@ -307,25 +309,41 @@ export async function updateParticipantStatusRepository(
   participantId: string,
   toStatus: string,
   reason?: string | null,
-  changedBy?: string | null
+  changedBy?: string | null,
+  options: { requireApproved?: boolean } = {},
 ) {
   const hint = await findParticipantByIdRepository(participantId);
   if (!hint) throw new NotFoundError("Peserta tidak ditemukan.");
   return withTransaction(async (tx) => {
-    await lockRegistrationEvent(tx, hint.eventId);
+    const event = await lockRegistrationEvent(tx, hint.eventId);
     const [existing] = await tx.select().from(eventParticipants).where(eq(eventParticipants.id, participantId)).limit(1).for("update");
     if (!existing) throw new NotFoundError("Peserta tidak ditemukan.");
+    if (toStatus === "CONFIRMED" && options.requireApproved && existing.approvalStatus !== "APPROVED") {
+      throw new ForbiddenError("Tunggu persetujuan panitia sebelum mengonfirmasi kehadiran.");
+    }
     if (existing.confirmationStatus === toStatus) return existing;
+    if (toStatus === "CONFIRMED" && options.requireApproved && (!isAttendanceEventOpen(event) || !event.attendanceConfirmationRequired)) {
+      throw new ConflictError("Konfirmasi hadir tidak tersedia atau tidak diwajibkan untuk acara ini.");
+    }
     if (!["INVITED", "CONFIRMED"].includes(existing.confirmationStatus) || !["CONFIRMED", "CANCELLED"].includes(toStatus)) {
       throw new ConflictError("Status peserta sudah berubah atau tidak dapat diperbarui melalui aksi ini.");
     }
     if (toStatus === "CONFIRMED" && ["DECLINED", "REJECTED"].includes(existing.approvalStatus)) throw new ConflictError("Peserta ditolak tidak dapat dikonfirmasi hadir.");
+    const now = new Date();
+    const needsReview = toStatus === "CONFIRMED" && assertAttendanceConfirmationAllowed(event, now).needsReview;
     const [updated] = await tx.update(eventParticipants).set({ confirmationStatus: toStatus,
-      ...(toStatus === "CONFIRMED" ? { confirmedAt: new Date() } : { cancelledAt: new Date(), qrTokenVersion: sql`${eventParticipants.qrTokenVersion} + 1` }),
-      updatedAt: new Date(),
+      ...(toStatus === "CONFIRMED" ? { confirmedAt: now } : { cancelledAt: now }),
+      ...(needsReview && { approvalStatus: "PENDING_REVIEW", approvedAt: null, approvedBy: null }),
+      qrTokenVersion: sql`${eventParticipants.qrTokenVersion} + 1`, qrIssuedAt: null,
+      updatedAt: now,
     }).where(eq(eventParticipants.id, participantId)).returning();
     await tx.insert(participantStatusHistories).values({ participantId, statusType: "CONFIRMATION_STATUS",
       fromStatus: existing.confirmationStatus, toStatus, reason: reason || null, changedBy: changedBy || null });
+    if (needsReview && existing.approvalStatus !== "PENDING_REVIEW") {
+      await tx.insert(participantStatusHistories).values({ participantId, statusType: "APPROVAL_STATUS",
+        fromStatus: existing.approvalStatus, toStatus: "PENDING_REVIEW",
+        reason: "Konfirmasi melewati batas waktu; perlu peninjauan panitia.", changedBy: changedBy || null });
+    }
     return updated;
   });
 }
@@ -757,7 +775,8 @@ export async function updateParticipantApprovalStatusRepository(
     const [updated] = await tx.update(eventParticipants).set({ approvalStatus: toApprovalStatus,
       approvedAt: toApprovalStatus === "APPROVED" ? new Date() : existing.approvedAt,
       ...(toApprovalStatus === "APPROVED" ? { approvedBy: changedBy || null } : {}),
-      ...(existing.approvalStatus === "APPROVED" ? { qrTokenVersion: sql`${eventParticipants.qrTokenVersion} + 1` } : {}), updatedAt: new Date(),
+      ...(existing.approvalStatus === "APPROVED" || toApprovalStatus === "APPROVED"
+        ? { qrTokenVersion: sql`${eventParticipants.qrTokenVersion} + 1`, qrIssuedAt: null } : {}), updatedAt: new Date(),
     }).where(eq(eventParticipants.id, participantId)).returning();
     await tx.insert(participantStatusHistories).values({ participantId, statusType: "APPROVAL_STATUS", fromStatus: existing.approvalStatus,
       toStatus: toApprovalStatus, reason: reason || null, changedBy: changedBy || null });

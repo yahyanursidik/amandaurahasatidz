@@ -38,14 +38,25 @@ describe("dialog aksi tab peserta", () => {
     const originalWindow = globalThis.window;
     try {
       Object.defineProperty(globalThis, "window", { configurable: true, value: { location: { origin: "https://contoh.id" } } });
-      const html = renderToStaticMarkup(<ParticipantQrCard showShareActions={false} eventName="Liqaa" person={{ fullName: "Ahmad", participantCode: "P-123", qrToken: "pqr_abc.def", cardUrl: "/card?token=pqr_abc.def" }} />);
-      expect(html).toContain("Simpan kartu QR");
-      expect(html).toContain("Buka kartu QR");
+      const html = renderToStaticMarkup(<ParticipantQrCard eventName="Liqaa" approvalStatus="APPROVED" confirmationStatus="CONFIRMED"
+        person={{ fullName: "Ahmad", participantCode: "P-123", qrToken: "pqr_abc.def" }} />);
+      expect(html).toContain("Simpan QR presensi");
+      expect(html).toContain('aria-label="QR presensi Ahmad"');
       expect(html).not.toContain("wa.me");
       expect(html).not.toContain("t.me");
     } finally {
       if (originalWindow === undefined) Reflect.deleteProperty(globalThis, "window");
       else Object.defineProperty(globalThis, "window", { configurable: true, value: originalWindow });
     }
+  });
+
+  it.each([
+    ["PENDING_REVIEW", "INVITED"], ["APPROVED", "INVITED"], ["WAITLISTED", "CONFIRMED"],
+    ["APPROVED", "CANCELLED"], ["DECLINED", "CONFIRMED"],
+  ])("tidak menampilkan QR dari respons lama untuk %s / %s", (approvalStatus, confirmationStatus) => {
+    const html = renderToStaticMarkup(<ParticipantQrCard eventName="Liqaa" approvalStatus={approvalStatus} confirmationStatus={confirmationStatus}
+      person={{ fullName: "Ahmad", participantCode: "P-123", qrToken: "pqr_early.def" }} />);
+    expect(html).toContain("Simpan bukti pendaftaran");
+    expect(html).not.toMatch(/aria-label="QR presensi|pqr_|Simpan QR presensi/);
   });
 });

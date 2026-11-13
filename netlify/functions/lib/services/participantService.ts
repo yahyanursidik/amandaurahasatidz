@@ -16,10 +16,10 @@ import { findEventByIdRepository } from "../repositories/eventRepository";
 import { findDuplicateCandidatesRepository } from "../repositories/ustadzRepository";
 import { NotFoundError, ValidationError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
-import { assertAttendanceConfirmationAllowed, assertParticipantEligibleForCheckin } from "./deadlineService";
+import { assertParticipantEligibleForCheckin } from "./deadlineService";
 import { hashPassword } from "../utils/password";
 import { isRegularRegistrationSource, quotaForSource } from "./eventQuota";
-import { queueApprovedParticipantCardEmail } from "./participantCardEmailService";
+import { queueApprovedParticipantCardEmail, queueParticipantConfirmationOutcomeEmail } from "./participantCardEmailService";
 import { logError } from "../utils/logger";
 import { z } from "zod";
 import { bulkApproveSchema } from "../validations/participantValidation";
@@ -130,24 +130,21 @@ export async function updateParticipantStatusService(
   actorUserId?: string,
   requestId?: string,
   expectedEventId?: string,
+  options: { requireApproved?: boolean } = {},
 ) {
   const existing = await findParticipantByIdRepository(participantId);
   if (!existing) throw new NotFoundError(`Peserta ID ${participantId} tidak ditemukan.`);
   if (expectedEventId && existing.eventId.toLowerCase() !== expectedEventId.toLowerCase()) throw new NotFoundError("Peserta tidak ditemukan pada event ini.");
   if (!["CONFIRMED", "CANCELLED"].includes(toStatus)) throw new ValidationError("Gunakan aksi persetujuan, daftar tunggu, penolakan, atau penggantian yang sesuai.");
 
-  let lateReview = false;
-  if (toStatus === "CONFIRMED") {
-    if (["CANCELLED", "REPLACED"].includes(existing.confirmationStatus) || existing.approvalStatus === "DECLINED") {
-      throw new ValidationError("Peserta yang dibatalkan, diganti, atau ditolak tidak dapat dikonfirmasi hadir.");
+  const updated = await updateParticipantStatusRepository(participantId, toStatus, reason, actorUserId, options);
+  if (toStatus === "CONFIRMED" && existing.confirmationStatus !== "CONFIRMED" && existing.approvalStatus === "APPROVED") {
+    try {
+      const event = await findEventByIdRepository(existing.eventId);
+      if (event) await queueParticipantConfirmationOutcomeEmail(event, updated, "CONFIRM");
+    } catch (error) {
+      logError(requestId || "participant-confirmation", "Antrean email konfirmasi peserta gagal disimpan", error);
     }
-    const event = await findEventByIdRepository(existing.eventId);
-    if (!event) throw new NotFoundError("Event peserta tidak ditemukan.");
-    lateReview = assertAttendanceConfirmationAllowed(event).needsReview;
-  }
-  const updated = await updateParticipantStatusRepository(participantId, toStatus, reason, actorUserId);
-  if (lateReview) {
-    await updateParticipantApprovalStatusRepository(participantId, "PENDING_REVIEW", "Konfirmasi melewati batas waktu; perlu peninjauan panitia.", actorUserId);
   }
 
   if (requestId) {
@@ -225,8 +222,7 @@ export async function approveParticipantService(
       reason: notes || "Persetujuan kelayakan peserta daurah",
       requestId,
     }) : Promise.resolve(),
-    queueApprovedParticipantCardEmail({ id: event.id, name: event.name, slug: event.slug,
-      endDate: event.endDate, attendanceConfirmationRequired: event.attendanceConfirmationRequired }, updated),
+    queueApprovedParticipantCardEmail(event, updated),
   ]);
   if (auditResult.status === "rejected") logError(requestId || "participant-approval", "Audit persetujuan peserta gagal disimpan", auditResult.reason);
   if (emailResult.status === "rejected") logError(requestId || "participant-approval", "Antrean kartu QR setelah persetujuan gagal disimpan", emailResult.reason);
