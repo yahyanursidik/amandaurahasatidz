@@ -36,6 +36,7 @@ const EventCreatePage = lazy(() => import("./pages/admin/events/EventCreatePage"
 const EventEditPage = lazy(() => import("./pages/admin/events/EventEditPage").then((module) => ({ default: module.EventEditPage })));
 const EventShowPage = lazy(() => import("./pages/admin/events/EventShowPage").then((module) => ({ default: module.EventShowPage })));
 const EventRegistrationsPage = lazy(() => import("./pages/admin/events/EventRegistrationsPage").then((module) => ({ default: module.EventRegistrationsPage })));
+const EventParticipantWhatsAppPage = lazy(() => import("./pages/admin/events/EventParticipantWhatsAppPage").then((module) => ({ default: module.EventParticipantWhatsAppPage })));
 const EventOperationsPage = lazy(() => import("./pages/admin/events/EventOperationsPage").then((module) => ({ default: module.EventOperationsPage })));
 const EventKioskPage = lazy(() => import("./pages/admin/events/EventKioskPage").then((module) => ({ default: module.EventKioskPage })));
 const AttendanceReportPage = lazy(() => import("./pages/admin/events/AttendanceReportPage").then((module) => ({ default: module.AttendanceReportPage })));
@@ -167,6 +168,7 @@ export const App: React.FC = () => {
               </ProtectedRoute>
             }
           />
+          <Route path="/admin/events/:id/registrations/whatsapp" element={<ProtectedRoute><EventParticipantWhatsAppPage /></ProtectedRoute>} />
           <Route path="/admin/events/:id/invitations/new" element={<ProtectedRoute><EventRegistrationsPage /></ProtectedRoute>} />
           <Route path="/admin/events/:id/invitations/:invitationId/edit" element={<ProtectedRoute><EventRegistrationsPage /></ProtectedRoute>} />
           <Route

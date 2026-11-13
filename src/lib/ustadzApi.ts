@@ -145,10 +145,10 @@ const cleanPayload = (values: Partial<UstadzFormValues>) =>
 
 export const ustadzApi = {
   list: (params: URLSearchParams, options?: RequestInit) => request<UstadzProfile[]>(`/ustadz?${params.toString()}`, options),
-  listAllUnmerged: async () => {
+  listAllUnmerged: async (options?: RequestInit) => {
     const profiles: UstadzProfile[] = [];
     for (let page = 1; ; page += 1) {
-      const response = await request<UstadzProfile[]>(`/ustadz?${new URLSearchParams({ page: String(page), pageSize: "100" })}`);
+      const response = await request<UstadzProfile[]>(`/ustadz?${new URLSearchParams({ page: String(page), pageSize: "100" })}`, options);
       profiles.push(...response.data.filter((profile) => profile.profileStatus !== "MERGED"));
       if (page >= (response.meta?.pageCount ?? 1) || response.data.length === 0) break;
     }

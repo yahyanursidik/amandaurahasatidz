@@ -11,9 +11,11 @@ export function approvalSelectionCandidate(person: ApprovalSelectionCandidate): 
 export const emptyParticipantSummary = (): ParticipantSummary => ({ total: 0, approved: 0, pending: 0, institution: 0, pendingEligible: 0 });
 
 export type ParticipantSourceFilter = "ALL" | "REGULAR" | "INSTITUTION" | "INDIVIDUAL";
+export const INSTITUTION_PARTICIPANT_SOURCES = ["INSTITUTION_DELEGATION", "INSTITUTION_DELEGATION_REPLACEMENT", "INSTITUTION_INVITATION"];
+export const INVITED_PARTICIPANT_SOURCES = [...INSTITUTION_PARTICIPANT_SOURCES, "INDIVIDUAL_INVITATION"];
 
 export function participantSourceCategory(source?: string | null): Exclude<ParticipantSourceFilter, "ALL"> {
-  if (["INSTITUTION_DELEGATION", "INSTITUTION_DELEGATION_REPLACEMENT", "INSTITUTION_INVITATION"].includes(source || "")) return "INSTITUTION";
+  if (INSTITUTION_PARTICIPANT_SOURCES.includes(source || "")) return "INSTITUTION";
   if (source === "INDIVIDUAL_INVITATION") return "INDIVIDUAL";
   return "REGULAR";
 }
