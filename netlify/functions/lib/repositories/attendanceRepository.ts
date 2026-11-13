@@ -16,7 +16,7 @@ import { eq, and, desc, isNull, asc, lte, gt, inArray, notInArray, or, sql, type
 import { assertParticipantEligibleForCheckin } from "../services/deadlineService";
 import {
   ATTENDANCE_INACTIVE_CONFIRMATIONS, ATTENDED_STATUSES, CHECKIN_EVENT_STATUSES, EXCUSED_STATUSES, buildRequiredAttendanceUnits,
-  calculateLatenessMinutes, findAttendanceUnit, isAttendanceWindowOpen, toCheckinUnit,
+  calculateLatenessMinutes, findAttendanceUnit, isAttendanceEventOpen, isAttendanceWindowOpen, toCheckinUnit,
   type AttendanceMode, type AttendanceUnitSelection,
 } from "../services/attendanceModel";
 import { ConflictError, NotFoundError, UnauthorizedError, ValidationError } from "../utils/errors";
@@ -102,6 +102,16 @@ export async function findAttendanceScheduleForEventRepository(eventId: string, 
     .where(eq(eventDays.eventId, eventId))
     .orderBy(asc(eventSessions.startAt));
   return { event, days, sessions };
+}
+
+/** A real, QR-enabled window can still be open after the event's final calendar date. */
+export async function isAttendanceQrEventOpen(eventId: string, event: Parameters<typeof isAttendanceEventOpen>[0], now = new Date()) {
+  if (event.archivedAt || !CHECKIN_EVENT_STATUSES.includes(event.status)) return false;
+  if (isAttendanceEventOpen(event, now)) return true;
+  const schedule = await findAttendanceScheduleForEventRepository(eventId);
+  return Boolean(schedule && !schedule.event.archivedAt && CHECKIN_EVENT_STATUSES.includes(schedule.event.status)
+    && buildRequiredAttendanceUnits(schedule.event.attendanceMode as AttendanceMode, schedule.days, schedule.sessions,
+      schedule.event.timezone).some((unit) => unit.qrEnabled && isAttendanceWindowOpen(unit, now)));
 }
 
 export async function findActiveSessionForEventRepository(eventId: string) {

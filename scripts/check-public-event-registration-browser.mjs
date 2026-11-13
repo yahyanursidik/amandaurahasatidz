@@ -54,10 +54,14 @@ const fixture = {
               timezone:event.timezone,venueName:event.venueName,publicContactWhatsapp:event.publicContactWhatsapp,
               attendanceConfirmationRequired:true,attendanceConfirmationDeadline:'2027-02-09T08:00:00.000Z',lateConfirmationPolicy:'BLOCK',
               qrToken:null};
+            if (String(url).endsWith('/link')) return {ok:true,json:async()=>({data:{message:'Tautan pribadi dikirim jika email cocok.'}})};
             if (String(url).endsWith('/status')) {
+              const privateAccess = JSON.parse(options.body).token.startsWith('pcf_');
+              window.__confirmation.privateAccess = privateAccess;
+              window.__confirmation.canRequestPrivateLink = !privateAccess && window.__moderation === 'APPROVED';
               window.__confirmation.approvalStatus = window.__moderation;
-              window.__confirmation.canConfirm = window.__moderation === 'APPROVED' && window.__confirmation.confirmationStatus === 'INVITED';
-              window.__confirmation.canDecline = window.__moderation === 'APPROVED' && window.__confirmation.confirmationStatus !== 'CANCELLED';
+              window.__confirmation.canConfirm = privateAccess && window.__moderation === 'APPROVED' && window.__confirmation.confirmationStatus === 'INVITED';
+              window.__confirmation.canDecline = privateAccess && window.__moderation === 'APPROVED' && window.__confirmation.confirmationStatus !== 'CANCELLED';
             }
             if (String(url).endsWith('/decision')) {
               const decision = JSON.parse(options.body).decision;
@@ -72,15 +76,16 @@ const fixture = {
             window.__posts.push(JSON.parse(options.body));
             return {ok:true,json:async()=>({data:{participantCode:'P-A1',approvalStatus:'PENDING_REVIEW',portalLoginUrl:'/login/ustadz',
               passwordSetupRequired:false,emailQueued:2,participants:[
-                {fullName:'Ustadz Ahmad',email:'ahmad@example.id',whatsapp:'081234567890',participantCode:'P-A1',registrationStatusUrl:'/confirm#pcf_first.signature',temporaryPassword:'BukuTaman1234',temporaryPasswordIssued:true,passwordSetupRequired:false},
-                {fullName:'Ustadz Hasan',email:'hasan@example.id',whatsapp:'081234567891',participantCode:'P-B2',registrationStatusUrl:'/confirm#pcf_second.signature',temporaryPassword:'BukuPagi5678',temporaryPasswordIssued:true,passwordSetupRequired:false}
+                {fullName:'Ustadz Ahmad',email:'ahmad@example.id',whatsapp:'081234567890',participantCode:'P-A1',registrationStatusUrl:'/confirm#prc_first.signature',passwordSetupRequired:true},
+                {fullName:'Ustadz Hasan',email:'hasan@example.id',whatsapp:'081234567891',participantCode:'P-B2',registrationStatusUrl:'/confirm#prc_second.signature',passwordSetupRequired:true}
               ]}})};
           }
           const sparse = new URLSearchParams(location.search).has('sparse');
           return {ok:true,json:async()=>({data:sparse ? {...event,description:null,venueName:null,venueAddress:null,
             publicContactWhatsapp:null,mapsUrl:null,timezone:'Asia/Jakarta',days:[],sessions:[]} : event})};
         };
-        const initialEntry = new URLSearchParams(location.search).has('confirm') ? '/confirm#pcf_first.signature'
+        const initialEntry = new URLSearchParams(location.search).has('receipt') ? '/confirm#prc_first.signature'
+          : new URLSearchParams(location.search).has('confirm') ? '/confirm#pcf_first.signature'
           : new URLSearchParams(location.search).has('card') ? '/card?token=pqr_one.signature' : '/events/daurah-coba';
         createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:[initialEntry]},
           React.createElement(Routes,null,
@@ -135,7 +140,10 @@ try {
       moduleFailures.push({ error: message.params.errorText, blockedReason: message.params.blockedReason });
   };
   const send = (method, params = {}) => new Promise((resolve, reject) => {
-    const id = ++sequence; pending.set(id, [resolve, reject]); socket.send(JSON.stringify({ id, method, params }));
+    const id = ++sequence;
+    const timer = setTimeout(() => { pending.delete(id); reject(new Error(`Browser timeout: ${method} ${String(params.expression || params.url || '').slice(0, 130)}`)); }, 30_000);
+    pending.set(id, [(value) => { clearTimeout(timer); resolve(value); }, (error) => { clearTimeout(timer); reject(error); }]);
+    socket.send(JSON.stringify({ id, method, params }));
   });
   const evaluate = async (expression) => {
     const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
@@ -224,8 +232,8 @@ try {
   assert.equal(await evaluate(`window.__posts[0].delegates[0].city`), 'KOTA BANDUNG');
   assert.equal(await evaluate(`document.querySelectorAll('.public-receipt__select option').length`), 2);
   assert.equal(await evaluate(`document.querySelector('.public-receipt__shortcuts a').getAttribute('href')`), '/events/daurah-coba#jadwal-kegiatan');
-  assert.equal(await evaluate(`new URL(document.querySelector('.public-receipt__confirmation a').href).hash`), '#pcf_first.signature');
-  assert.equal(await evaluate(`decodeURIComponent(document.querySelector('.public-receipt__confirmation-actions a[target="_blank"]').href).includes('/confirm#pcf_first.signature')`), true, 'group share points to the selected personal link');
+  assert.equal(await evaluate(`new URL(document.querySelector('.public-receipt__confirmation a').href).hash`), '#prc_first.signature');
+  assert.equal(await evaluate(`decodeURIComponent(document.querySelector('.public-receipt__confirmation-actions a[target="_blank"]').href).includes('/confirm#prc_first.signature')`), true, 'group share points to a read-only receipt');
   assert.equal(await evaluate(`decodeURIComponent(document.querySelector('.public-receipt__confirmation-actions a[target="_blank"]').href).includes('pqr_')`), false, 'group share cannot include a premature QR link');
   assert.equal(await evaluate(`!!document.querySelector('.public-receipt [aria-label^="QR presensi"]')`), false, 'receipt does not render a QR');
   assert.equal(await evaluate(`document.querySelector('.public-receipt__access').compareDocumentPosition(document.querySelector('.participant-qr-card')) & Node.DOCUMENT_POSITION_FOLLOWING`), 4, 'portal access precedes the proof in reading order');
@@ -250,8 +258,8 @@ try {
   assert.equal(await evaluate(`window.__drawnImages`), 0, 'PNG receipt has no QR image');
   await evaluate(`document.querySelector('.public-receipt__select').querySelector('select').value = 'P-B2'; document.querySelector('.public-receipt__select select').dispatchEvent(new Event('change',{bubbles:true}));`);
   await new Promise((resolve) => setTimeout(resolve, 100));
-  assert.equal(await evaluate(`new URL(document.querySelector('.public-receipt__confirmation a').href).hash`), '#pcf_second.signature', 'switching members switches the decision link');
-  assert.equal(await evaluate(`decodeURIComponent(document.querySelector('.public-receipt__confirmation-actions a[target="_blank"]').href).includes('/confirm#pcf_second.signature')`), true, 'switching members switches the WhatsApp destination link');
+  assert.equal(await evaluate(`new URL(document.querySelector('.public-receipt__confirmation a').href).hash`), '#prc_second.signature', 'switching members switches the receipt');
+  assert.equal(await evaluate(`decodeURIComponent(document.querySelector('.public-receipt__confirmation-actions a[target="_blank"]').href).includes('/confirm#prc_second.signature')`), true, 'switching members switches the WhatsApp receipt');
   assert.equal(await evaluate(`decodeURIComponent(document.querySelector('.public-receipt__confirmation-actions a[target="_blank"]').href).includes('pqr_')`), false, 'second member also has no premature QR link');
   await evaluate(`document.querySelector('.participant-qr-card button').click()`);
   for (let i = 0; i < 50 && (await evaluate(`window.__downloads.length`)) < 2; i++) await new Promise((resolve) => setTimeout(resolve, 100));
@@ -287,6 +295,23 @@ try {
   screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   target = path.join(os.tmpdir(), 'daurah-event-sparse-375.png');
   await writeFile(target, Buffer.from(screenshot.data, 'base64')); screenshots.push(target);
+  await send('Page.navigate', { url: `http://127.0.0.1:${port}/public-event-registration-preview?receipt=1` });
+  for (let i = 0; i < 100 && !(await evaluate(`!!document.querySelector('#registration-access-email')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await evaluate(`!!document.querySelector('.public-confirm__card, .public-confirm__decision')`), false, 'receipt does not issue QR or authorize a decision');
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 850, deviceScaleFactor: 1, mobile: true });
+  await evaluate('window.scrollTo(0,0)');
+  screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
+  target = path.join(os.tmpdir(), 'daurah-receipt-private-access-375.png');
+  await writeFile(target, Buffer.from(screenshot.data, 'base64')); screenshots.push(target);
+  await setInput('#registration-access-email', 'ahmad@example.id');
+  await evaluate(`document.querySelector('.public-confirm form').requestSubmit()`);
+  for (let i = 0; i < 50 && !(await evaluate(`document.body.textContent.includes('Tautan pribadi dikirim jika email cocok')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await evaluate(`window.__confirmationRequests.at(-1).url.endsWith('/link')`), true);
+  for (const width of [320, 375, 414, 768]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 850, deviceScaleFactor: 1, mobile: width < 768 });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`), true, `email access form stays usable at ${width}px`);
+  }
   await send('Page.navigate', { url: `http://127.0.0.1:${port}/public-event-registration-preview?confirm=1&pending=1` });
   for (let i = 0; i < 100 && !(await evaluate(`!!document.querySelector('.public-confirm__state')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
   assert.match(await evaluate(`document.querySelector('.public-confirm__state').textContent`), /Menunggu persetujuan panitia/);

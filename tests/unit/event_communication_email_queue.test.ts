@@ -9,7 +9,7 @@ vi.mock("../../netlify/functions/lib/db/client", () => ({ getDbClient: () => {
   function builder(action: string) {
     const call = { action } as typeof state.calls[number]; state.calls.push(call);
     const query = {
-      from() { return query; }, where() { return query; }, limit() { return query; },
+      from() { return query; }, where() { return query; }, limit() { return query; }, orderBy() { return query; },
       set(value: unknown) { call.fields = value; return query; },
       values(value: unknown) { call.fields = value; return query; },
       returning() { return query; }, onConflictDoNothing() { return query; },
@@ -63,7 +63,7 @@ describe("communication queue immutable preview snapshots", () => {
     const job = { id: "job", status: "QUEUED", recipientEmail: recipient.email, recipientName: recipient.name,
       scheduledAt: new Date(), maxAttempts: 3, payload: { templateCode: "ANNOUNCEMENT_CUSTOM", variables: { ustadzName: "Changed after review" },
         subject: data.emailSubject, bodyText: `${data.title}\n\n${data.body}`, htmlBody: data.emailHtml } };
-    state.results = [[job], [{ attemptCount: 1 }], [{ id: "delivery" }], []];
+    state.results = [[], [job], [{ attemptCount: 1 }], [{ id: "delivery" }], []];
     const result = await processEmailQueueWorker("mock-worker", 1, "mock-request");
     expect(result.results).toEqual([{ jobId: "job", status: "SENT", deliveryId: "delivery" }]);
     expect(state.send).toHaveBeenCalledExactlyOnceWith({ to: recipient.email, toName: recipient.name,
@@ -73,7 +73,7 @@ describe("communication queue immutable preview snapshots", () => {
   it("worker converts old text-only announcement payloads to escaped HTML", async () => {
     const job = { id: "legacy-job", status: "QUEUED", recipientEmail: recipient.email, maxAttempts: 3,
       scheduledAt: new Date(), payload: { templateCode: "ANNOUNCEMENT_CUSTOM", subject: "Legacy subject", bodyText: "<script>unsafe()</script> & text" } };
-    state.results = [[job], [{ attemptCount: 1 }], [{ id: "delivery" }], []];
+    state.results = [[], [job], [{ attemptCount: 1 }], [{ id: "delivery" }], []];
     expect((await processEmailQueueWorker()).results[0].status).toBe("SENT");
     const message = state.send.mock.calls[0][0];
     expect(message.subject).toBe("Legacy subject");

@@ -39,7 +39,7 @@ import { LocationSelfCheckinPanel, type LocationCheckinResult } from "@/componen
 import { parseLocationCheckinHash, type LocationCheckinTarget } from "@/lib/locationCheckin";
 import { attendanceLabels, checkinMethodLabels } from "@/lib/attendance";
 import { eventTimezoneLabel, formatEventDate, formatEventDateTime, fromEventIso } from "@/lib/eventDateTime";
-import { ATTENDANCE_EVENT_STATUSES, isAttendanceQrEligible, registrationStage, registrationStageCopy } from "@/lib/registrationStatus";
+import { ATTENDANCE_EVENT_STATUSES, isActiveDelegationRegistration, isAttendanceQrEligible, registrationStage, registrationStageCopy } from "@/lib/registrationStatus";
 
 type PortalTab =
   | "HOME"
@@ -96,6 +96,8 @@ type PortalParticipation = {
   eventName: string;
   eventSubtitle?: string | null;
   eventStatus: string;
+  archivedAt?: string | null;
+  attendanceQrWindows?: Array<{ openAt: string; closeAt: string }>;
   timezone?: string;
   posterUrl?: string | null;
   posterAlt?: string | null;
@@ -136,6 +138,7 @@ type PortalDelegation = {
   institutionName?: string | null;
   kind?: "PUBLIC_GROUP";
   quota: number;
+  canManage?: boolean;
   members: DelegationMember[];
 };
 
@@ -346,10 +349,13 @@ const todayLocal = () => {
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
 };
 
-const eventHasEnded = (item: PortalParticipation) =>
-  item.endDate < fromEventIso(new Date().toISOString(), item.timezone || "Asia/Jakarta").slice(0, 10) ||
+const eventHasEnded = (item: PortalParticipation, now = Date.now()) =>
+  Boolean(item.archivedAt) || item.endDate < fromEventIso(new Date(now).toISOString(), item.timezone || "Asia/Jakarta").slice(0, 10) ||
     ["COMPLETED", "CANCELLED", "ARCHIVED"].includes(item.eventStatus);
-const eventCanIssueQr = (item: PortalParticipation) => !eventHasEnded(item) && ATTENDANCE_EVENT_STATUSES.includes(item.eventStatus);
+const eventCanIssueQr = (item: PortalParticipation, now = Date.now()) => !item.archivedAt && ATTENDANCE_EVENT_STATUSES.includes(item.eventStatus) &&
+  (!eventHasEnded(item, now) || (item.attendanceQrWindows || []).some((window) => Date.parse(window.openAt) <= now && Date.parse(window.closeAt) >= now));
+const canViewDelegation = (item: PortalParticipation, now: number) => item.isDelegationLead && Boolean(item.invitationId || item.publicGroupId)
+  && isActiveDelegationRegistration(item) && !eventHasEnded(item, now) && ATTENDANCE_EVENT_STATUSES.includes(item.eventStatus);
 
 export const ParticipantPortalPage: React.FC = () => {
   const location = useLocation();
@@ -366,6 +372,15 @@ export const ParticipantPortalPage: React.FC = () => {
     navigate(location.pathname, { replace: true, preventScrollReset: true });
   }, [activeTab, location.hash, location.pathname, navigate]);
   const [overview, setOverview] = useState<PortalOverview | null>(null);
+  const [portalTime, setPortalTime] = useState(Date.now);
+  useEffect(() => {
+    // Schedule-only browser clock; no periodic API queries.
+    const refreshClock = () => { if (!document.hidden) setPortalTime(Date.now()); };
+    refreshClock();
+    const clock = window.setInterval(refreshClock, 5000);
+    document.addEventListener("visibilitychange", refreshClock);
+    return () => { window.clearInterval(clock); document.removeEventListener("visibilitychange", refreshClock); };
+  }, []);
   const [announcements, setAnnouncements] = useState<PortalAnnouncement[]>([]);
   const [announcementError, setAnnouncementError] = useState("");
   const [readingAnnouncementIds, setReadingAnnouncementIds] = useState<string[]>([]);
@@ -472,8 +487,8 @@ export const ParticipantPortalPage: React.FC = () => {
   );
   const checkinParticipations = useMemo(() => (overview?.participations || []).map((item) => ({
     eventId: item.eventId, eventName: item.eventName,
-    eligible: eventCanIssueQr(item) && isAttendanceQrEligible(item),
-  })), [overview]);
+    eligible: eventCanIssueQr(item, portalTime) && isAttendanceQrEligible(item),
+  })), [overview, portalTime]);
   const selectLocationScan = (scan: LocationCheckinTarget | null) => {
     setLocationScan(scan); setInvalidLocationScan(false);
   };
@@ -487,10 +502,10 @@ export const ParticipantPortalPage: React.FC = () => {
       }, ...item.attendance.filter((record) => record.id !== result.attendanceRecordId)],
     }) } : current);
   };
-  const eventFinished = selectedParticipation ? eventHasEnded(selectedParticipation) : false;
-  const eventOpen = selectedParticipation ? eventCanIssueQr(selectedParticipation) : false;
+  const eventOpen = selectedParticipation ? eventCanIssueQr(selectedParticipation, portalTime) : false;
+  const eventFinished = Boolean(selectedParticipation && !eventOpen && eventHasEnded(selectedParticipation, portalTime));
   const stage = selectedParticipation ? registrationStage(selectedParticipation) : "PENDING_REVIEW";
-  const confirmationNeeded = eventOpen && stage === "AWAITING_CONFIRMATION";
+  const confirmationNeeded = Boolean(selectedParticipation && eventOpen && !eventHasEnded(selectedParticipation, portalTime) && stage === "AWAITING_CONFIRMATION");
   const deadlinePassed = Boolean(selectedParticipation?.attendanceConfirmationDeadline &&
     Date.parse(selectedParticipation.attendanceConfirmationDeadline) < Date.now());
   const confirmationBlocked = confirmationNeeded && deadlinePassed && (selectedParticipation?.lateConfirmationPolicy ?? "BLOCK") === "BLOCK";
@@ -944,7 +959,7 @@ export const ParticipantPortalPage: React.FC = () => {
           <nav className="portal-home__quick-links" aria-label="Akses cepat peserta">
             <Link to="/portal/announcements"><Bell aria-hidden="true" /> Pengumuman{unreadAnnouncements > 0 ? ` · ${unreadAnnouncements} baru` : ""}</Link>
             <Link to="/portal/attendance"><CheckCircle2 aria-hidden="true" /> Riwayat hadir</Link>
-            {selectedParticipation.isDelegationLead && (selectedParticipation.invitationId || selectedParticipation.publicGroupId) &&
+            {canViewDelegation(selectedParticipation, portalTime) &&
               <Link to="/portal/invitations"><Crown aria-hidden="true" /> Rombongan</Link>}
             <Link to="/programs"><CalendarDays aria-hidden="true" /> Program lain</Link>
           </nav>
@@ -1001,7 +1016,7 @@ export const ParticipantPortalPage: React.FC = () => {
                   </p>
                 </div>
                 <div className="mt-5 grid gap-2">
-                  {participation.isDelegationLead && (participation.invitationId || participation.publicGroupId) && (
+                  {canViewDelegation(participation, portalTime) && (
                     <button
                       type="button"
                       onClick={() => void loadDelegation(participation.participantId)}
@@ -1020,7 +1035,7 @@ export const ParticipantPortalPage: React.FC = () => {
                     }}
                     className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-slate-300 bg-white px-4 text-sm font-bold text-slate-800 hover:bg-slate-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 active:translate-y-px"
                   >
-                    {eventCanIssueQr(participation) && isAttendanceQrEligible(participation)
+                    {eventCanIssueQr(participation, portalTime) && isAttendanceQrEligible(participation)
                       ? <><QrCode className="h-4 w-4" /> Buka QR presensi</>
                       : <><ClipboardCheck className="h-4 w-4" /> Lihat status pendaftaran</>}
                   </button>
@@ -1035,7 +1050,9 @@ export const ParticipantPortalPage: React.FC = () => {
                 <div>
                   <span><Crown aria-hidden="true" /> Akses kepala rombongan</span>
                   <h2 id="portal-delegation-title">{delegation.kind === "PUBLIC_GROUP" ? `Rombongan ${delegation.eventName}` : `Delegasi ${delegation.institutionName}`}</h2>
-                  <p>{delegation.kind === "PUBLIC_GROUP" ? `${delegation.members.length} asatidz terdaftar · setiap peserta memantau persetujuan dan QR di akun sendiri.` : `${delegation.members.length} dari ${delegation.quota} kuota · penggantian peserta masuk pemeriksaan panitia.`}</p>
+                  <p>{delegation.kind === "PUBLIC_GROUP" ? `${delegation.members.length} asatidz terdaftar · setiap peserta memantau persetujuan dan QR di akun sendiri.` : delegation.canManage === false
+                    ? "Penggantian lewat portal sudah ditutup. Hubungi panitia bila perlu mengubah anggota."
+                    : `${delegation.members.length} dari ${delegation.quota} kuota · penggantian peserta masuk pemeriksaan panitia.`}</p>
                 </div>
                 <button type="button" onClick={() => { setDelegation(null); setReplaceTarget(null); }} aria-label="Tutup pengelolaan delegasi">
                   <X aria-hidden="true" />

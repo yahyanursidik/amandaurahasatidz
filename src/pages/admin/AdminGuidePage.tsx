@@ -73,9 +73,10 @@ export const ADMIN_GUIDE_STAGES: GuideStage[] = [
     shortTitle: "Pendaftaran",
     description: "Pilih pengisian rombongan sekali atau mandiri per asatidz dalam kuota lembaga.",
     steps: [
-      "Buat tautan unik per lembaga. Pilih perwakilan yang mengisi sekali atau asatidz yang mengisi masing-masing sampai kuota penuh; bagikan tautan melalui WhatsApp atau email.",
-      "Pantau jumlah pendaftar per undangan. Peserta menerima bukti tanpa QR, tautan status pribadi, dan akses portal. Peserta reguler dapat mendaftar lewat formulir publik atau diimpor admin.",
-      "Setujui peserta, lalu gunakan Bagikan akses bila ingin mengirim ulang tautan status. Setiap asatidz—termasuk anggota rombongan—dapat melihat status tanpa login. QR presensi hanya tersedia setelah persetujuan dan konfirmasi hadir bila diwajibkan.",
+      "Buat tautan unik per lembaga. Pilih pengisian perwakilan atau mandiri sampai kuota penuh. Bagikan tautan beserta kode unik lembaga melalui WhatsApp atau email; penerima memverifikasi kode sebelum mengirim formulir.",
+      "Pantau jumlah pendaftar per undangan. Peserta menerima bukti tanpa QR dan tautan bukti yang hanya menampilkan status. Untuk akun baru, peserta membuat sandi dengan kode yang langsung dikirim ke email pribadinya.",
+      "Setujui peserta, lalu gunakan Bagikan akses untuk mengirim ulang bukti. Peserta membuka Portal Asatidz atau meminta tautan pribadi dari halaman bukti ke email yang digunakan saat mendaftar. Tautan email berlaku 30 menit; hanya akses ini yang membuka keputusan dan QR sesuai status. Rotasi QR atau perubahan email mencabut tautan akses sebelumnya.",
+      "Impor CSV hanya untuk staf berwenang. Status kosong mempertahankan keputusan lama; pendaftar baru menunggu peninjauan. Impor tidak mengonfirmasi hadir. Periksa hasil tiap baris dan status pemberitahuan setelah disimpan.",
       "Untuk menghubungi beberapa peserta, buka Peserta → WhatsApp bertahap. Pilih template dan penerima, lalu kirim satu per satu melalui WhatsApp. Tandai hanya pesan yang benar-benar sudah dikirim.",
     ],
     actions: [

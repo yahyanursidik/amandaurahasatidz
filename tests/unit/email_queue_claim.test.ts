@@ -14,7 +14,7 @@ vi.mock("../../netlify/functions/lib/db/client", () => ({
   getDbClient: () => ({
     select: () => ({
       from: () => ({
-        where: () => ({ limit: async () => [job] }),
+        where: () => ({ limit: async () => [], orderBy: () => ({ limit: async () => [job] }) }),
       }),
     }),
     update: () => ({

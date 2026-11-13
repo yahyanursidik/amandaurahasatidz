@@ -151,7 +151,7 @@ export async function sendBroadcastTest(input: {
     await db.insert(emailDeliveries).values({ emailJobId: job.id, provider: result.provider,
       providerMessageId: result.messageId || null, status: "ACCEPTED", sentAt: new Date() });
   }
-  await db.update(emailJobs).set({ status: result.success ? "SENT" : "FAILED",
+  await db.update(emailJobs).set({ status: result.success ? "SENT" : result.deliveryUncertain ? "DELIVERY_UNCERTAIN" : "FAILED",
     lastError: result.success ? null : result.error || "Penyedia menolak email uji.",
     payload: { templateCode: "BROADCAST_CUSTOM", isTest: true, campaignId: input.campaignId || null,
       templateName: template.name, subject, bodyText, provider: result.provider },
@@ -196,7 +196,7 @@ export async function listBroadcastCampaigns() {
     queued: sql<number>`count(*) filter (where ${emailJobs.status} in ('QUEUED', 'PENDING') and ${emailJobs.payload}->>'isTest' is distinct from 'true')::int`,
     sent: sql<number>`count(*) filter (where ${emailJobs.status} = 'SENT' and coalesce(${emailDeliveries.status}, 'ACCEPTED') not in ('BOUNCED', 'COMPLAINED') and ${emailJobs.payload}->>'isTest' is distinct from 'true')::int`,
     delivered: sql<number>`count(*) filter (where ${emailDeliveries.status} = 'DELIVERED' and ${emailJobs.payload}->>'isTest' is distinct from 'true')::int`,
-    failed: sql<number>`count(*) filter (where (${emailJobs.status} in ('FAILED', 'DEAD_LETTER') or ${emailDeliveries.status} in ('BOUNCED', 'COMPLAINED')) and ${emailJobs.payload}->>'isTest' is distinct from 'true')::int`,
+    failed: sql<number>`count(*) filter (where (${emailJobs.status} in ('FAILED', 'DEAD_LETTER', 'DELIVERY_UNCERTAIN') or ${emailDeliveries.status} in ('BOUNCED', 'COMPLAINED')) and ${emailJobs.payload}->>'isTest' is distinct from 'true')::int`,
     processing: sql<number>`count(*) filter (where ${emailJobs.status} = 'PROCESSING' and ${emailJobs.payload}->>'isTest' is distinct from 'true')::int`,
     cancelled: sql<number>`count(*) filter (where ${emailJobs.status} = 'CANCELLED' and ${emailJobs.payload}->>'isTest' is distinct from 'true')::int`,
     testSent: sql<number>`count(*) filter (where ${emailJobs.payload}->>'isTest' = 'true' and ${emailJobs.status} = 'SENT')::int`,
@@ -216,7 +216,7 @@ export async function getBroadcastCampaignJobs(campaignId: string, page: number,
     sql`${emailJobs.payload}->>'campaignId' = ${campaignId}`,
     sql`${emailJobs.payload}->>'isTest' is distinct from 'true'`,
     status === "ALL" ? undefined : status === "FAILED"
-      ? or(inArray(emailJobs.status, ["FAILED", "DEAD_LETTER"]), sql`exists (
+      ? or(inArray(emailJobs.status, ["FAILED", "DEAD_LETTER", "DELIVERY_UNCERTAIN"]), sql`exists (
           select 1 from email_deliveries d where d.email_job_id = ${emailJobs.id}
           and d.status in ('BOUNCED', 'COMPLAINED'))`)
       : status === "QUEUED" ? inArray(emailJobs.status, ["QUEUED", "PENDING"])

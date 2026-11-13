@@ -76,7 +76,7 @@ export const parseParticipantCsv = (content: string): ParsedParticipantRow[] => 
       institutionCode: record.institutionCode || record.kodeLembaga || "",
       institutionName: record.institutionName || record.namaLembaga || "",
       isDelegationLead: parseBooleanCell(record.isDelegationLead || record.pic || ""),
-      approvalStatus: (record.approvalStatus || "PENDING_REVIEW").trim().toUpperCase(),
+      approvalStatus: (record.approvalStatus || "").trim().toUpperCase(),
       participantCode: record.participantCode || record.kodePeserta || "",
       address: record.address || record.alamat || "",
       notes: record.notes || record.catatan || "",

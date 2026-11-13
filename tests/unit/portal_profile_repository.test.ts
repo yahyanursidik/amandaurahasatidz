@@ -75,6 +75,19 @@ describe("atomic Neon HTTP profile save", () => {
     await expect(updateOwnPortalProfileRepository(profile, actorId, { fullName: "New Name" })).rejects.toThrow("database failure");
     expect(execute).toHaveBeenCalledOnce();
   });
+  it("resolves only explicitly saved WhatsApp reviews within the same guarded CTE", async () => {
+    const execute = vi.fn().mockResolvedValue({ rows: [] });
+    mocks.db.mockReturnValue({ execute });
+    await updateOwnPortalProfileRepository(profile, actorId, { whatsapp: "6281234567803" });
+    const query = dialect.sqlToQuery(execute.mock.calls[0][0]);
+    expect(query.sql).toContain("resolved_whatsapp AS");
+    expect(query.sql).toContain("JOIN updated_profile saved_profile ON saved_profile.id = participant.ustadz_id");
+    expect(query.sql).toContain("proposed.id::text");
+    expect(query.params).toContain(actorId);
+    execute.mockClear();
+    await updateOwnPortalProfileRepository(profile, actorId, { address: "Only an address" });
+    expect(dialect.sqlToQuery(execute.mock.calls[0][0]).sql).not.toContain("resolved_whatsapp AS");
+  });
   it("hydrates JSONB timestamp strings as Dates and keeps birthDate as date-only string", async () => {
     mocks.db.mockReturnValue({ execute: vi.fn().mockResolvedValue({ rows: [{ profile: {
       ...profile, createdAt: "2026-01-01T00:00:00+00:00", updatedAt: "2026-01-02T03:04:05+00:00", deletedAt: null, birthDate: "1990-01-02",

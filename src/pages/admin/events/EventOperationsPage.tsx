@@ -1,7 +1,7 @@
 /* Hallmark · pre-emit critique: P5 H5 E4 S5 R5 V4
  * genre: modern-minimal · macrostructure: Workbench · design-system: design.md · designed-as-app
  */
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useGetIdentity } from "@refinedev/core";
 import { Link, useParams } from "react-router-dom";
 import {
@@ -76,69 +76,76 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [attendance, setAttendance] = useState<AttendanceRecap | null>(null);
+  const [attendanceResult, setAttendanceResult] = useState<{ key: string; value: AttendanceRecap } | null>(null);
   const [reportType, setReportType] = useState("invitations");
-  const [reportPage, setReportPage] = useState(1);
-  const [report, setReport] = useState<ReportResult | null>(null);
+  const reportScope = `${id}:${reportType}`;
+  const [pagination, setPagination] = useState({ scope: reportScope, page: 1 });
+  const reportPage = pagination.scope === reportScope ? pagination.page : 1;
+  const setReportPage = (page: number) => setPagination({ scope: reportScope, page });
+  const [reportResult, setReportResult] = useState<{ key: string; value: ReportResult } | null>(null);
+  const [refresh, setRefresh] = useState(0);
+  const requestKey = `${id}:${mode}:${reportType}:${reportPage}:${refresh}`;
+  const attendance = attendanceResult?.key === requestKey ? attendanceResult.value : null;
+  const report = reportResult?.key === requestKey ? reportResult.value : null;
+  const exportRequest = useRef<AbortController | null>(null);
   const [communicationRefreshKey, setCommunicationRefreshKey] = useState(0);
   const [attendanceSearch, setAttendanceSearch] = useState("");
 
-  const load = async () => {
+  const load = () => {
     if (mode === "communications") {
       setCommunicationRefreshKey((current) => current + 1);
-      setLoading(false);
-      setError("");
-      setNotice("");
-      return;
-    }
-    setLoading(true);
-    setError("");
+    } else setRefresh((value) => value + 1);
+  };
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setError(""); setNotice(""); setAttendanceResult(null);
+    if (mode === "communications") { setLoading(false); return; }
     if (previewMode) {
-      if (mode === "attendance") {
-        setAttendance({
-          totalParticipants: 0,
-          recapSummary: { fullAttendance: 0, partialAttendance: 0, lateAttendance: 0, excused: 0, absent: 0 },
-          participantDetails: [],
-        });
-      } else {
-        setReport({ data: [], meta: { total: 0, page: 1, pageSize: 25, pageCount: 1 } });
-      }
+      if (mode === "attendance") setAttendanceResult({ key: requestKey, value: { totalParticipants: 0,
+        recapSummary: { fullAttendance: 0, partialAttendance: 0, lateAttendance: 0, excused: 0, absent: 0 }, participantDetails: [] } });
+      else setReportResult({ key: requestKey, value: { data: [], meta: { total: 0, page: 1, pageSize: 25, pageCount: 1 } } });
       setNotice("Mode pratinjau: struktur submodul dapat dicoba, tetapi data tidak disimpan.");
       setLoading(false);
       return;
     }
-    try {
-      if (mode === "attendance") {
-        setAttendance(await eventApi<AttendanceRecap>(`/events/${id}/attendance/recap`));
-      } else {
-        setReport(await eventApi<ReportResult>(`/reports/${reportType}?eventId=${encodeURIComponent(id)}&page=${reportPage}&pageSize=25`));
-      }
-    } catch (loadError) {
-      if (mode === "attendance") setAttendance(null);
-      else setReport(null);
-      setError(loadError instanceof Error ? loadError.message : "Data submodul gagal dimuat.");
-    } finally {
-      setLoading(false);
-    }
-  };
+    setLoading(true);
+    const options = { signal: controller.signal };
+    const read = mode === "attendance"
+      ? eventApi<AttendanceRecap>(`/events/${id}/attendance/recap`, options).then((value) => { if (!controller.signal.aborted) setAttendanceResult({ key: requestKey, value }); })
+      : eventApi<ReportResult>(`/reports/${reportType}?eventId=${encodeURIComponent(id)}&page=${reportPage}&pageSize=25`, options)
+        .then((value) => { if (!controller.signal.aborted) setReportResult({ key: requestKey, value }); });
+    void read.catch((cause) => {
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Data submodul gagal dimuat.");
+    }).finally(() => { if (!controller.signal.aborted) setLoading(false); });
+    return () => controller.abort();
+  }, [id, mode, reportType, reportPage, previewMode, requestKey]);
 
-  useEffect(() => {
-    void load();
-  }, [id, mode, reportType, reportPage]);
+  useEffect(() => () => {
+    exportRequest.current?.abort();
+    exportRequest.current = null;
+  }, [id, mode, reportType]);
+
+  useEffect(() => { setBusy(false); }, [id, mode, reportType]);
 
   const exportReport = async () => {
     if (previewMode) {
       setNotice("Ekspor memerlukan event tersimpan dan layanan API aktif.");
       return;
     }
+    if (exportRequest.current) return;
+    const controller = new AbortController();
+    exportRequest.current = controller;
     setBusy(true);
     setError("");
     try {
       const result = await eventApi<{ filename?: string; data?: string; contentType?: string; truncated?: boolean }>("/reports/export", {
         method: "POST",
+        signal: controller.signal,
         body: JSON.stringify({ reportType, format: "CSV", eventId: id }),
       });
-      if (!result.data || !result.filename) throw new Error("Konten berkas ekspor tidak tersedia.");
+      if (controller.signal.aborted) return;
+      if (typeof result.data !== "string" || !result.filename) throw new Error("Konten berkas ekspor tidak tersedia.");
       const blob = new Blob(["\uFEFF", result.data], { type: result.contentType || "text/csv;charset=utf-8" });
       const downloadUrl = URL.createObjectURL(blob);
       const anchor = document.createElement("a");
@@ -150,9 +157,9 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
       URL.revokeObjectURL(downloadUrl);
       setNotice(result.truncated ? `Ekspor ${result.filename} berhasil, tetapi dibatasi sesuai batas maksimum.` : `Ekspor ${result.filename} berhasil diunduh.`);
     } catch (exportError) {
-      setError(exportError instanceof Error ? exportError.message : "Laporan gagal diekspor.");
+      if (!controller.signal.aborted) setError(exportError instanceof Error ? exportError.message : "Laporan gagal diekspor.");
     } finally {
-      setBusy(false);
+      if (exportRequest.current === controller) { exportRequest.current = null; setBusy(false); }
     }
   };
 
@@ -257,8 +264,8 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
       {mode === "reports" && (
         <div className="space-y-5">
           <div className="grid gap-3 border border-slate-200 bg-white p-4 sm:grid-cols-[minmax(0,1fr)_auto]">
-            <label><span className="mb-1.5 block text-sm font-bold text-slate-700">Jenis laporan</span><select value={reportType} onChange={(event) => { setReportType(event.target.value); setReportPage(1); setReport(null); }} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold">{reportTypes.filter((type) => type.value !== "returning-participants" || canViewCrossEventReports).map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
-            <button type="button" onClick={() => void exportReport()} disabled={busy} className="mt-auto inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" /> Ekspor CSV</button>
+            <label><span className="mb-1.5 block text-sm font-bold text-slate-700">Jenis laporan</span><select value={reportType} onChange={(event) => { setReportType(event.target.value); setReportPage(1); }} className="min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold">{reportTypes.filter((type) => type.value !== "returning-participants" || canViewCrossEventReports).map((type) => <option key={type.value} value={type.value}>{type.label}</option>)}</select></label>
+            <button type="button" onClick={() => void exportReport()} disabled={busy || loading || !report?.meta?.total} className="mt-auto inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-xs font-bold text-white hover:bg-emerald-800 disabled:opacity-50"><Download className="h-4 w-4" /> {busy ? "Menyiapkan CSV…" : "Ekspor CSV"}</button>
           </div>
           <div className="overflow-x-auto border border-slate-200 bg-white">
             {loading ? <div className="h-64 animate-pulse bg-slate-100" /> : report?.data?.length ? (
@@ -271,9 +278,9 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
           {report?.meta && report.meta.total > 0 && <nav aria-label="Halaman laporan event" className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm">
             <span>{(report.meta.page - 1) * report.meta.pageSize + 1}–{Math.min(report.meta.page * report.meta.pageSize, report.meta.total)} dari {report.meta.total} data</span>
             <div className="flex items-center gap-2">
-              <button type="button" onClick={() => setReportPage((page) => Math.max(1, page - 1))} disabled={loading || report.meta.page <= 1} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Sebelumnya</button>
+              <button type="button" onClick={() => setReportPage(Math.max(1, reportPage - 1))} disabled={loading || report.meta.page <= 1} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Sebelumnya</button>
               <span className="whitespace-nowrap">{report.meta.page}/{report.meta.pageCount}</span>
-              <button type="button" onClick={() => setReportPage((page) => page + 1)} disabled={loading || report.meta.page >= report.meta.pageCount} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Berikutnya</button>
+              <button type="button" onClick={() => setReportPage(reportPage + 1)} disabled={loading || report.meta.page >= report.meta.pageCount} className="min-h-11 rounded-lg border border-slate-300 px-3 disabled:opacity-50">Berikutnya</button>
             </div>
           </nav>}
         </div>

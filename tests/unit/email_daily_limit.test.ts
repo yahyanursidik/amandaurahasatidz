@@ -8,9 +8,10 @@ vi.mock("../../netlify/functions/lib/db/client", () => ({
     select: () => ({ from: () => ({ where: () => {
       selects++;
       return selects === 1
-        ? { limit: async () => [{ id: "00000000-0000-4000-8000-000000000001", status: "QUEUED",
-          scheduledAt: new Date(), payload: { templateCode: "BROADCAST_CUSTOM", campaignId: "campaign-1", dailyLimit: 2 } }] }
-        : Promise.resolve([{ count: 2 }]);
+        ? { limit: async () => [] }
+        : selects === 2 ? { orderBy: () => ({ limit: async () => [{ id: "00000000-0000-4000-8000-000000000001", status: "QUEUED",
+          scheduledAt: new Date(), payload: { templateCode: "BROADCAST_CUSTOM", campaignId: "campaign-1", dailyLimit: 2 } }] }) }
+          : Promise.resolve([{ count: 2 }]);
     } }) }),
     update: () => ({ set: () => ({ where: defer }) }),
   }),

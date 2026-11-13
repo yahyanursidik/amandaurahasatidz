@@ -7539,7 +7539,7 @@
 .wa-batch__history li > strong[data-status="SKIPPED"] { color: var(--color-ustadz-warning); }
 .wa-batch__history li > button { display: inline-flex; min-height: 2.75rem; align-items: center; gap: .3rem; border: 0; border-radius: var(--radius-ustadz); background: transparent; color: var(--color-ustadz-accent); padding-inline: var(--space-ustadz-xs); font-weight: 750; cursor: pointer; }
 @media (min-width: 52rem) { .wa-batch__workspace { grid-template-columns: minmax(0, 1.5fr) minmax(17rem, .85fr); } .wa-batch__recipient { grid-template-columns: auto minmax(0, 1fr) minmax(10rem, .7fr); } .wa-batch__recipient-contact { grid-column: auto; text-align: right; } }
-@media (max-width: 40rem) { .wa-batch__steps span { font-size: .8125rem; } .wa-batch__actions > *, .wa-batch__send-actions > * { width: 100%; } .wa-batch__recipient-tools > button { flex: 1 1 auto; } .wa-batch__preview { position: static; } }
+@media (max-width: 40rem) { .wa-batch__steps span { font-size: .875rem; } .wa-batch__actions > *, .wa-batch__send-actions > * { width: 100%; } .wa-batch__recipient-tools > button { flex: 1 1 auto; } .wa-batch__preview { position: static; } }
 @media (hover: hover) and (pointer: fine) { .wa-batch__primary:hover:not(:disabled) { filter: brightness(.94); } .wa-batch__secondary:hover:not(:disabled), .wa-batch__recipient-tools > button:hover:not(:disabled), .wa-batch__notice button:hover:not(:disabled) { background: var(--color-ustadz-paper-muted); } .wa-batch__recipient:hover:not([data-disabled="true"]) { background: var(--color-ustadz-paper-muted); } .wa-batch__text-button:hover, .wa-batch__history li > button:hover { text-decoration: underline; text-underline-offset: .2em; } }
 @media (prefers-reduced-motion: reduce) { .wa-batch button:active:not(:disabled), .wa-batch a:active { transform: none; } }
 
@@ -7559,6 +7559,12 @@
 .wa-batch__paging .wa-batch__secondary, .wa-batch__entry, .wa-batch__actions button, .wa-batch__send-actions > button, .wa-batch__send-actions > a { white-space: nowrap; }
 @media (min-width: 40rem) { .wa-batch__filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .wa-batch__scope { grid-column: 1 / -1; } }
 @media (hover: hover) and (pointer: fine) { .wa-batch__entry:hover { filter: brightness(.95); } }
+
+/* Hallmark · component: private access request · existing emerald-slate tokens · states: default, hover, focus, active, disabled, loading, error, success */
+.public-confirm__access-field { display: grid; gap: var(--space-portal-xs); margin-block: var(--space-portal-md); font-size: .875rem; font-weight: 700; }
+.public-confirm__access-field input { min-width: 0; min-height: 3rem; border: 1px solid var(--color-portal-rule); border-radius: var(--radius-portal-control); padding-inline: var(--space-portal-md); background: var(--color-portal-paper); color: var(--color-portal-ink); }
+.public-confirm__access-field input:focus-visible { outline: 2px solid var(--color-portal-focus); outline-offset: 2px; }
+.public-confirm__access-field input:disabled { opacity: .65; cursor: not-allowed; }
 
 /* Hallmark · kiosk QR · genre: modern-minimal · macrostructure: Split Studio
  * tone: calm-operational · anchor hue: emerald · theme: existing emerald-slate · contrast: pass (40–41)

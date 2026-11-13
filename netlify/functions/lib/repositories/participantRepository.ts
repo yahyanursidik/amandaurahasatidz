@@ -6,6 +6,7 @@ import {
   ustadzProfiles,
   institutions,
   events,
+  invitations,
   auditLogs,
   attendanceRecords,
   roles,
@@ -22,6 +23,8 @@ import { isAttendanceEventOpen } from "../services/attendanceModel";
 import { randomUUID } from "node:crypto";
 import type { ParticipantPageQuery } from "../validations/participantValidation";
 import { INSTITUTION_PARTICIPANT_SOURCES, INVITED_PARTICIPANT_SOURCES } from "../../../../src/lib/participantCatalog";
+import { isActiveDelegationRegistration } from "../../../../src/lib/registrationStatus";
+import { submittedWhatsAppForParticipant } from "../services/participantContactReview";
 
 export async function countInstitutionParticipantsRepository(eventId: string, institutionId: string): Promise<number> {
   const db = getDbClient();
@@ -48,6 +51,7 @@ const participantColumns = {
       ustadzEmail: ustadzProfiles.email,
       ustadzPhone: ustadzProfiles.phone,
       ustadzWhatsapp: ustadzProfiles.whatsapp,
+      pendingWhatsapp: submittedWhatsAppForParticipant,
       ustadzAddress: ustadzProfiles.address,
       ustadzCityCode: ustadzProfiles.cityCode,
       ustadzProvinceCode: ustadzProfiles.provinceCode,
@@ -105,7 +109,7 @@ export async function findParticipantPageRepository(eventId: string, query: Part
   const whatsappValid = sql`(case when ${digits} like '0%' then '62' || substring(${digits} from 2)
     when ${digits} like '8%' then '62' || ${digits} else ${digits} end) ~ '^[1-9][0-9]{8,14}$'`;
   const completeContact = sql`(${whatsappValid} and btrim(coalesce(${ustadzProfiles.email}, '')) <> '' and btrim(coalesce(${ustadzProfiles.address}, '')) <> '')`;
-  const needsAction = sql`(${eventParticipants.approvalStatus} = 'PENDING_REVIEW' or not ${completeContact} or ${users.passwordHash} is null)`;
+  const needsAction = sql`(${eventParticipants.approvalStatus} = 'PENDING_REVIEW' or not ${completeContact} or ${users.passwordHash} is null or ${submittedWhatsAppForParticipant} is not null)`;
   const filter = and(
     eq(eventParticipants.eventId, eventId),
     query.search ? or(ilike(ustadzProfiles.fullName, searchPattern), ilike(eventParticipants.participantCode, searchPattern),
@@ -477,7 +481,7 @@ export async function replacePortalDelegationMemberTxRepository(
   const hint = await findParticipantByIdRepository(actorParticipantId);
   if (!hint) throw new NotFoundError("Pendaftaran kepala rombongan tidak ditemukan.");
   return withTransaction(async (tx) => {
-    await lockRegistrationEvent(tx, hint.eventId);
+    const event = await lockRegistrationEvent(tx, hint.eventId);
     const actorRows = await tx
       .select()
       .from(eventParticipants)
@@ -487,10 +491,19 @@ export async function replacePortalDelegationMemberTxRepository(
           eq(eventParticipants.ustadzId, actorUstadzId),
         ),
       )
-      .limit(1);
+      .limit(1).for("update");
     const actor = actorRows[0];
-    if (!actor || !actor.isDelegationLead || !actor.invitationId || !actor.institutionId) {
-      throw new ForbiddenError("Hanya kepala rombongan yang dapat mengubah delegasi lembaga ini.");
+    if (!actor || !actor.isDelegationLead || !actor.invitationId || !actor.institutionId || !isActiveDelegationRegistration(actor)) {
+      throw new ForbiddenError("Hanya kepala rombongan dengan pendaftaran aktif yang dapat mengubah delegasi.");
+    }
+    const [invitation] = await tx.select({ status: invitations.status, responseDeadline: invitations.responseDeadline,
+      registrationMode: invitations.registrationMode }).from(invitations)
+      .where(and(eq(invitations.id, actor.invitationId), eq(invitations.eventId, actor.eventId), eq(invitations.institutionId, actor.institutionId))).limit(1);
+    const now = new Date();
+    const deadline = invitation?.responseDeadline || event.invitationResponseDeadline;
+    if (!invitation || invitation.status === "REVOKED" || invitation.registrationMode === "INDIVIDUAL_SELF" ||
+      !isAttendanceEventOpen(event, now) || deadline && deadline < now) {
+      throw new ForbiddenError("Penggantian dari portal sudah ditutup. Hubungi panitia bila anggota perlu diganti.");
     }
     if (actor.id === payload.targetParticipantId) {
       throw new ValidationError(
@@ -502,7 +515,7 @@ export async function replacePortalDelegationMemberTxRepository(
       .select()
       .from(eventParticipants)
       .where(eq(eventParticipants.id, payload.targetParticipantId))
-      .limit(1);
+      .limit(1).for("update");
     const target = targetRows[0];
     if (!target) throw new NotFoundError("Peserta yang akan diganti tidak ditemukan.");
     if (
@@ -512,7 +525,7 @@ export async function replacePortalDelegationMemberTxRepository(
     ) {
       throw new ForbiddenError("Peserta tersebut bukan anggota rombongan yang Anda kelola.");
     }
-    if (["REPLACED", "CANCELLED"].includes(target.confirmationStatus)) {
+    if (!isActiveDelegationRegistration(target)) {
       throw new ConflictError("Peserta ini sudah tidak aktif dan tidak dapat diganti lagi.");
     }
     const checkedIn = await tx
@@ -547,7 +560,7 @@ export async function replacePortalDelegationMemberTxRepository(
       )[0];
     }
 
-    let profile = (
+    const matchingProfiles = (
       await tx
         .select()
         .from(ustadzProfiles)
@@ -555,13 +568,15 @@ export async function replacePortalDelegationMemberTxRepository(
           or(
             eq(ustadzProfiles.email, normalizedEmail),
             eq(ustadzProfiles.userId, user.id),
-            eq(ustadzProfiles.normalizedName, normalizedName),
           ),
         )
-        .limit(1)
-    )[0];
-    if (profile?.userId && profile.userId !== user.id) {
-      throw new ConflictError("Profil pengganti sudah terhubung ke akun lain. Hubungi administrator.");
+        .limit(2)
+    );
+    let profile = matchingProfiles[0];
+    if (matchingProfiles.length > 1 || profile && (profile.userId && profile.userId !== user.id ||
+      profile.deletedAt || profile.mergedIntoId || profile.profileStatus !== "ACTIVE" ||
+      normalizeName(profile.fullName) !== normalizedName || profile.email && normalizeEmail(profile.email) !== normalizedEmail)) {
+      throw new ConflictError("Identitas pengganti tidak cocok dengan profil yang ada. Hubungi administrator.");
     }
     if (!profile) {
       profile = (
@@ -579,18 +594,12 @@ export async function replacePortalDelegationMemberTxRepository(
           })
           .returning()
       )[0];
-    } else {
+    } else if (!profile.userId) {
       profile = (
         await tx
           .update(ustadzProfiles)
           .set({
             userId: user.id,
-            fullName: payload.fullName.trim(),
-            normalizedName,
-            email: normalizedEmail,
-            phone: normalizedPhone,
-            whatsapp: normalizedWhatsapp,
-            address: payload.address?.trim() || profile.address,
             updatedAt: new Date(),
           })
           .where(eq(ustadzProfiles.id, profile.id))
@@ -608,7 +617,6 @@ export async function replacePortalDelegationMemberTxRepository(
         and(
           eq(eventParticipants.eventId, actor.eventId),
           eq(eventParticipants.ustadzId, profile.id),
-          inArray(eventParticipants.confirmationStatus, ["INVITED", "CONFIRMED", "APPROVED"]),
         ),
       )
       .limit(1);
@@ -659,7 +667,8 @@ export async function replacePortalDelegationMemberTxRepository(
 
     await tx
       .update(eventParticipants)
-      .set({ confirmationStatus: "REPLACED", cancelledAt: new Date(), updatedAt: new Date() })
+      .set({ confirmationStatus: "REPLACED", cancelledAt: now, updatedAt: now,
+        qrTokenVersion: sql`${eventParticipants.qrTokenVersion} + 1`, qrIssuedAt: null })
       .where(eq(eventParticipants.id, target.id));
     await tx.insert(participantStatusHistories).values({
       participantId: target.id,
@@ -682,9 +691,8 @@ export async function replacePortalDelegationMemberTxRepository(
           registrationSource: "INSTITUTION_DELEGATION_REPLACEMENT",
           participantCode,
           isDelegationLead: false,
-          confirmationStatus: "CONFIRMED",
+          confirmationStatus: "INVITED",
           approvalStatus: "PENDING_REVIEW",
-          confirmedAt: new Date(),
           replacementForParticipantId: target.id,
           notes: `Pengganti ${target.participantCode}: ${payload.reason}`,
         })
@@ -693,9 +701,9 @@ export async function replacePortalDelegationMemberTxRepository(
 
     await tx.insert(participantStatusHistories).values({
       participantId: created.id,
-      statusType: "CONFIRMATION_STATUS",
-      fromStatus: "INVITED",
-      toStatus: "CONFIRMED",
+      statusType: "APPROVAL_STATUS",
+      fromStatus: null,
+      toStatus: "PENDING_REVIEW",
       reason: `Diajukan kepala rombongan sebagai pengganti ${target.participantCode}.`,
       changedBy: actorUserId,
     });

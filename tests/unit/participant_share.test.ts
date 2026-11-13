@@ -1,17 +1,13 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildParticipantRegistrationShareLinks, type ParticipantShareDetails } from "../../src/lib/participantShare";
 
-const mocks = vi.hoisted(() => ({ rows: [] as unknown[], where: vi.fn(), sign: vi.fn() }));
+const mocks = vi.hoisted(() => ({ rows: [] as unknown[], where: vi.fn(), whatsapp: vi.fn() }));
 vi.mock("../../netlify/functions/lib/db/client", () => ({
   getDbClient: () => ({ select: () => ({ from: () => ({ innerJoin: () => ({ innerJoin: () => ({
     where: (condition: unknown) => { mocks.where(condition); return { limit: async () => mocks.rows }; },
   }) }) }) }) }),
 }));
-vi.mock(import("../../netlify/functions/lib/services/participantCardService"), async (original) => ({
-  ...await original(),
-  signCardForParticipant: mocks.sign,
-  cardPath: (token: string) => `/card?token=${encodeURIComponent(token)}`,
-}));
+vi.mock("../../netlify/functions/lib/services/participantWhatsAppService", () => ({ getEventRegistrationWhatsAppNumber: mocks.whatsapp }));
 import { getParticipantShareService } from "../../netlify/functions/lib/services/participantShareService";
 
 const details: ParticipantShareDetails = {
@@ -30,25 +26,28 @@ const details: ParticipantShareDetails = {
   confirmationStatus: "CONFIRMED",
   qrToken: "pqr_abc.def",
   cardUrl: "/card?token=pqr_abc.def",
+  registrationStatusUrl: "/confirm#prc_safe.signature",
 };
 
 describe("pesan QR dan kode pendaftaran", () => {
-  it("membuat WhatsApp/email terenkode dengan kode dan tautan kartu pribadi", () => {
+  it("membuat WhatsApp/email terenkode dengan bukti baca-saja tanpa kartu pribadi", () => {
     const links = buildParticipantRegistrationShareLinks(details, "https://contoh.id");
     expect(links.whatsappUrl).toMatch(/^https:\/\/wa.me\/6281234567890\?text=/);
     expect(new URL(links.whatsappUrl!).searchParams.get("text")).toBe(links.message);
     expect(links.emailUrl).toMatch(/^mailto:ahmad@example.org\?subject=/);
     expect(links.message).toContain("Kode pendaftaran: P-0001");
-    expect(links.message).toContain("https://contoh.id/card?token=pqr_abc.def");
+    expect(links.message).toContain("https://contoh.id/confirm#prc_safe.signature");
+    expect(links.message).not.toMatch(/pcf_|pqr_/);
+    expect(links.cardUrl).toBeNull();
     expect(links.message).toContain("Jangan teruskan tautan pribadi");
   });
 
   it("peserta pending dapat membagikan kode tetapi tidak tautan atau token QR", () => {
     const links = buildParticipantRegistrationShareLinks({ ...details, approvalStatus: "PENDING_REVIEW", confirmationStatus: "INVITED",
-      registrationStatusUrl: "/confirm#pcf_private.token" }, "https://contoh.id");
+      registrationStatusUrl: "/confirm#prc_safe.signature" }, "https://contoh.id");
     expect(links.cardUrl).toBeNull();
     expect(links.message).toContain("QR presensi belum diterbitkan");
-    expect(links.message).toContain("https://contoh.id/confirm#pcf_private.token");
+    expect(links.message).toContain("https://contoh.id/confirm#prc_safe.signature");
     expect(links.message).not.toContain("pqr_");
   });
 
@@ -62,20 +61,21 @@ describe("pesan QR dan kode pendaftaran", () => {
   it("meminta konfirmasi ketika peserta disetujui tetapi belum mengonfirmasi", () => {
     const links = buildParticipantRegistrationShareLinks({ ...details, confirmationStatus: "INVITED",
       confirmationUrl: "/confirm#pcf_private.token" }, "https://contoh.id");
-    expect(links.message).toContain("https://contoh.id/confirm#pcf_private.token");
+    expect(links.message).toContain("https://contoh.id/confirm#prc_safe.signature");
+    expect(links.message).not.toContain("pcf_");
     expect(links.message).toContain("perlu konfirmasi hadir");
     expect(links.message).not.toContain("pqr_");
     expect(links.cardUrl).toBeNull();
-    expect(links.statusUrl).toBe("https://contoh.id/confirm#pcf_private.token");
+    expect(links.statusUrl).toBe("https://contoh.id/confirm#prc_safe.signature");
   });
 
-  it("dua tautan tetap tersedia setelah konfirmasi agar peserta bisa mengundurkan diri", () => {
+  it("setelah konfirmasi tetap membagikan bukti, bukan keputusan atau QR", () => {
     const links = buildParticipantRegistrationShareLinks({ ...details,
       confirmationUrl: "/confirm#pcf_private.token", attendanceConfirmationRequired: true }, "https://contoh.id");
-    expect(links.message).toContain("Lihat status pendaftaran (tanpa login)");
-    expect(links.message).toContain("Simpan QR presensi");
-    expect(links.message).toContain("https://contoh.id/confirm#pcf_private.token");
-    expect(links.message).toContain("https://contoh.id/card?token=pqr_abc.def");
+    expect(links.message).toContain("Lihat bukti dan status pendaftaran");
+    expect(links.message).toContain("Portal Asatidz");
+    expect(links.message).toContain("https://contoh.id/confirm#prc_safe.signature");
+    expect(links.message).not.toMatch(/pcf_|pqr_/);
   });
 
   it("tidak membagikan tautan lagi setelah peserta membatalkan", () => {
@@ -86,9 +86,9 @@ describe("pesan QR dan kode pendaftaran", () => {
     expect(links.message).not.toContain("pqr_abc");
   });
 
-  it("memakai telepon cadangan jika WhatsApp invalid dan menolak header mailto tersisip", () => {
+  it("tidak memakai telepon cadangan dan menolak header mailto tersisip", () => {
     const links = buildParticipantRegistrationShareLinks({ ...details, whatsapp: "-", email: "a?cc=other@example.org" }, "https://contoh.id");
-    expect(links.whatsappUrl).toMatch(/wa.me\/6281234567890/);
+    expect(links.whatsappUrl).toBeNull();
     expect(links.emailUrl).toBeNull();
   });
 
@@ -102,13 +102,15 @@ describe("layanan berbagi peserta yang dibatasi event", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.rows = [{ ...details, id: details.participantId, qrTokenVersion: 1, status: "PUBLISHED", timezone: "Asia/Jakarta" }];
-    mocks.sign.mockReturnValue("pqr_abc.def");
+    mocks.whatsapp.mockResolvedValue("6281234567890");
   });
 
-  it("membuat QR signed untuk peserta approved pada event yang benar", async () => {
+  it("membuat bukti baca-saja untuk peserta approved pada event yang benar", async () => {
     const result = await getParticipantShareService(details.eventId, details.participantId);
-    expect(result.cardUrl).toBe("/card?token=pqr_abc.def");
-    expect(mocks.sign).toHaveBeenCalledWith(expect.objectContaining({ id: details.participantId, eventId: details.eventId, qrTokenVersion: 1 }));
+    expect(result.cardUrl).toBeNull();
+    expect(result.registrationStatusUrl).toMatch(/^\/confirm#prc_/);
+    expect(result.whatsapp).toBe("6281234567890");
+    expect(mocks.whatsapp).toHaveBeenCalledWith(details.eventId, details.participantId);
     // Both identifiers are present in the actual Drizzle query condition.
     const { PgDialect } = await import("drizzle-orm/pg-core");
     const query = new PgDialect().sqlToQuery(mocks.where.mock.calls[0][0]);
@@ -119,8 +121,9 @@ describe("layanan berbagi peserta yang dibatasi event", () => {
     mocks.rows = [{ ...details, id: details.participantId, endDate: "2099-12-31",
       attendanceConfirmationRequired: true, qrTokenVersion: 1, status: "PUBLISHED", timezone: "Asia/Jakarta" }];
     const result = await getParticipantShareService(details.eventId, details.participantId);
-    expect(result.confirmationUrl).toMatch(/^\/confirm#pcf_/);
-    expect(result.cardUrl).toBe("/card?token=pqr_abc.def");
+    expect(result.confirmationUrl).toBeNull();
+    expect(result.registrationStatusUrl).toMatch(/^\/confirm#prc_/);
+    expect(result.cardUrl).toBeNull();
   });
 
   it("tidak menerbitkan QR untuk peserta pending", async () => {
@@ -128,14 +131,12 @@ describe("layanan berbagi peserta yang dibatasi event", () => {
     const result = await getParticipantShareService(details.eventId, details.participantId);
     expect(result.qrToken).toBeNull();
     expect(result.cardUrl).toBeNull();
-    expect(result.registrationStatusUrl).toMatch(/^\/confirm#pcf_/);
-    expect(mocks.sign).not.toHaveBeenCalled();
+    expect(result.registrationStatusUrl).toMatch(/^\/confirm#prc_/);
   });
 
   it.each(["CANCELLED", "REPLACED"])("menolak pendaftaran %s", async (confirmationStatus) => {
     mocks.rows = [{ ...details, confirmationStatus }];
     await expect(getParticipantShareService(details.eventId, details.participantId)).rejects.toThrow(/tidak aktif/);
-    expect(mocks.sign).not.toHaveBeenCalled();
   });
 
   it("menolak peserta ditolak atau ID tidak ditemukan", async () => {

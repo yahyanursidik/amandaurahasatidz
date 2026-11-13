@@ -6,6 +6,7 @@ import { ConflictError, NotFoundError, ValidationError, ForbiddenError } from ".
 import { createAuditLog } from "./auditService";
 import { assertParticipantEligibleForCheckin } from "./deadlineService";
 import { canDisplayAttendanceQr } from "./participantCardService";
+import { isAttendanceQrEventOpen } from "../repositories/attendanceRepository";
 
 export interface ParticipantQrInfo {
   participantId: string;
@@ -61,7 +62,8 @@ export async function getParticipantQrTokenService(participantId: string): Promi
   if (p.attendanceConfirmationRequired && p.status !== "CONFIRMED") {
     throw new ForbiddenError("Konfirmasikan kehadiran pribadi sebelum membuka QR presensi.");
   }
-  if (!canDisplayAttendanceQr({ ...p, confirmationStatus: p.status }, { ...p, status: p.eventStatus })) {
+  const event = { ...p, status: p.eventStatus };
+  if (!canDisplayAttendanceQr({ ...p, confirmationStatus: p.status }, event) && !(await isAttendanceQrEventOpen(p.eventId, event))) {
     throw new ForbiddenError("QR presensi tidak tersedia untuk acara ini. Periksa status acara di portal.");
   }
 
@@ -209,7 +211,11 @@ export async function rotateParticipantQrTokenService(
     .limit(1);
 
   if (!current) throw new NotFoundError(`Peserta ID ${participantId} tidak ditemukan.`);
-  if (!canDisplayAttendanceQr(current, current)) throw new ForbiddenError("QR presensi belum tersedia untuk peserta ini.");
+  if (current.approvalStatus !== "APPROVED" || ["CANCELLED", "REPLACED"].includes(current.confirmationStatus) ||
+    (current.attendanceConfirmationRequired && current.confirmationStatus !== "CONFIRMED") ||
+    (!canDisplayAttendanceQr(current, current) && !(await isAttendanceQrEventOpen(current.eventId, current)))) {
+    throw new ForbiddenError("QR presensi belum tersedia untuk peserta ini.");
+  }
 
   const rotatedAt = new Date();
   const [updated] = await db

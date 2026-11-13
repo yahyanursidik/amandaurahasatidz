@@ -33,6 +33,10 @@ export const InvitationRegistrationPage: React.FC = () => {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(!data);
   const [saving, setSaving] = useState(false);
+  const [accessCode, setAccessCode] = useState("");
+  const [verificationToken, setVerificationToken] = useState("");
+  const [verifying, setVerifying] = useState(false);
+  const [verifyError, setVerifyError] = useState("");
   const [policyNotice, setPolicyNotice] = useState("");
   const [policyBlocked, setPolicyBlocked] = useState(false);
   const current = useRef({ data, submission, saving, proofKey, policyBlocked });
@@ -76,7 +80,7 @@ export const InvitationRegistrationPage: React.FC = () => {
     const proof = readRegistrationProof<InvitationData, Submission>(proofKey);
     if (proof) { setData(proof.event); setSubmission(proof.result); setLoading(false); setError(""); return; }
     const controller = new AbortController();
-    setLoading(true); setError(""); setData(null); setSubmission(null); setDelegates([]); setPolicyNotice(""); setPolicyBlocked(false);
+    setLoading(true); setError(""); setData(null); setSubmission(null); setDelegates([]); setPolicyNotice(""); setPolicyBlocked(false); setVerificationToken(""); setAccessCode("");
     void Promise.resolve().then(() => controller.signal.aborted ? null
       : fetch(`${ENV.API_BASE_URL}/invitations/public/${invitationType}/${encodeURIComponent(token)}`, { signal: controller.signal, cache: "no-store" }))
       .then(async (response) => {
@@ -125,19 +129,20 @@ export const InvitationRegistrationPage: React.FC = () => {
 
   const submit = async (payload: InvitationResponsePayload) => {
     if (saving || policyBlocked || submissionInFlight.current === proofKey) return;
+    if (invitationType === "institution" && !verificationToken) { setVerifyError("Isi kode unik lembaga dari panitia terlebih dahulu."); return; }
     submissionInFlight.current = proofKey;
     setError("");
     setDelegates(payload.delegates);
     setSaving(true);
     try {
       const response = await fetch(`${ENV.API_BASE_URL}/invitations/public/${invitationType}/${encodeURIComponent(token)}/response`, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...payload, ...(invitationType === "institution" ? { verificationToken } : {}) }),
       });
       const result = await response.json();
       if (!response.ok) throw new Error(result.error?.message || "Konfirmasi undangan gagal disimpan.");
       if (data) saveRegistrationProof(proofKey, { event: data, result: result.data });
       if (current.current.proofKey === proofKey) setSubmission(result.data);
-    } catch (reason) { if (current.current.proofKey === proofKey) setError(reason instanceof Error ? reason.message : "Konfirmasi gagal diproses."); }
+    } catch (reason) { if (current.current.proofKey === proofKey) { setError(reason instanceof Error ? reason.message : "Konfirmasi gagal diproses."); if (invitationType === "institution") setVerificationToken(""); } }
     finally {
       if (submissionInFlight.current === proofKey) submissionInFlight.current = null;
       if (current.current.proofKey === proofKey) setSaving(false);
@@ -158,10 +163,27 @@ export const InvitationRegistrationPage: React.FC = () => {
             <p className="mt-2 flex items-start gap-2 text-sm text-emerald-100"><MapPin className="h-4 w-4 shrink-0" />{data.event.venueName || "Lokasi menyusul"}</p>
             {data.invitation.responseDeadline && !submission && <p className="mt-4 border-t border-emerald-800 pt-3 text-sm text-emerald-200">Konfirmasi sebelum {formatEventDateTime(data.invitation.responseDeadline, data.event.timezone || "Asia/Jakarta")} {eventTimezoneLabel(data.event.timezone || "Asia/Jakarta")}</p>}
           </header>
+          {!submission && invitationType === "institution" && !verificationToken && <form className="rounded-xl border border-slate-200 bg-white p-5" onSubmit={(event) => {
+            event.preventDefault(); if (verifying) return; setVerifying(true); setVerifyError("");
+            void fetch(`${ENV.API_BASE_URL}/invitations/public/institution/${encodeURIComponent(token)}/code/verify`, {
+              method: "POST", cache: "no-store", referrerPolicy: "no-referrer", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ code: accessCode }),
+            }).then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error?.message || "Kode belum dapat diperiksa."); setVerificationToken(body.data.verificationToken); })
+              .catch((cause) => setVerifyError(cause instanceof Error ? cause.message : "Kode belum dapat diperiksa."))
+              .finally(() => setVerifying(false));
+          }}>
+            <label className="block text-sm font-bold" htmlFor="institution-access-code">Kode unik lembaga
+              <input id="institution-access-code" autoComplete="off" required minLength={8} maxLength={12} value={accessCode} disabled={verifying}
+                onChange={(event) => setAccessCode(event.target.value.toUpperCase())} placeholder="ABCD-2345"
+                className="mt-2 min-h-12 w-full rounded-lg border border-slate-300 px-3 font-mono text-lg focus-visible:outline-2 focus-visible:outline-emerald-700" />
+            </label>
+            <p className="my-3 text-sm text-slate-600">Gunakan kode yang disampaikan panitia bersama undangan {data.institution?.name || "lembaga"}. Tidak perlu menunggu OTP email.</p>
+            {verifyError && <p role="alert" className="mb-3 text-sm text-rose-800">{verifyError}</p>}
+            <button type="submit" disabled={verifying} className="inline-flex min-h-12 items-center whitespace-nowrap rounded-lg bg-emerald-700 px-4 font-bold text-white disabled:opacity-60">{verifying ? "Memeriksa…" : "Verifikasi kode"}</button>
+          </form>}
            {submission ? <>
              {receiptParticipants.length > 0 ? <PublicRegistrationReceipt event={data.event} participants={receiptParticipants} emailQueued={submission.emailQueued || 0} approvalStatus={submission.participants?.[0]?.approvalStatus} /> : <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-6" aria-live="polite"><CheckCircle2 className="h-8 w-8 text-emerald-700" /><h2 className="mt-3 text-xl font-black">Jawaban undangan tersimpan</h2><p className="mt-2 text-sm">{submission.message}</p><p className="mt-3 text-sm">Karena berhalangan hadir, tidak ada QR atau akses portal baru.</p></section>}
              {selfRegistration && receiptParticipants.length > 0 && <section className="rounded-2xl border border-sky-200 bg-sky-50 p-5"><h2 className="font-black text-sky-950">Asatidz lain dari lembaga ini?</h2><p className="mt-1 text-sm text-sky-900">Simpan tautan status pribadi dan akses portal Anda sebelum membuka formulir untuk asatidz berikutnya.</p><button type="button" onClick={() => { try { window.sessionStorage.removeItem(proofKey); } catch { /* The current receipt is still visible. */ } window.location.reload(); }} className="mt-3 inline-flex min-h-12 items-center gap-2 rounded-xl bg-sky-800 px-5 font-bold text-white hover:bg-sky-900"><Users className="h-5 w-5" /> Daftarkan asatidz lain</button></section>}
-           </> : selfRegistrationFull ? <section className="rounded-2xl border border-amber-200 bg-amber-50 p-6" role="status"><h2 className="text-xl font-black text-amber-950">Kuota lembaga sudah penuh</h2><p className="mt-2 text-sm text-amber-900">Seluruh {data.invitation.totalQuota || 1} kursi telah terisi atau sedang menunggu persetujuan admin. Hubungi panitia bila ada perubahan peserta.</p><button type="button" onClick={() => window.location.reload()} className="mt-4 min-h-11 rounded-lg border border-amber-700 px-4 text-sm font-bold text-amber-950">Periksa kuota lagi</button></section> : <InvitationResponseForm key={`${invitationType}:${token}`} data={data} invitationType={invitationType} saving={saving} error={error} policyNotice={policyNotice} unavailable={policyBlocked} onSubmit={(payload) => void submit(payload)} />}
+           </> : selfRegistrationFull ? <section className="rounded-2xl border border-amber-200 bg-amber-50 p-6" role="status"><h2 className="text-xl font-black text-amber-950">Kuota lembaga sudah penuh</h2><p className="mt-2 text-sm text-amber-900">Seluruh {data.invitation.totalQuota || 1} kursi telah terisi atau sedang menunggu persetujuan admin. Hubungi panitia bila ada perubahan peserta.</p><button type="button" onClick={() => window.location.reload()} className="mt-4 min-h-11 rounded-lg border border-amber-700 px-4 text-sm font-bold text-amber-950">Periksa kuota lagi</button></section> : <InvitationResponseForm key={`${invitationType}:${token}`} data={data} invitationType={invitationType} saving={saving} error={error} policyNotice={policyNotice} unavailable={policyBlocked || invitationType === "institution" && !verificationToken} onSubmit={(payload) => void submit(payload)} />}
         </>}
     </div>
   </PublicLayout>;

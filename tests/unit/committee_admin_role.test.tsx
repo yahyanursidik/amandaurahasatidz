@@ -106,6 +106,20 @@ describe("Admin Panitia Semua Event", () => {
     expect(() => requireReportAccess(organizer, "reports.read", "demographics", firstEvent)).toThrow();
     expect(() => requireReportAccess(organizer, "reports.read", "no-show", firstEvent)).not.toThrow();
     expect(() => requireReportAccess(organizer, "reports.read", "no-show", otherEvent)).not.toThrow();
+    expect(() => requireReportAccess(organizer, "reports.read", "returning-participants", firstEvent)).not.toThrow();
+    expect(() => requireReportAccess(organizer, "reports.export", "returning-participants", firstEvent)).not.toThrow();
+    expect(() => requireReportAccess({ ...organizer, assignments: [{ roleCode: "COMMITTEE_ORGANIZER", eventId: firstEvent }] },
+      "reports.read", "returning-participants", firstEvent)).toThrow(/lintas event/);
+  });
+
+  it("does not combine global event-list access with a scoped report permission", () => {
+    const combined: UserContext = { ...user, assignments: [{ roleCode: "SYSTEM_ADMIN" }, { roleCode: "EVENT_ADMIN", eventId: firstEvent }] };
+    expect(readableEventIds(combined)).toBeNull();
+    for (const action of ["reports.read", "reports.export"] as const) {
+      expect(() => requireReportAccess(combined, action, "returning-participants", firstEvent)).toThrow(/lintas event/);
+      expect(() => requireReportAccess(combined, action, "attendance-daily", firstEvent)).not.toThrow();
+      expect(() => requireReportAccess(combined, action, "attendance-daily", otherEvent)).toThrow();
+    }
   });
 
   it("can be created without an event but cannot make an old per-event role global", () => {

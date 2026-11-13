@@ -1,6 +1,6 @@
 # Koneksi Mailketing
 
-Email transaksional (kode verifikasi, pendaftaran, persetujuan, undangan, pengingat, dan informasi acara) serta BC yang dibuat admin memakai antrean email aplikasi. Penyedia default adalah Mailketing API v2. Alamat pengirim yang diminta: `no-reply@yts.web.id`.
+Pemberitahuan pendaftaran, persetujuan, konfirmasi, undangan, pengingat, informasi acara, dan BC memakai antrean email aplikasi. Pendaftaran/persetujuan/konfirmasi mencoba memproses hanya email transaksi yang baru dibuat, dengan waktu dibatasi; sisa antrean atau kegagalan dapat diperiksa admin. Kode pembuatan sandi dikirim langsung saat diminta; aplikasi tidak menyimpan kode baru ke antrean. Penyedia default adalah Mailketing API v2. Alamat pengirim yang diminta: `no-reply@yts.web.id`.
 
 ## Aktivasi aman
 
@@ -19,7 +19,8 @@ Email transaksional (kode verifikasi, pendaftaran, persetujuan, undangan, pengin
 
 4. Deploy ulang agar fungsi memakai variabel baru. Masuk sebagai Super Admin → **BC & kampanye email** → **Periksa koneksi Mailketing**. Pemeriksaan penyedia ini hanya membaca kredit dan daftar sender; tidak mengirim email atau membuat antrean baru. Status “siap” berarti prasyarat dasar terpenuhi, bukan bukti email diterima peserta.
 5. Simpan satu template BC lalu gunakan **Kirim uji template** ke alamat milik sendiri. Ini mengirim **satu email sungguhan** dan menyimpan hasilnya di riwayat. Periksa inbox/spam serta dashboard Mailketing. Jangan menjadwalkan BC sebelum uji ini berhasil.
-6. Setelah uji berhasil, set `EMAIL_WORKER_ENABLED=true` di Netlify dan deploy ulang. Worker terjadwal setiap menit akan memproses antrean, termasuk email transaksional. Bila `false`, email tetap tersimpan di antrean dan dapat diproses manual oleh admin, tetapi email otomatis tidak akan terkirim. Mengaktifkan worker menyebabkan permintaan database berkala setiap menit; pertimbangkan ini jika Neon diharapkan tidur saat tidak ada aktivitas.
+6. Jika ingin sisa pemberitahuan antrean dan BC dikirim otomatis, set `EMAIL_WORKER_ENABLED=true` di Netlify dan deploy ulang. Bila `false`, admin yang berwenang dapat memproses sisa antrean manual. Email pendaftaran/persetujuan/konfirmasi tetap dicoba setelah tindakan terkait, sedangkan kode pembuatan sandi dikirim langsung saat diminta. Mengaktifkan worker menyebabkan permintaan database berkala setiap menit; pertimbangkan ini jika Neon diharapkan tidur saat tidak ada aktivitas.
+7. Jika statusnya **Perlu cek penyedia**, periksa riwayat Mailketing terlebih dahulu. Aplikasi tidak otomatis mengirim ulang ketika belum dapat memastikan apakah penyedia sudah menerima pesan. Jika memang belum diterima, admin dapat mengantrekan ulang setelah mengonfirmasi pengecekan.
 
 ## Batasan dan pengoperasian
 

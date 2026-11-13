@@ -120,6 +120,8 @@ export const provisionParticipantPortalAccountSchema = z.object({
   resetExisting: z.boolean().optional().default(false),
 });
 
+export const participantImportEventIdSchema = z.string().uuid("ID event tidak valid.");
+
 export const importParticipantRowSchema = z.object({
   fullName: z.string().optional().default(""),
   email: z.string().optional().nullable(),
@@ -130,7 +132,8 @@ export const importParticipantRowSchema = z.object({
   institutionName: z.string().optional().nullable(),
   participantCode: z.string().optional().nullable(),
   isDelegationLead: z.boolean().optional().default(false),
-  approvalStatus: z.string().optional().default("PENDING_REVIEW"),
+  approvalStatus: z.string().max(30).optional(),
+  expectedParticipant: z.object({ id: z.string().uuid(), updatedAt: z.string().datetime() }).optional(),
   notes: z.string().optional().nullable(),
 });
 

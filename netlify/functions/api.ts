@@ -14,6 +14,7 @@ import {
   requireAuth,
   requireGlobalPermission,
   requirePermission,
+  requireParticipantImportAccess,
   requireReportAccess,
   requireStaffAttendanceRead,
 } from "./lib/middleware/rbac";
@@ -22,14 +23,14 @@ import { getDbClient } from "./lib/db/client";
 import { logInfo, logError } from "./lib/utils/logger";
 import { classifyDatabaseError } from "./lib/utils/databaseError";
 import { AppError, ForbiddenError, ValidationError, UnauthorizedError } from "./lib/utils/errors";
-import { checkRateLimit } from "./lib/utils/rateLimiter";
+import { checkRateLimit, resetRateLimit } from "./lib/utils/rateLimiter";
 import { generateEmailOtp, verifyEmailOtp } from "./lib/services/otpService";
 import { serializeCookie, clearCookie, parseCookies } from "./lib/utils/cookie";
 import { validateRequestData } from "./lib/utils/validator";
 import { submitPublicRegistrationSchema } from "./lib/validations/publicRegistrationValidation";
 import { submitPublicRegistrationService } from "./lib/services/publicRegistrationService";
 import { getPublicParticipantCardService } from "./lib/services/participantCardService";
-import { getPublicParticipantConfirmationService, submitPublicParticipantConfirmationService } from "./lib/services/participantConfirmationService";
+import { getPublicParticipantConfirmationService, requestPrivateParticipantAccessService, submitPublicParticipantConfirmationService } from "./lib/services/participantConfirmationService";
 import { getParticipantShareService } from "./lib/services/participantShareService";
 import { createManualParticipantService } from "./lib/services/manualParticipantService";
 import { manualParticipantSchema } from "./lib/validations/participantValidation";
@@ -180,6 +181,7 @@ import {
   provisionParticipantPortalAccountSchema,
   previewParticipantImportSchema,
   commitParticipantImportSchema,
+  participantImportEventIdSchema,
 } from "./lib/validations/participantValidation";
 import {
   completePasswordSetupService,
@@ -298,7 +300,8 @@ export const handler: Handler = async (event, _context) => {
   const method = event.httpMethod.toUpperCase();
   const publicGateMatch = path.match(publicGateRoute);
 
-  logInfo(requestId, `Incoming Request: ${method} ${path}`);
+  const loggedPath = path.replace(/(\/invitations\/public\/(?:institution|individual)\/)[^/]+/gi, "$1[REDACTED]");
+  logInfo(requestId, `Incoming Request: ${method} ${loggedPath}`);
 
   try {
     // 1. Health Probe
@@ -365,9 +368,9 @@ export const handler: Handler = async (event, _context) => {
     if (pubInvMatch && method === "GET") {
       const rawToken = pubInvMatch[1];
       const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
-      const selfRegistration = rawToken.startsWith("inv_self_");
-      const rateLimitCheck = checkRateLimit(selfRegistration ? `pub_inv_self_get_${rawToken.slice(-12)}_${clientIp}` : `pub_inv_get_${clientIp}`,
-        selfRegistration ? 120 : 10, 600000);
+      // The same token can be converted to reusable self-registration by the foundation.
+      // Rate limits must not infer today's policy from the original token prefix.
+      const rateLimitCheck = checkRateLimit(`pub_inv_get_${rawToken.slice(-12)}_${clientIp}`, 120, 600000);
 
       if (!rateLimitCheck.allowed) {
         return buildErrorResponse("TOO_MANY_REQUESTS", "Batas akses terlampaui.", requestId, 429);
@@ -398,7 +401,8 @@ export const handler: Handler = async (event, _context) => {
     if (pubInvCodeVerifyMatch && method === "POST") {
       const rawToken = pubInvCodeVerifyMatch[1];
       const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
-      const limitCheck = checkRateLimit(`pub_inv_code_${rawToken.slice(-12)}_${clientIp}`, 8, 600000);
+      const codeLimitKey = `pub_inv_code_${rawToken.slice(-12)}_${clientIp}`;
+      const limitCheck = checkRateLimit(codeLimitKey, 8, 600000);
       if (!limitCheck.allowed) {
         return buildErrorResponse(
           "TOO_MANY_REQUESTS",
@@ -411,6 +415,8 @@ export const handler: Handler = async (event, _context) => {
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(verifyInstitutionAccessCodeSchema, body);
       const result = await verifyInstitutionInvitationAccessCodeService(rawToken, validated.code, requestId);
+      // Successful entries from one institution's shared Wi-Fi are not failed guesses.
+      resetRateLimit(codeLimitKey);
       return buildSuccessResponse(result, requestId);
     }
     if (pubInvOtpRequestMatch && method === "POST") {
@@ -458,9 +464,7 @@ export const handler: Handler = async (event, _context) => {
     if (pubInvRespMatch && method === "POST") {
       const rawToken = pubInvRespMatch[1];
       const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
-      const selfRegistration = rawToken.startsWith("inv_self_");
-      const rateLimitCheck = checkRateLimit(selfRegistration ? `pub_inv_self_post_${rawToken.slice(-12)}_${clientIp}` : `pub_inv_post_${clientIp}`,
-        selfRegistration ? 60 : 5, 600000);
+      const rateLimitCheck = checkRateLimit(`pub_inv_post_${rawToken.slice(-12)}_${clientIp}`, 60, 600000);
 
       if (!rateLimitCheck.allowed) {
         return buildErrorResponse("TOO_MANY_REQUESTS", "Batas submit terlampaui.", requestId, 429);
@@ -1008,22 +1012,27 @@ export const handler: Handler = async (event, _context) => {
       return { statusCode: response.statusCode, body: response.body, headers };
     }
 
-    if (["/confirmations/public/status", "/confirmations/public/decision"].includes(path) && method === "POST") {
+    if (["/confirmations/public/status", "/confirmations/public/decision", "/confirmations/public/link"].includes(path) && method === "POST") {
       const body = event.body ? JSON.parse(event.body) : {};
       const token = body?.token;
-      if (typeof token !== "string" || !token.startsWith("pcf_") || token.length > 512) {
+      if (typeof token !== "string" || !/^(?:pcf|prc)_/.test(token) || token.length > 512) {
         throw new ValidationError("Tautan konfirmasi tidak valid.");
       }
       const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
       const deciding = path.endsWith("/decision");
-      const limit = checkRateLimit(`public_confirmation_${deciding ? "decision" : "status"}_${clientIp}_${token.slice(-16)}`,
-        deciding ? 5 : 30, deciding ? 600000 : 60000);
+      const requestingLink = path.endsWith("/link");
+      const limit = requestingLink ? checkRateLimit(`public_confirmation_link_${clientIp}`, 12, 600_000)
+        : checkRateLimit(`public_confirmation_${deciding ? "decision" : "status"}_${clientIp}_${token.slice(-16)}`,
+          deciding ? 5 : 30, deciding ? 600000 : 60000);
       if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak permintaan. Coba lagi sebentar.", requestId, 429);
       const decision = body?.decision;
       if (deciding && decision !== "CONFIRM" && decision !== "DECLINE") {
         throw new ValidationError("Pilih 'Insya Allah hadir' atau 'Berhalangan'.");
       }
-      const result = !deciding ? await getPublicParticipantConfirmationService(token)
+      const email = typeof body?.email === "string" ? body.email.trim() : "";
+      if (requestingLink && (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))) throw new ValidationError("Isi email yang digunakan saat mendaftar.");
+      const result = requestingLink ? await requestPrivateParticipantAccessService(token, email, requestId)
+        : !deciding ? await getPublicParticipantConfirmationService(token)
         : await submitPublicParticipantConfirmationService(token, decision, requestId);
       const response = buildSuccessResponse(result, requestId);
       return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
@@ -1037,6 +1046,7 @@ export const handler: Handler = async (event, _context) => {
       const staffSession = { ...session, assignments: session.assignments.filter((assignment) =>
         assignment.roleCode !== "INSTITUTION_REPRESENTATIVE" && assignment.roleCode !== "USTADZ") };
       requirePermission(staffSession, "participants.read", eventId);
+      requirePermission(staffSession, "participants.manage_portal_access", eventId);
       const data = await getParticipantShareService(eventId, participantShareMatch[2]);
       const response = buildSuccessResponse(data, requestId);
       return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
@@ -1056,29 +1066,29 @@ export const handler: Handler = async (event, _context) => {
 
     const partImportPreviewMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/import\/preview$/i);
     if (partImportPreviewMatch && method === "POST") {
-      const eventId = partImportPreviewMatch[1];
-      const session = requireAuth(userSession);
-      requirePermission(session, "participants.create", eventId);
+      const eventId = validateRequestData(participantImportEventIdSchema, partImportPreviewMatch[1].toLowerCase());
+      const access = requireParticipantImportAccess(userSession, eventId);
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(previewParticipantImportSchema, body);
-      const result = await processEventParticipantImportDryRunService(eventId, validated.rows);
-      return buildSuccessResponse(result, requestId);
+      const result = await processEventParticipantImportDryRunService(eventId, validated.rows, access);
+      const response = buildSuccessResponse(result, requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store" } };
     }
 
     const partImportCommitMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/import\/commit$/i);
     if (partImportCommitMatch && method === "POST") {
-      const eventId = partImportCommitMatch[1];
-      const session = requireAuth(userSession);
-      requirePermission(session, "participants.create", eventId);
+      const eventId = validateRequestData(participantImportEventIdSchema, partImportCommitMatch[1].toLowerCase());
+      const access = requireParticipantImportAccess(userSession, eventId);
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(commitParticipantImportSchema, body);
       const result = await commitEventParticipantImportService(
         eventId,
         { rows: validated.rows, approved: validated.approved },
-        session.userId,
+        access,
         requestId,
       );
-      return buildSuccessResponse(result, requestId, null, 201);
+      const response = buildSuccessResponse(result, requestId, null, 201);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store" } };
     }
 
     const partStatusMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/([a-f0-9-]+)\/status$/i);
@@ -1658,11 +1668,11 @@ export const handler: Handler = async (event, _context) => {
 
     const emailRetryMatch = path.match(/^\/email\/jobs\/([a-f0-9-]+)\/retry$/i);
     if (emailRetryMatch && method === "POST") {
-      const jobId = emailRetryMatch[1];
       const session = requireAuth(userSession);
       requirePermission(session, "email.retry");
-      const result = await retryEmailJobService(jobId, session.userId, requestId);
-      return buildSuccessResponse(result, requestId);
+      const input = validateRequestData(retryEmailJobSchema, { ...(event.body ? JSON.parse(event.body) : {}), jobId: emailRetryMatch[1] });
+      const result = await retryEmailJobService(input.jobId, session.userId, requestId, input.acknowledgeUncertain);
+      return buildSuccessResponse({ id: result.id, status: result.status }, requestId);
     }
 
     // Webhook Provider Endpoint (Public with HMAC SHA256 Signature Verification & Idempotency)
@@ -2010,7 +2020,7 @@ export const handler: Handler = async (event, _context) => {
       return buildSuccessResponse(commitResult, requestId);
     }
 
-    return buildErrorResponse("NOT_FOUND", `Endpoint ${method} ${path} tidak ditemukan.`, requestId, 404);
+    return buildErrorResponse("NOT_FOUND", `Endpoint ${method} ${loggedPath} tidak ditemukan.`, requestId, 404);
   } catch (error) {
     if (error instanceof AppError) {
       return buildErrorResponse(error.code, error.message, requestId, error.statusCode, error.details);

@@ -1,8 +1,13 @@
 import { describe, expect, it } from "vitest";
+import React from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { ParticipantCommunicationPanel } from "../../src/components/communications/ParticipantCommunicationPanel";
 import {
   buildParticipantEmailUrl,
   buildParticipantMessage,
   buildWhatsAppUrl,
+  buildParticipantWhatsAppUrl,
+  getParticipantWhatsAppNumber,
   getMissingParticipantContactFields,
   normalizeWhatsAppNumber,
 } from "../../src/lib/participantCommunication";
@@ -43,5 +48,20 @@ describe("participant communication", () => {
       .toEqual(["nomor WhatsApp", "alamat email", "alamat domisili"]);
     expect(buildParticipantEmailUrl("ustadz@example.org", "Konfirmasi", "Isi pesan"))
       .toBe("mailto:ustadz@example.org?subject=Konfirmasi&body=Isi%20pesan");
+  });
+
+  it.each(["admin", "committee"] as const)("blocks outdated/fallback WhatsApp but leaves email usable for %s while contact review is pending", (senderRole) => {
+    const participant = { id: "p1", name: "Ustadz Ahmad", email: "ahmad@example.org",
+      whatsapp: "081234567890", phone: "081234567891", pendingWhatsapp: "6281234567892" };
+    expect(getParticipantWhatsAppNumber(participant)).toBeNull();
+    expect(buildParticipantWhatsAppUrl(participant, "Pengingat")).toBeNull();
+    const html = renderToStaticMarkup(React.createElement(ParticipantCommunicationPanel, { participant, senderRole }));
+    const buttons = html.match(/<button\b[^>]*>[\s\S]*?<\/button>/g) || [];
+    expect(buttons.find((button) => button.includes("Buka WhatsApp"))).toContain('disabled=""');
+    expect(buttons.find((button) => button.includes("Buka email"))).not.toContain('disabled=""');
+    expect(html).toContain("Tinjau dan simpan WhatsApp pada profil dahulu");
+    expect(html).not.toContain("081234567890");
+    expect(buildParticipantEmailUrl(participant.email, "Pengingat", "Pesan")).toMatch(/^mailto:ahmad@example.org/);
+    expect(buildParticipantWhatsAppUrl({ ...participant, pendingWhatsapp: null }, "Pengingat")).toMatch(/^https:\/\/wa.me\/6281234567890/);
   });
 });

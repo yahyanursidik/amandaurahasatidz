@@ -49,6 +49,8 @@ export interface ParticipantConfirmationPayload {
   participantId: string;
   eventId: string;
   expiresAt: number;
+  purpose?: "RECEIPT" | "PRIVATE_ACCESS";
+  binding?: string;
 }
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -85,12 +87,12 @@ export function signParticipantConfirmationToken(payload: ParticipantConfirmatio
   }
   const encoded = Buffer.from(JSON.stringify(payload)).toString("base64url");
   const signature = crypto.createHmac("sha256", participantConfirmationSecret()).update(encoded).digest("base64url");
-  return `pcf_${encoded}.${signature}`;
+  return `${payload.purpose === "RECEIPT" ? "prc" : "pcf"}_${encoded}.${signature}`;
 }
 
 export function verifyParticipantConfirmationToken(rawToken: string, now = Date.now()): ParticipantConfirmationPayload | null {
   const token = rawToken.trim();
-  if (!token.startsWith("pcf_") || token.length > 512) return null;
+  if (!/^(?:pcf|prc)_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token) || token.length > 512) return null;
   const parts = token.slice(4).split(".");
   if (parts.length !== 2 || !parts[0] || !parts[1]) return null;
   const expected = Buffer.from(crypto.createHmac("sha256", participantConfirmationSecret())
@@ -101,8 +103,17 @@ export function verifyParticipantConfirmationToken(rawToken: string, now = Date.
     const payload = JSON.parse(Buffer.from(parts[0], "base64url").toString("utf8"));
     if (!UUID_PATTERN.test(payload.participantId) || !UUID_PATTERN.test(payload.eventId) ||
       !Number.isSafeInteger(payload.expiresAt) || payload.expiresAt <= now) return null;
+    if (token.startsWith("prc_") !== (payload.purpose === "RECEIPT")) return null;
+    if (payload.purpose !== undefined && !["RECEIPT", "PRIVATE_ACCESS"].includes(payload.purpose)) return null;
+    if (payload.purpose === "PRIVATE_ACCESS" && (typeof payload.binding !== "string" || !/^[\w-]{43}$/.test(payload.binding))) return null;
     return payload;
   } catch { return null; }
+}
+
+export function participantPrivateLinkBinding(ustadzId: string, email: string, qrRotatedAt: Date | null) {
+  return crypto.createHmac("sha256", participantConfirmationSecret()).update(JSON.stringify([
+    "private-status-contact-v1", ustadzId, email.trim().toLowerCase(), qrRotatedAt?.toISOString() ?? null,
+  ])).digest("base64url");
 }
 
 export function signParticipantQrToken(

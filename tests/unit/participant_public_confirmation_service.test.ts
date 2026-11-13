@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { signParticipantConfirmationToken } from "../../netlify/functions/lib/utils/token";
+import { participantPrivateLinkBinding, signParticipantConfirmationToken } from "../../netlify/functions/lib/utils/token";
 
 const state = vi.hoisted(() => ({
   participant: { id: "123e4567-e89b-42d3-a456-426614174000", eventId: "123e4567-e89b-42d3-a456-426614174001",
+    ustadzId: "123e4567-e89b-42d3-a456-426614174002", qrRotatedAt: null as Date | null,
     approvalStatus: "PENDING_REVIEW", confirmationStatus: "INVITED", participantCode: "PAR-2099-001", qrTokenVersion: 1 },
+  profile: { email: "ahmad@confirmation.invalid", status: "ACTIVE", deletedAt: null, mergedIntoId: null },
   event: { id: "123e4567-e89b-42d3-a456-426614174001", status: "REGISTRATION_OPEN", endDate: "2099-12-31",
     timezone: "Asia/Jakarta", attendanceConfirmationDeadline: null as Date | null, lateConfirmationPolicy: "BLOCK",
     name: "Daurah Asatidz", slug: "daurah-asatidz", attendanceConfirmationRequired: true },
@@ -20,7 +22,7 @@ vi.mock("../../netlify/functions/lib/services/registrationCapacity", () => ({
 vi.mock("../../netlify/functions/lib/db/transaction", () => ({
   withTransaction: async (callback: (tx: unknown) => Promise<unknown>) => callback({
     select: (fields?: Record<string, unknown>) => ({ from: () => ({ where: () => ({
-      limit: () => fields?.id ? Promise.resolve([]) : { for: async () => [state.participant] },
+      limit: () => fields?.id ? Promise.resolve([]) : { for: async () => fields?.email ? [state.profile] : [state.participant] },
     }) }) }),
     update: state.update,
     insert: () => ({ values: state.history }),
@@ -33,6 +35,8 @@ vi.mock("../../netlify/functions/lib/db/client", () => ({
         .filter((record) => record.toStatus === "CANCELLED").slice(-1) : fields.eventName ? [{
         participantId: state.participant.id, eventId: state.participant.eventId,
         participantCode: state.participant.participantCode, qrTokenVersion: state.participant.qrTokenVersion,
+        ustadzId: state.participant.ustadzId, qrRotatedAt: state.participant.qrRotatedAt, email: state.profile.email,
+        profileStatus: state.profile.status, deletedAt: null, mergedIntoId: null,
         approvalStatus: state.participant.approvalStatus, confirmationStatus: state.participant.confirmationStatus,
         participantName: "Ustadz Ahmad", eventName: state.event.name, eventSlug: state.event.slug,
         eventStatus: state.event.status, startDate: "2099-01-01", endDate: state.event.endDate,
@@ -47,16 +51,20 @@ vi.mock("../../netlify/functions/lib/db/client", () => ({
 vi.mock("../../netlify/functions/lib/services/auditService", () => ({ createAuditLog: state.audit }));
 vi.mock("../../netlify/functions/lib/services/participantCardEmailService", () => ({ queueParticipantConfirmationOutcomeEmail: state.email }));
 
-import { submitPublicParticipantConfirmationService } from "../../netlify/functions/lib/services/participantConfirmationService";
+import { getPublicParticipantConfirmationService, submitPublicParticipantConfirmationService } from "../../netlify/functions/lib/services/participantConfirmationService";
 
 const token = signParticipantConfirmationToken({ participantId: state.participant.id,
-  eventId: state.event.id, expiresAt: Date.parse("2099-12-31T23:59:59Z") });
+  eventId: state.event.id, purpose: "PRIVATE_ACCESS",
+  binding: participantPrivateLinkBinding(state.participant.ustadzId, state.profile.email, null),
+  expiresAt: Date.parse("2099-12-31T23:59:59Z") });
 
 describe("keputusan kehadiran melalui tautan pribadi", () => {
   beforeEach(() => {
     state.participant.approvalStatus = "PENDING_REVIEW";
     state.participant.confirmationStatus = "INVITED";
     state.participant.qrTokenVersion = 1;
+    state.participant.qrRotatedAt = null;
+    state.profile.email = "ahmad@confirmation.invalid";
     state.event.attendanceConfirmationDeadline = null;
     state.event.lateConfirmationPolicy = "BLOCK";
     state.update.mockClear();
@@ -71,6 +79,26 @@ describe("keputusan kehadiran melalui tautan pribadi", () => {
         return [state.participant];
       } }) };
     } }));
+  });
+
+  it.each([undefined, "RECEIPT"] as const)("never grants decisions or QR to legacy/receipt purpose %s", async (purpose) => {
+    state.participant.approvalStatus = "APPROVED";
+    state.participant.confirmationStatus = "CONFIRMED";
+    const receipt = signParticipantConfirmationToken({ participantId: state.participant.id, eventId: state.event.id,
+      purpose, expiresAt: Date.parse("2099-12-31T23:59:59Z") });
+    expect(await getPublicParticipantConfirmationService(receipt)).toMatchObject({ privateAccess: false, qrToken: null, canConfirm: false, canDecline: false });
+    await expect(submitPublicParticipantConfirmationService(receipt, "DECLINE", "test-request")).rejects.toMatchObject({ statusCode: 403 });
+    expect(state.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects an old private link after an email change or QR rotation", async () => {
+    state.participant.approvalStatus = "APPROVED";
+    state.profile.email = "changed@confirmation.invalid";
+    await expect(submitPublicParticipantConfirmationService(token, "CONFIRM", "test-request")).rejects.toMatchObject({ statusCode: 403 });
+    state.profile.email = "ahmad@confirmation.invalid";
+    state.participant.qrRotatedAt = new Date();
+    await expect(submitPublicParticipantConfirmationService(token, "CONFIRM", "test-request")).rejects.toMatchObject({ statusCode: 403 });
+    expect(state.update).not.toHaveBeenCalled();
   });
 
   it.each(["CONFIRM", "DECLINE"] as const)("menolak %s sebelum persetujuan admin", async (decision) => {

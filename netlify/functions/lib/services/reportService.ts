@@ -10,7 +10,7 @@ import {
   eventSessions,
   events,
 } from "../db/schema";
-import { eq, and, count, countDistinct, desc, sql, isNull, isNotNull, inArray } from "drizzle-orm";
+import { eq, and, asc, count, countDistinct, desc, sql, isNull, isNotNull, inArray } from "drizzle-orm";
 import { ValidationError } from "../utils/errors";
 import { eventNoShowCondition } from "../repositories/attendanceRepository";
 import { ATTENDED_STATUSES } from "./attendanceModel";
@@ -25,8 +25,8 @@ export async function getPaginatedReportService(
   reportType: string,
   params: PaginationParams
 ) {
-  const page = Math.max(1, params.page || 1);
-  const pageSize = Math.min(1000, Math.max(1, params.pageSize || 15));
+  const page = Number.isSafeInteger(params.page) ? Math.min(100_000, Math.max(1, params.page!)) : 1;
+  const pageSize = Number.isSafeInteger(params.pageSize) ? Math.min(1000, Math.max(1, params.pageSize!)) : 15;
   const offset = (page - 1) * pageSize;
   const db = getDbClient();
 
@@ -46,15 +46,18 @@ export async function getPaginatedReportService(
         .select({
           id: invitations.id,
           invitationNumber: invitations.invitationNumber,
+          invitationType: invitations.invitationType,
           institutionName: institutions.name,
-          recipientEmail: institutions.email,
+          recipientName: sql<string | null>`coalesce(${ustadzProfiles.fullName}, ${institutions.name})`,
+          recipientEmail: sql<string | null>`coalesce(${ustadzProfiles.email}, ${institutions.email})`,
           status: invitations.status,
           sentAt: invitations.sentAt,
         })
         .from(invitations)
         .leftJoin(institutions, eq(invitations.institutionId, institutions.id))
+        .leftJoin(ustadzProfiles, eq(invitations.ustadzId, ustadzProfiles.id))
         .where(params.eventId ? eq(invitations.eventId, params.eventId) : undefined)
-        .orderBy(desc(invitations.createdAt))
+        .orderBy(desc(invitations.createdAt), asc(invitations.id))
         .limit(pageSize)
         .offset(offset);
       break;
@@ -63,7 +66,7 @@ export async function getPaginatedReportService(
     case "institution-participants": {
       // 2. Laporan Peserta per Lembaga
       const totalRes = await db
-        .select({ total: count() })
+        .select({ total: countDistinct(eventParticipants.institutionId) })
         .from(eventParticipants)
         .where(params.eventId ? eq(eventParticipants.eventId, params.eventId) : undefined);
       total = totalRes[0]?.total || 0;
@@ -77,9 +80,10 @@ export async function getPaginatedReportService(
           delegationCount: count(eventParticipants.id),
         })
         .from(institutions)
-        .leftJoin(eventParticipants, eq(institutions.id, eventParticipants.institutionId))
+        .innerJoin(eventParticipants, eq(institutions.id, eventParticipants.institutionId))
         .where(params.eventId ? eq(eventParticipants.eventId, params.eventId) : undefined)
         .groupBy(institutions.id, institutions.name, institutions.cityCode, institutions.provinceCode)
+        .orderBy(asc(institutions.name), asc(institutions.id))
         .limit(pageSize)
         .offset(offset);
       break;
@@ -98,13 +102,16 @@ export async function getPaginatedReportService(
         .select({
           id: invitationResponses.id,
           invitationId: invitationResponses.invitationId,
+          invitationNumber: invitations.invitationNumber,
+          invitationType: invitations.invitationType,
+          responseStatus: invitationResponses.responseStatus,
           isFinal: invitationResponses.isFinal,
           submittedAt: invitationResponses.submittedAt,
         })
         .from(invitationResponses)
         .innerJoin(invitations, eq(invitationResponses.invitationId, invitations.id))
         .where(params.eventId ? eq(invitations.eventId, params.eventId) : undefined)
-        .orderBy(desc(invitationResponses.createdAt))
+        .orderBy(desc(invitationResponses.createdAt), asc(invitationResponses.id))
         .limit(pageSize)
         .offset(offset);
       break;
@@ -138,7 +145,7 @@ export async function getPaginatedReportService(
         .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
         .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
         .where(condition)
-        .orderBy(desc(attendanceRecords.createdAt))
+        .orderBy(desc(attendanceRecords.createdAt), asc(attendanceRecords.id))
         .limit(pageSize)
         .offset(offset);
       break;
@@ -175,7 +182,7 @@ export async function getPaginatedReportService(
         .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
         .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
         .where(condition)
-        .orderBy(desc(eventSessions.startAt), desc(attendanceRecords.createdAt))
+        .orderBy(desc(eventSessions.startAt), desc(attendanceRecords.createdAt), asc(attendanceRecords.id))
         .limit(pageSize)
         .offset(offset);
       break;
@@ -210,16 +217,16 @@ export async function getPaginatedReportService(
     }
 
     case "returning-participants": {
-      const returningRows = await db
+      const returningRows = db
         .select({
           ustadzId: ustadzProfiles.id,
           fullName: ustadzProfiles.fullName,
           email: ustadzProfiles.email,
-          eventCount: countDistinct(eventParticipants.eventId),
-          attendanceRecordCount: count(attendanceRecords.id),
-          institutionCount: countDistinct(eventParticipants.institutionId),
-          institutions: sql<string>`string_agg(distinct coalesce(${institutions.name}, 'Individu'), ', ')`,
-          lastAttendanceAt: sql<Date | null>`max(${attendanceRecords.checkinAt})`,
+          eventCount: countDistinct(eventParticipants.eventId).as("event_count"),
+          attendanceRecordCount: count(attendanceRecords.id).as("attendance_count"),
+          institutionCount: countDistinct(eventParticipants.institutionId).as("institution_count"),
+          institutions: sql<string>`string_agg(distinct coalesce(${institutions.name}, 'Individu'), ', ' order by coalesce(${institutions.name}, 'Individu'))`.as("institution_names"),
+          lastAttendanceAt: sql<string | null>`max(${attendanceRecords.checkinAt})`.as("last_attendance_at"),
         })
         .from(ustadzProfiles)
         .innerJoin(eventParticipants, eq(ustadzProfiles.id, eventParticipants.ustadzId))
@@ -228,15 +235,21 @@ export async function getPaginatedReportService(
         .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
         .groupBy(ustadzProfiles.id, ustadzProfiles.fullName, ustadzProfiles.email)
         .having(sql`count(distinct ${eventParticipants.eventId}) > 1`)
-        .orderBy(desc(countDistinct(eventParticipants.eventId)));
-      total = returningRows.length;
-      data = returningRows.slice(offset, offset + pageSize);
+        .as("returning_rows");
+      const [counts, rows] = await Promise.all([
+        db.select({ total: count() }).from(returningRows),
+        db.select().from(returningRows).orderBy(desc(returningRows.eventCount), asc(returningRows.ustadzId)).limit(pageSize).offset(offset),
+      ]);
+      total = counts[0]?.total || 0;
+      data = rows;
       break;
     }
 
     case "demographics": {
       // 8. Laporan Wilayah (Provinsi/Kota)
-      const totalRes = await db.select({ total: count() }).from(institutions);
+      const groups = db.select({ provinceCode: institutions.provinceCode, cityCode: institutions.cityCode })
+        .from(institutions).groupBy(institutions.provinceCode, institutions.cityCode).as("demographic_groups");
+      const totalRes = await db.select({ total: count() }).from(groups);
       total = totalRes[0]?.total || 0;
 
       data = await db
@@ -247,6 +260,7 @@ export async function getPaginatedReportService(
         })
         .from(institutions)
         .groupBy(institutions.provinceCode, institutions.cityCode)
+        .orderBy(asc(institutions.provinceCode), asc(institutions.cityCode))
         .limit(pageSize)
         .offset(offset);
       break;

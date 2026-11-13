@@ -9,7 +9,7 @@ import { ParticipantQrCard } from "@/components/public/ParticipantQrCard";
 import { publicRundownPath, registrationAttendanceWhatsAppUrl, type ReceiptParticipant } from "@/lib/publicRegistrationReceipt";
 import { buildEventWhatsAppUrl } from "@/lib/eventWhatsApp";
 import { registrationStage, registrationStageCopy } from "@/lib/registrationStatus";
-import { registrationStatusHref } from "@/lib/registrationStatusLink";
+import { registrationReceiptHref } from "@/lib/registrationStatusLink";
 
 type ReceiptProps = {
   event: { name: string; slug?: string; publicContactWhatsapp?: string | null; attendanceConfirmationRequired?: boolean };
@@ -30,16 +30,16 @@ export function PublicRegistrationReceipt({ event, participants, emailQueued, ap
   const confirmationStatus = selected.confirmationStatus ?? "INVITED";
   const stage = registrationStage({ approvalStatus: personApproval, confirmationStatus, attendanceConfirmationRequired: confirmationRequired });
   const copy = registrationStageCopy[stage];
-  const statusUrl = typeof window === "undefined" ? null : registrationStatusHref(
+  const statusUrl = typeof window === "undefined" ? null : registrationReceiptHref(
     selected.registrationStatusUrl || selected.confirmationUrl, window.location.origin);
   const needsActivation = selected.passwordSetupRequired || Boolean(selected.temporaryPasswordIssued && !selected.temporaryPassword);
   const statusShareUrl = isGroup && statusUrl && selected.whatsapp
     ? buildEventWhatsAppUrl([
       "Assalamu’alaikum warahmatullahi wabarakatuh.", "",
       `Ustadz ${selected.fullName}, pendaftaran ${event.name} telah tersimpan dengan kode ${selected.participantCode}.`,
-      "Lihat status pendaftaran melalui tautan pribadi ini. Tidak perlu login:",
+      "Lihat bukti dan status pendaftaran melalui tautan berikut:",
       statusUrl, "",
-      "QR presensi hanya tersedia jika pendaftaran sudah memenuhi syarat. Jangan teruskan tautan ini. Jazakumullahu khairan.",
+      "Konfirmasi dan QR tersedia di Portal Asatidz atau melalui tautan yang diminta ke email pribadi. Jazakumullahu khairan.",
     ].join("\n"), selected.whatsapp) : null;
 
   const copyPassword = async () => {
@@ -79,12 +79,12 @@ export function PublicRegistrationReceipt({ event, participants, emailQueued, ap
         <div role="status"><strong>{copy.label}</strong>
           <p>{stage === "READY" ? "Buka halaman status untuk melihat QR presensi terbaru." : copy.next}</p></div>
         <div className="public-receipt__confirmation-actions">
-          {statusUrl ? <a href={statusUrl}>{stage === "AWAITING_CONFIRMATION" ? "Konfirmasi hadir" : "Lihat status pendaftaran"} <ArrowRight aria-hidden="true" /></a>
+          {statusUrl ? <a href={statusUrl}>Lihat status pendaftaran <ArrowRight aria-hidden="true" /></a>
             : <Link to="/login/ustadz">Cek status di Portal Asatidz <ArrowRight aria-hidden="true" /></Link>}
-          {statusUrl && <button type="button" onClick={() => void copyStatusLink()}>{linkCopied ? "Tautan tersalin" : "Salin tautan pribadi"}</button>}
+          {statusUrl && <button type="button" onClick={() => void copyStatusLink()}>{linkCopied ? "Tautan tersalin" : "Salin tautan bukti"}</button>}
           {statusShareUrl && <a href={statusShareUrl} target="_blank" rel="noopener noreferrer">Kirim ke WhatsApp peserta</a>}
         </div>
-        {statusUrl && <p className="public-receipt__confirmation-note">{statusShareUrl ? `Kirim hanya kepada ${selected.fullName} (${selected.whatsapp}).` : "Tautan pribadi ini dapat dibuka tanpa login."}</p>}
+        {statusUrl && <p className="public-receipt__confirmation-note">Bukti ini dapat dibuka tanpa login. Keputusan dan QR dilindungi akses pribadi dari email atau portal.</p>}
       </div>
     </div>
     {emailQueued < participants.length && <p className="public-receipt__notice" role="status">Email informasi mungkin belum terkirim. Simpan bukti atau salin tautan pribadi; pendaftaran tetap tersimpan.</p>}

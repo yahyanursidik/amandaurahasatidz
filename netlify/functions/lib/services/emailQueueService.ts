@@ -1,6 +1,7 @@
 import { getDbClient } from "../db/client";
 import { emailJobs, emailDeliveries, emailTemplates } from "../db/schema";
-import { eq, and, desc, sql, lt, lte, or, gte } from "drizzle-orm";
+import { eq, and, asc, desc, sql, lt, lte, or, gte, isNull, inArray } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import { renderEmailTemplate, renderHtmlEmailTemplate } from "./emailTemplateEngine";
 import { sendTransactionalEmail } from "./emailTransport";
 import { logInfo, logError } from "../utils/logger";
@@ -42,6 +43,40 @@ export interface EnqueueOptions {
   variables: Record<string, any>;
   idempotencyKey: string;
   maxAttempts?: number;
+}
+
+const UNCERTAIN_DELIVERY = "Status penerimaan belum diketahui. Periksa penyedia sebelum mencoba ulang; pengiriman sebelumnya mungkin berhasil.";
+const LEGACY_PASSWORD_OTP = "Kode aktivasi lama tidak dikirim. Minta kode baru dari halaman masuk.";
+const expiredQueuedOtp = (job: { payload: unknown; idempotencyKey: string; createdAt: Date }, now = new Date()) => {
+  const payload = job.payload as { templateCode?: string; variables?: { expiresMinutes?: number | string } } | null;
+  if (payload?.templateCode !== "OTP_CODE") return null;
+  if (job.idempotencyKey.startsWith("password_setup_")) return LEGACY_PASSWORD_OTP;
+  const minutes = Number(payload.variables?.expiresMinutes || 5);
+  if (!Number.isFinite(minutes) || minutes <= 0 || now.getTime() + 15_000 >= job.createdAt.getTime() + minutes * 60_000) {
+    return "Kode verifikasi kedaluwarsa atau hampir kedaluwarsa. Minta kode baru.";
+  }
+  return null;
+};
+
+async function settleStaleEmailClaims(db: ReturnType<typeof getDbClient>, cutoff: Date, batchSize: number) {
+  const staleClaim = and(eq(emailJobs.status, "PROCESSING"),
+    lt(sql`coalesce(${emailJobs.lockedAt}, ${emailJobs.updatedAt})`, cutoff));
+  const stale = await db.select({ id: emailJobs.id, payload: emailJobs.payload, idempotencyKey: emailJobs.idempotencyKey,
+    createdAt: emailJobs.createdAt }).from(emailJobs).where(staleClaim).limit(batchSize);
+  const results: Array<{ jobId: string; status: string; reason?: string; error?: string; deliveryId?: string }> = [];
+  for (const job of stale) {
+    // The provider may have accepted the email just before execution stopped. Check only the current attempt.
+    const accepted = sql`exists (select 1 from ${emailDeliveries} where ${emailDeliveries.emailJobId} = ${emailJobs.id}
+      and ${emailDeliveries.sentAt} >= coalesce(${emailJobs.lockedAt}, ${emailJobs.updatedAt}))`;
+    const expired = expiredQueuedOtp(job);
+    const result = await db.update(emailJobs).set({
+      status: sql`case when ${accepted} then 'SENT' when ${Boolean(expired)} then 'CANCELLED' else 'DELIVERY_UNCERTAIN' end`,
+      lastError: sql`case when ${accepted} then null else ${expired || UNCERTAIN_DELIVERY} end`,
+      lockedAt: null, lockedBy: null, updatedAt: new Date(),
+    }).where(and(eq(emailJobs.id, job.id), staleClaim)).returning({ status: emailJobs.status, reason: emailJobs.lastError });
+    if (result[0]) results.push({ jobId: job.id, status: result[0].status, reason: result[0].reason || undefined });
+  }
+  return results;
 }
 
 export async function enqueueEmailJob(options: EnqueueOptions) {
@@ -114,9 +149,16 @@ export async function enqueueEmailJob(options: EnqueueOptions) {
   return { job: inserted[0], isDuplicate: inserted.length === 0 };
 }
 
-export async function processEmailQueueWorker(workerId = "worker-1", batchSize = 10, requestId = "req-worker") {
+export async function processEmailQueueWorker(workerId = "worker-1", batchSize = 10, requestId = "req-worker", jobIds?: string[]) {
+  const selectedIds = jobIds ? [...new Set(jobIds)].filter((id) => /^[a-f0-9-]{36}$/i.test(id)).slice(0, 100) : undefined;
+  if (selectedIds && !selectedIds.length) return { processedCount: 0, results: [] };
   const db = getDbClient();
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60000);
+  const lease = `${workerId}:${randomUUID()}`;
+  const startedAt = Date.now();
+  // An action-bound dispatch must never reconcile or deliver another campaign's jobs.
+  const processedResults = selectedIds ? [] as Awaited<ReturnType<typeof settleStaleEmailClaims>>
+    : await settleStaleEmailClaims(db, fiveMinutesAgo, batchSize);
 
   // 2. Safe Locking Query (Compliance Point 4)
   const jobsToProcess = await db
@@ -125,6 +167,7 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
     .where(
       and(
         or(eq(emailJobs.status, "QUEUED"), eq(emailJobs.status, "PENDING")),
+        selectedIds ? inArray(emailJobs.id, selectedIds) : undefined,
         lte(emailJobs.scheduledAt, new Date()),
         or(
           sql`${emailJobs.lockedAt} IS NULL`,
@@ -132,13 +175,15 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
         )
       )
     )
+    .orderBy(asc(emailJobs.scheduledAt), asc(emailJobs.id))
     .limit(batchSize);
 
-  const processedResults = [];
   let emailCopy: TransactionalEmailCopy | undefined;
 
   for (const job of jobsToProcess) {
+    if (Date.now() - startedAt >= 12_000) break;
     const payloadObj = (job.payload as Record<string, unknown>) || {};
+    if (selectedIds && !isRegistrationWorkflowEmail(String(payloadObj.templateCode || ""))) continue;
     if (await campaignDailyLimitReached(db, payloadObj)) {
       await db.update(emailJobs).set({ scheduledAt: nextBroadcastDay(), updatedAt: new Date() })
         .where(and(eq(emailJobs.id, job.id), or(eq(emailJobs.status, "QUEUED"), eq(emailJobs.status, "PENDING"))));
@@ -151,7 +196,7 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
       .set({
         status: "PROCESSING",
         lockedAt: new Date(),
-        lockedBy: workerId,
+        lockedBy: lease,
         attemptCount: sql`${emailJobs.attemptCount} + 1`,
         updatedAt: new Date(),
       })
@@ -163,8 +208,17 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
       ))
       .returning({ attemptCount: emailJobs.attemptCount });
     if (claimed.length === 0) continue;
+    const ownsClaim = and(eq(emailJobs.id, job.id), eq(emailJobs.status, "PROCESSING"), eq(emailJobs.lockedBy, lease));
+    let acceptedByProvider = false;
 
     try {
+      const otpError = expiredQueuedOtp(job);
+      if (otpError) {
+        await db.update(emailJobs).set({ status: "CANCELLED", lastError: otpError,
+          lockedAt: null, lockedBy: null, updatedAt: new Date() }).where(ownsClaim);
+        processedResults.push({ jobId: job.id, status: "CANCELLED", reason: otpError });
+        continue;
+      }
       let templateCode = String(payloadObj.templateCode || "");
       let variables = (payloadObj.variables as Record<string, unknown>) || {};
       const isRegistration = isRegistrationWorkflowEmail(templateCode);
@@ -173,7 +227,7 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
         if (!current) {
           const reason = "Status atau alamat pendaftaran tidak lagi sesuai; email ini tidak dikirim.";
           await db.update(emailJobs).set({ status: "CANCELLED", lastError: reason,
-            lockedAt: null, lockedBy: null, updatedAt: new Date() }).where(eq(emailJobs.id, job.id));
+            lockedAt: null, lockedBy: null, updatedAt: new Date() }).where(ownsClaim);
           processedResults.push({ jobId: job.id, status: "CANCELLED", reason });
           continue;
         }
@@ -212,7 +266,7 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
         }
       }
 
-      logInfo(requestId, `Mengirim email ke ${job.recipientEmail}: ${subjectStr}`);
+      logInfo(requestId, `Mengirim email antrean ${job.id}`);
 
       const sendResult = await sendTransactionalEmail({
         to: job.recipientEmail,
@@ -224,8 +278,10 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
       });
 
       if (!sendResult.success) {
-        throw Object.assign(new Error(sendResult.error || "Pengiriman email gagal"), { retryable: sendResult.retryable === true });
+        throw Object.assign(new Error(sendResult.error || "Pengiriman email gagal"),
+          { retryable: sendResult.retryable === true, deliveryUncertain: sendResult.deliveryUncertain === true });
       }
+      acceptedByProvider = true;
 
       // Mark delivery success
       const delivery = await db
@@ -243,33 +299,40 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
         .update(emailJobs)
         .set({
           status: "SENT",
+          lastError: null,
           lockedAt: null,
           lockedBy: null,
           updatedAt: new Date(),
         })
-        .where(eq(emailJobs.id, job.id));
+        .where(ownsClaim);
 
       processedResults.push({ jobId: job.id, status: "SENT", deliveryId: delivery[0].id });
     } catch (err: any) {
       logError(requestId, `Failed sending email job ${job.id}`, err);
+      if (acceptedByProvider) {
+        // Do not requeue a message the provider accepted. A later run reconciles the delivery record.
+        processedResults.push({ jobId: job.id, status: "PROCESSING", reason: UNCERTAIN_DELIVERY });
+        continue;
+      }
 
       const nextAttempts = claimed[0].attemptCount;
       const isDeadLetter = nextAttempts >= (job.maxAttempts || 3);
-      const nextStatus = isDeadLetter ? "DEAD_LETTER" : err.retryable === true ? "QUEUED" : "FAILED";
+      const nextStatus = err.deliveryUncertain === true ? "DELIVERY_UNCERTAIN"
+        : isDeadLetter ? "DEAD_LETTER" : err.retryable === true ? "QUEUED" : "FAILED";
 
       await db
         .update(emailJobs)
         .set({
           status: nextStatus,
-          lastError: err.message || "Failed email dispatch",
+          lastError: nextStatus === "DELIVERY_UNCERTAIN" ? UNCERTAIN_DELIVERY : err.message || "Failed email dispatch",
           scheduledAt: nextStatus === "QUEUED" ? new Date(Date.now() + Math.min(30, 2 ** nextAttempts) * 60_000) : job.scheduledAt,
           lockedAt: null,
           lockedBy: null,
           updatedAt: new Date(),
         })
-        .where(eq(emailJobs.id, job.id));
+        .where(ownsClaim);
 
-      if (isDeadLetter) {
+      if (nextStatus === "DEAD_LETTER") {
         await createAuditLog({
           actorUserId: null,
           action: "EMAIL_JOB_DEAD_LETTER",
@@ -290,15 +353,19 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
   };
 }
 
-export async function retryEmailJobService(jobId: string, actorUserId: string, requestId: string) {
+export async function retryEmailJobService(jobId: string, actorUserId: string, requestId: string, acknowledgeUncertain = false) {
   const db = getDbClient();
   const job = await db.select().from(emailJobs).where(eq(emailJobs.id, jobId)).limit(1);
 
   if (job.length === 0) {
     throw new NotFoundError("Email job tidak ditemukan.");
   }
-  if (job[0].status !== "FAILED" && job[0].status !== "DEAD_LETTER") {
-    throw new ConflictError("Hanya email berstatus gagal yang dapat diantrekan ulang.");
+  const current = job[0];
+  const otpError = expiredQueuedOtp(current);
+  if (otpError) throw new ConflictError(otpError);
+  if (current.status === "DELIVERY_UNCERTAIN" && !acknowledgeUncertain) throw new ConflictError(UNCERTAIN_DELIVERY);
+  if (!["FAILED", "DEAD_LETTER", "DELIVERY_UNCERTAIN"].includes(current.status)) {
+    throw new ConflictError("Hanya email gagal atau perlu verifikasi yang dapat diantrekan ulang.");
   }
 
   const updated = await db
@@ -309,9 +376,10 @@ export async function retryEmailJobService(jobId: string, actorUserId: string, r
       lastError: null,
       lockedAt: null,
       lockedBy: null,
+      scheduledAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(and(eq(emailJobs.id, jobId), or(eq(emailJobs.status, "FAILED"), eq(emailJobs.status, "DEAD_LETTER"))))
+    .where(and(eq(emailJobs.id, jobId), eq(emailJobs.status, current.status), isNull(emailJobs.lockedAt)))
     .returning();
   if (!updated[0]) throw new ConflictError("Status email berubah. Segarkan antrean lalu coba lagi.");
 
@@ -320,7 +388,7 @@ export async function retryEmailJobService(jobId: string, actorUserId: string, r
     action: "EMAIL_JOB_MANUAL_RETRY",
     resourceType: "EMAIL_JOB",
     resourceId: jobId,
-    reason: `Manual retry dipemicu untuk email job ${jobId}.`,
+    reason: current.status === "DELIVERY_UNCERTAIN" ? "Admin menyatakan telah memeriksa penyedia sebelum mengirim ulang." : "Admin mengantrekan ulang email gagal.",
     requestId,
   });
 

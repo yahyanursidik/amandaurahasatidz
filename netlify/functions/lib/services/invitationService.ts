@@ -39,7 +39,8 @@ import {
 } from "./institutionAccessCodeService";
 import { buildInstitutionInvitationPath } from "../../../../src/lib/invitationUrl";
 import { queueRegistrationReceivedEmails } from "./participantCardEmailService";
-import { registrationStatusPath } from "./participantConfirmationLink";
+import { registrationReceiptPath } from "./participantConfirmationLink";
+import { sendImmediateTransactionalTemplate } from "./emailTransport";
 import { countApprovedParticipantsBySourceRepository, countApprovedParticipantsForEventRepository } from "../repositories/participantRepository";
 import { logError } from "../utils/logger";
 import { invitationAllowsGroup, invitationIsSelfRegistration, invitationParticipantLimit, isInvitationPending } from "../../../../src/lib/institutionInvitation";
@@ -452,7 +453,7 @@ export async function getPublicInstitutionInvitationService(rawToken: string, re
     resourceType: "INVITATION_LINK",
     resourceId: link.id,
     eventId: event.id,
-    reason: `Token ${rawToken.substring(0, 12)}... diakses oleh publik.`,
+    reason: "Tautan undangan diakses oleh publik.",
     requestId,
   });
 
@@ -487,7 +488,7 @@ export async function getPublicInstitutionInvitationService(rawToken: string, re
       ? {
           name: institution.name,
           code: institution.code,
-          verificationRequired: false,
+          verificationRequired: true,
         }
       : null,
   };
@@ -552,13 +553,14 @@ export async function requestInstitutionInvitationOtpService(
   }
 
   const challenge = createInvitationOtpChallenge(result.invitation.id, normalizedEmail);
-  await enqueueEmailJob({
+  const sent = await sendImmediateTransactionalTemplate({
     templateCode: "OTP_CODE",
     recipientEmail: normalizedEmail,
     recipientName: result.institution?.name || null,
     variables: { otpCode: challenge.code, expiresMinutes: 5 },
-    idempotencyKey: `invitation_otp_${result.invitation.id}_${hashToken(challenge.challengeToken).slice(0, 20)}`,
+    requestId,
   });
+  if (!sent.success) throw new ValidationError("Kode belum dapat dikirim. Gunakan kode unik lembaga dari panitia.");
 
   await createAuditLog({
     actorUserId: null,
@@ -623,6 +625,9 @@ export async function submitInstitutionResponseService(
   const { invitation, event } = result;
   assertInvitationResponseOpen(result);
   if (invitation.invitationType !== "INSTITUTION") throw new ValidationError("Jalur undangan tidak sesuai.");
+  if (!payload.verificationToken || !verifyInstitutionAccessVerification(payload.verificationToken, invitation.id)) {
+    throw new ForbiddenError("Verifikasi kode unik lembaga sebelum mengirim formulir.");
+  }
   if (invitationIsSelfRegistration(invitation) && (!payload.isFinal || payload.responseStatus !== "ACCEPTED" || payload.delegates?.length !== 1)) {
     throw new ValidationError("Tautan lembaga ini hanya untuk pendaftaran mandiri satu asatidz per pengisian.");
   }
@@ -649,7 +654,7 @@ export async function submitInstitutionResponseService(
     }
   }
 
-  const saved = await saveInstitutionDelegationRepository(invitation.id, payload, { eventId: event.id, tokenHash });
+  const saved = await saveInstitutionDelegationRepository(invitation.id, payload, { eventId: event.id, tokenHash, verificationToken: payload.verificationToken });
   const savedResponse = saved.response;
   const cards = saved.participants.map((person, index) => ({ participantId: person.id,
     ustadzName: payload.delegates[index].fullName, email: payload.delegates[index].email,
@@ -685,10 +690,10 @@ export async function submitInstitutionResponseService(
   return {
     response: savedResponse,
     participants: saved.participants.map((person, index) => {
-      const registrationStatusUrl = registrationStatusPath(person, event.endDate);
+      const registrationStatusUrl = registrationReceiptPath(person, event.endDate);
       return { id: person.id, participantCode: person.participantCode, approvalStatus: person.approvalStatus,
         confirmationStatus: person.confirmationStatus, whatsapp: cards[index].whatsapp, registrationStatusUrl,
-        confirmationUrl: event.attendanceConfirmationRequired ? registrationStatusUrl : null };
+        confirmationUrl: null };
     }),
     portalAccounts,
     emailQueued,
@@ -815,10 +820,10 @@ export async function submitIndividualResponseService(rawToken: string, payload:
   return {
     response: saved.response,
     participants: saved.participants.map((person, index) => {
-      const registrationStatusUrl = registrationStatusPath(person, event.endDate);
+      const registrationStatusUrl = registrationReceiptPath(person, event.endDate);
       return { id: person.id, participantCode: person.participantCode, approvalStatus: person.approvalStatus,
         confirmationStatus: person.confirmationStatus, whatsapp: cards[index].whatsapp, registrationStatusUrl,
-        confirmationUrl: event.attendanceConfirmationRequired ? registrationStatusUrl : null };
+        confirmationUrl: null };
     }),
     portalAccounts,
     emailQueued,

@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowRight, Check, MessageCircle, RotateCcw, Search, SkipForward } from "lucide-react";
 import { normalizeWhatsAppNumber } from "@/lib/participantCommunication";
 import { participantSourceLabel } from "@/lib/participantCatalog";
-import { registrationStatusHref } from "@/lib/registrationStatusLink";
+import { registrationReceiptHref } from "@/lib/registrationStatusLink";
 import { useDebouncedValue } from "@/lib/useDebouncedValue";
 import { ustadzApi } from "@/lib/ustadzApi";
 import {
@@ -31,7 +31,7 @@ type Props = {
 };
 
 function registrationStatusLink(person?: WhatsAppWizardRecipient | null) {
-  return typeof window === "undefined" ? null : registrationStatusHref(person?.registrationStatusUrl, window.location.origin);
+  return typeof window === "undefined" ? null : registrationReceiptHref(person?.registrationStatusUrl, window.location.origin);
 }
 
 export function WhatsAppBatchWizard({ ownerId, sender, event, initialFilters }: Props) {
@@ -54,12 +54,14 @@ export function WhatsAppBatchWizard({ ownerId, sender, event, initialFilters }: 
   const [filters, setFilters] = useState<EventWhatsAppFilters>(initialFilters ?? { search: "", source: "ALL", status: "ALL" });
   const [reload, setReload] = useState(0);
   const [checking, setChecking] = useState(false);
+  const [openingWhatsApp, setOpeningWhatsApp] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [loaded, setLoaded] = useState("");
   const [error, setError] = useState("");
   const [errorField, setErrorField] = useState<"title" | "sender" | "message" | null>(null);
   const [storageWarning, setStorageWarning] = useState("");
   const startRequest = useRef<AbortController | null>(null);
+  const draftRequest = useRef<AbortController | null>(null);
   const heading = useRef<HTMLHeadingElement>(null);
   const moved = useRef(false);
   const debouncedSearch = useDebouncedValue(filters.search.trim());
@@ -73,6 +75,10 @@ export function WhatsAppBatchWizard({ ownerId, sender, event, initialFilters }: 
   const batchIds = batch?.recipientIds;
   const checkKey = batch ? JSON.stringify([batch.id, activeId, reload]) : "";
   const needsLink = batch?.template === "EVENT_CONFIRMATION";
+  useEffect(() => {
+    setOpeningWhatsApp(false);
+    return () => { draftRequest.current?.abort(); draftRequest.current = null; };
+  }, [checkKey]);
 
   useEffect(() => {
     const restore = () => {
@@ -136,7 +142,7 @@ export function WhatsAppBatchWizard({ ownerId, sender, event, initialFilters }: 
     }
     // Read the whole bounded queue once to restore labels; check only the current contact thereafter.
     const ids = prior && activeId ? [activeId] : batchIds;
-    void resolveEventWhatsAppRecipients(eventId, ids, needsLink, controller.signal, needsLink ? activeId || undefined : undefined)
+    void resolveEventWhatsAppRecipients(eventId, ids, needsLink, controller.signal)
       .then((result) => {
         if (controller.signal.aborted) return;
         setEventContext(result.event);
@@ -167,26 +173,27 @@ export function WhatsAppBatchWizard({ ownerId, sender, event, initialFilters }: 
   const sendError = eventId ? latestVerified ? verified.error : undefined : loadError;
   const currentStatus = batch && activeId ? batch.statusById[activeId] : null;
   const canChoose = (person: WhatsAppWizardRecipient, choice = template) => Boolean(person.number &&
-    (choice !== "EVENT_CONFIRMATION" || (person.numberSource === "WhatsApp" && eventContext &&
+    (choice !== "EVENT_CONFIRMATION" || (person.numberSource === "WhatsApp" && !person.sharedNumber && eventContext &&
       eventWhatsAppStage(person, eventContext) === "AWAITING_CONFIRMATION")));
   const selectableVisible = visibleProfiles.filter((person) => canChoose(person));
   const previewProfile = selected[0] || visibleProfiles.find((person) => canChoose(person));
   const matchingNumber = eventId && activePerson && batch && isRepeatedEventWhatsAppNumber(activePerson, verified.recipients, batch.statusById);
 
-  const eventVariables = (person: WhatsAppWizardRecipient | null | undefined, preview = false): Record<string, string> => {
-    if (!eventContext) return {};
-    const rundownPath = `/events/${encodeURIComponent(eventContext.slug)}#jadwal-kegiatan`;
-    const hasPublicPage = eventContext.slug && ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING", "COMPLETED"].includes(eventContext.status);
+  const eventVariables = (person: WhatsAppWizardRecipient | null | undefined, preview = false, currentEvent = eventContext): Record<string, string> => {
+    if (!currentEvent) return {};
+    const rundownPath = `/events/${encodeURIComponent(currentEvent.slug)}#jadwal-kegiatan`;
+    const hasPublicPage = currentEvent.slug && ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING", "COMPLETED"].includes(currentEvent.status);
     const rundown = hasPublicPage ? (typeof window === "undefined" ? rundownPath : new URL(rundownPath, window.location.origin).href) : "Lihat jadwal di Portal Asatidz.";
     return {
-      event: eventContext.name, kode: person?.participantCode || "kode pendaftaran",
-      tanggal: eventWhatsAppDateRange(eventContext), lokasi: eventContext.venueName || "menyusul",
-      rundown, tautan_status: preview ? "[tautan pribadi peserta]" : registrationStatusLink(person) || "",
+      event: currentEvent.name, kode: person?.participantCode || "kode pendaftaran",
+      tanggal: eventWhatsAppDateRange(currentEvent), lokasi: currentEvent.venueName || "menyusul",
+      rundown, tautan_status: preview ? "[tautan bukti pendaftaran]" : registrationStatusLink(person) || "",
     };
   };
   const previewMessage = renderWhatsAppBatchMessage(message, previewProfile?.fullName || "penerima", senderName || "Admin", eventVariables(previewProfile, true));
-  const currentUrl = batch && activePerson?.number && !sendError && !matchingNumber && (!needsLink || registrationStatusLink(activePerson))
-    ? whatsappBatchUrl(activePerson.number, renderWhatsAppBatchMessage(batch.message, activePerson.fullName, batch.senderName, eventVariables(activePerson))) : null;
+  const currentUrl = !eventId && batch && activePerson?.number && !sendError
+    ? whatsappBatchUrl(activePerson.number, renderWhatsAppBatchMessage(batch.message, activePerson.fullName, batch.senderName)) : null;
+  const canOpenEventDraft = eventId && batch && activePerson?.number && !sendError && !matchingNumber && (!needsLink || activePerson.confirmationAvailable);
   const liveMessage = batch && activePerson
     ? renderWhatsAppBatchMessage(batch.message, activePerson.fullName, batch.senderName, eventVariables(activePerson, Boolean(needsLink))) : "";
 
@@ -203,6 +210,52 @@ export function WhatsAppBatchWizard({ ownerId, sender, event, initialFilters }: 
     if (!batch) return;
     try { persist(updateWhatsAppBatchStatus(batch, id, status)); setError(""); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Status penerima belum dapat diubah."); }
+  };
+  const openEventDraft = async () => {
+    if (!eventId || !batch || !activeId || !canOpenEventDraft || draftRequest.current) return;
+    const popup = window.open("", "_blank");
+    if (!popup) { setError("Izinkan pop-up untuk membuka WhatsApp, lalu coba lagi."); return; }
+    popup.opener = null;
+    // The intermediate document contains no contact data and never sends a referrer.
+    const referrer = popup.document.createElement("meta");
+    referrer.name = "referrer"; referrer.content = "no-referrer";
+    popup.document.head.appendChild(referrer);
+    const controller = new AbortController();
+    draftRequest.current = controller;
+    setOpeningWhatsApp(true); setError("");
+    let navigated = false;
+    try {
+      const result = await resolveEventWhatsAppRecipients(eventId, [activeId], needsLink, controller.signal, needsLink ? activeId : undefined);
+      if (controller.signal.aborted) return;
+      const { recipients } = result;
+      const person = recipients[0];
+      setEventContext(result.event);
+      const nextRecipients = [...verified.recipients.filter((entry) => entry.id !== activeId),
+        ...recipients.map(({ registrationStatusUrl: _, ...entry }) => entry)];
+      setVerified({ key: checkKey, recipients: nextRecipients });
+      history.current = { batchId: batch.id, recipients: nextRecipients };
+      if (!person?.number || (needsLink && (!person.confirmationAvailable || !registrationStatusLink(person))) ||
+          isRepeatedEventWhatsAppNumber(person, nextRecipients, batch.statusById)) {
+        setError("Kontak atau status peserta berubah. Pesan tidak dibuka; periksa kembali data peserta."); return;
+      }
+      if (person.number !== activePerson?.number) {
+        setError("Nomor WhatsApp berubah. Periksa nomor terbaru, lalu tekan Buka WhatsApp lagi."); return;
+      }
+      const url = whatsappBatchUrl(person.number, renderWhatsAppBatchMessage(batch.message, person.fullName,
+        batch.senderName, eventVariables(person, false, result.event)));
+      if (!url || popup.closed) { setError("Tab WhatsApp tertutup. Buka WhatsApp kembali untuk menyiapkan pesan."); return; }
+      popup.location.replace(url);
+      navigated = true;
+      changeStatus(activeId, "OPENED");
+    } catch (cause) {
+      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Kontak terbaru belum dapat diperiksa.");
+    } finally {
+      if (!navigated) popup.close();
+      if (draftRequest.current === controller) {
+        draftRequest.current = null;
+        if (!controller.signal.aborted) setOpeningWhatsApp(false);
+      }
+    }
   };
   const selectTemplate = (next: WhatsAppBatchTemplate) => {
     setTemplate(next);
@@ -344,7 +397,8 @@ export function WhatsAppBatchWizard({ ownerId, sender, event, initialFilters }: 
             <input type="checkbox" checked={selectedIds.includes(person.id)} disabled={!selectable || checking} onChange={() => toggleRecipient(person)} />
             <span><strong>{person.fullName}</strong><small>{[person.participantCode, person.institutionName, eventContext ? participantSourceLabel(person.registrationSource) : null].filter(Boolean).join(" · ") || "Tanpa afiliasi utama"}</small>
               {eventContext && <small>{eventWhatsAppStatusLabel(person, eventContext)}</small>}</span>
-            <span className="wa-batch__recipient-contact">{person.number ? `${person.numberSource} · +${person.number}${!selectable ? " (tidak memenuhi syarat)" : ""}` : "Nomor WA belum valid"}</span>
+            <span className="wa-batch__recipient-contact">{person.needsContactReview ? "Nomor baru perlu diverifikasi di profil" : person.sharedNumber ? "Nomor dipakai bersama"
+              : person.number ? `${person.numberSource} · +${person.number}${!selectable ? " (tidak memenuhi syarat)" : ""}` : "Nomor WA belum valid"}</span>
           </label>;
         })}</div>
         {eventId && (page > 1 || hasNext) && <div className="wa-batch__paging"><button type="button" className="wa-batch__secondary" disabled={checking || page <= 1} onClick={() => setPage((old) => old - 1)}>Sebelumnya</button><span>Halaman {page}</span><button type="button" className="wa-batch__secondary" disabled={checking || !hasNext} onClick={() => setPage((old) => old + 1)}>Berikutnya</button></div>}
@@ -353,26 +407,28 @@ export function WhatsAppBatchWizard({ ownerId, sender, event, initialFilters }: 
     </section>}
 
     {step === "SEND" && batch && progress && <div className="wa-batch__send" aria-labelledby="wa-batch-send-title">
-      <div className="wa-batch__section-head"><div><h2 ref={heading} tabIndex={-1} id="wa-batch-send-title">{batch.title}</h2><p>Progres tersimpan di browser ini untuk akun yang sedang masuk{eventId ? " dan event ini" : ""}. Hindari komputer bersama.</p></div><button type="button" className="wa-batch__text-button" disabled={checking} onClick={clearBatch}>Hapus sesi</button></div>
+      <div className="wa-batch__section-head"><div><h2 ref={heading} tabIndex={-1} id="wa-batch-send-title">{batch.title}</h2><p>Progres tersimpan di browser ini untuk akun yang sedang masuk{eventId ? " dan event ini" : ""}. Hindari komputer bersama.</p></div><button type="button" className="wa-batch__text-button" disabled={checking || openingWhatsApp} onClick={clearBatch}>Hapus sesi</button></div>
       <div className="wa-batch__progress"><label htmlFor="wa-batch-progress">{progress.markedSent + progress.skipped} dari {progress.total} ditangani</label><progress id="wa-batch-progress" value={progress.markedSent + progress.skipped} max={progress.total} /><p role="status">{progress.markedSent} ditandai terkirim · {progress.skipped} dilewati · {progress.remaining} belum selesai</p></div>
       {activeId ? <div className="wa-batch__current">
         <div className="wa-batch__current-head"><div><span>Berikutnya</span><h3>{currentLoading ? "Memeriksa penerima…" : activePerson?.fullName || "Penerima tidak tersedia"}</h3><p>{activePerson?.number ? `+${activePerson.number} · ${activePerson.numberSource}` : "Nomor tidak tersedia."}</p></div><span>{progress.total - progress.remaining + 1} / {progress.total}</span></div>
         {sendError && !currentLoading && <div className="wa-batch__notice" role="alert"><p>{sendError}</p><button type="button" onClick={() => setReload((value) => value + 1)}>Periksa lagi</button></div>}
         {liveMessage && <pre>{liveMessage}</pre>}
         <div className="wa-batch__send-actions">
-          {currentUrl ? <a href={currentUrl} target="_blank" rel="noopener noreferrer" onClick={() => changeStatus(activeId, "OPENED")} className={currentStatus === "OPENED" ? "wa-batch__secondary" : "wa-batch__primary"}><MessageCircle aria-hidden="true" /> Buka WhatsApp</a>
+          {canOpenEventDraft ? <button type="button" disabled={openingWhatsApp} onClick={() => void openEventDraft()} className={currentStatus === "OPENED" ? "wa-batch__secondary" : "wa-batch__primary"}><MessageCircle aria-hidden="true" /> {openingWhatsApp ? "Memeriksa nomor…" : "Buka WhatsApp"}</button>
+            : currentUrl ? <a href={currentUrl} target="_blank" rel="noopener noreferrer" onClick={() => changeStatus(activeId, "OPENED")} className={currentStatus === "OPENED" ? "wa-batch__secondary" : "wa-batch__primary"}><MessageCircle aria-hidden="true" /> Buka WhatsApp</a>
             : !currentLoading && !sendError && <span className="wa-batch__notice">{matchingNumber ? "Nomor ini sudah ditandai terkirim untuk peserta lain dalam sesi ini."
-              : activePerson?.sharedNumber ? "Tautan pribadi tidak disiapkan karena nomor ini tercatat untuk beberapa peserta."
+              : activePerson?.needsContactReview ? "Verifikasi nomor baru di profil Asatidz sebelum menghubungi peserta."
+                : activePerson?.sharedNumber ? "Tautan bukti tidak disiapkan karena nomor ini tercatat untuk beberapa peserta."
                 : needsLink ? "Peserta tidak lagi memerlukan konfirmasi atau tautan tidak dapat dibagikan ke nomor ini." : "Nomor belum dapat dibuka di WhatsApp."}</span>}
-          <button type="button" className={currentStatus === "OPENED" ? "wa-batch__primary" : "wa-batch__secondary"} disabled={currentStatus !== "OPENED" || currentLoading} onClick={() => changeStatus(activeId, "MARKED_SENT")}><Check aria-hidden="true" /> Sudah kirim & lanjut</button>
-          <button type="button" className="wa-batch__secondary" disabled={currentLoading} onClick={() => changeStatus(activeId, "SKIPPED")}><SkipForward aria-hidden="true" /> Lewati</button>
+          <button type="button" className={currentStatus === "OPENED" ? "wa-batch__primary" : "wa-batch__secondary"} disabled={currentStatus !== "OPENED" || currentLoading || openingWhatsApp} onClick={() => changeStatus(activeId, "MARKED_SENT")}><Check aria-hidden="true" /> Sudah kirim & lanjut</button>
+          <button type="button" className="wa-batch__secondary" disabled={currentLoading || openingWhatsApp} onClick={() => changeStatus(activeId, "SKIPPED")}><SkipForward aria-hidden="true" /> Lewati</button>
         </div>
         <p className="wa-batch__caution">Tekan “Sudah kirim & lanjut” setelah mengirim di WhatsApp. Sistem tidak memverifikasi pengiriman.</p>
       </div> : <div className="wa-batch__notice" role="status"><strong>Semua penerima sudah ditangani.</strong><p>Periksa yang dilewati sebelum membuat sesi baru.</p></div>}
       <section className="wa-batch__history" aria-labelledby="wa-batch-history-title"><h3 id="wa-batch-history-title">Daftar penerima</h3><ol>{batch.recipientIds.map((id, index) => {
         const person = (eventId ? batchContacts : profilesById).get(id) || selected.find((item) => item.id === id);
         const status = batch.statusById[id];
-        return <li key={id}><span>{index + 1}. {person?.fullName || "Penerima sesi"}</span><strong data-status={status}>{status === "MARKED_SENT" ? "Ditandai terkirim" : status === "SKIPPED" ? "Dilewati" : status === "OPENED" ? "Tautan dibuka" : "Menunggu"}</strong>{["MARKED_SENT", "SKIPPED"].includes(status) && <button type="button" disabled={checking} onClick={() => changeStatus(id, "PENDING")} aria-label={`Kembalikan ${person?.fullName || "penerima"} ke antrean`}><RotateCcw aria-hidden="true" /> Ulangi</button>}</li>;
+        return <li key={id}><span>{index + 1}. {person?.fullName || "Penerima sesi"}</span><strong data-status={status}>{status === "MARKED_SENT" ? "Ditandai terkirim" : status === "SKIPPED" ? "Dilewati" : status === "OPENED" ? "Tautan dibuka" : "Menunggu"}</strong>{["MARKED_SENT", "SKIPPED"].includes(status) && <button type="button" disabled={checking || openingWhatsApp} onClick={() => changeStatus(id, "PENDING")} aria-label={`Kembalikan ${person?.fullName || "penerima"} ke antrean`}><RotateCcw aria-hidden="true" /> Ulangi</button>}</li>;
       })}</ol></section>
       {!progress.remaining && <div className="wa-batch__actions"><button type="button" className="wa-batch__primary" onClick={clearBatch}>Buat sesi baru <ArrowRight aria-hidden="true" /></button></div>}
     </div>}

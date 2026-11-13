@@ -20,6 +20,11 @@ describe("participant CSV import", () => {
       .toBe("UNKNOWN");
   });
 
+  it("leaves a blank approval status unset so a repeat import cannot reset moderation", () => {
+    expect(parseParticipantCsv("fullName,email\nAhmad,ahmad@example.org")[0].approvalStatus).toBe("");
+    expect(parseParticipantCsv("fullName,email,approvalStatus\nAhmad,ahmad@example.org,")[0].approvalStatus).toBe("");
+  });
+
   it("rejects malformed CSV structure before sending data to the server", () => {
     expect(() => parseParticipantCsv("fullName,email\nAhmad,ahmad@example.org,extra"))
       .toThrow(/Jumlah kolom/);
