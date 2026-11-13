@@ -1,6 +1,16 @@
 import { AuthProvider } from "@refinedev/core";
 import { ENV } from "@/config/env";
 import { invalidateAuthRequests, readAuthResource } from "./authRequestCache";
+import { PORTAL_LOGIN_PATHS, type PortalCode } from "@/config/portalAccess";
+
+export type PortalLoginError = Error & { details?: { recommendedPortal: PortalCode; loginPath: string } };
+
+function safePortalCorrection(error: unknown) {
+  const details = (error as { details?: { recommendedPortal?: string; loginPath?: string } } | undefined)?.details;
+  const portal = details?.recommendedPortal as PortalCode;
+  return portal && Object.hasOwn(PORTAL_LOGIN_PATHS, portal) && details?.loginPath === PORTAL_LOGIN_PATHS[portal]
+    ? { recommendedPortal: portal, loginPath: PORTAL_LOGIN_PATHS[portal] } : undefined;
+}
 
 const destinationForPortal = (portal: string) =>
   portal === "committee" ? "/committee" : portal === "ustadz" ? "/portal" : "/admin";
@@ -56,10 +66,10 @@ export const authProvider: AuthProvider = {
 
       return {
         success: false,
-        error: {
-          name: "LoginError",
-          message: res.error?.message || "Email atau password tidak sesuai",
-        },
+        error: Object.assign(new Error(res.error?.message || "Email atau password tidak sesuai"), {
+          name: safePortalCorrection(res.error) ? "PortalAccessError" : "LoginError",
+          details: response.status === 403 ? safePortalCorrection(res.error) : undefined,
+        }),
       };
     } catch (_err) {
       return {

@@ -13,6 +13,7 @@ import {
   roleLabel,
 } from "@/lib/committeeApi";
 import { fromEventIso, toEventIso } from "@/lib/eventDateTime";
+import { PORTAL_LOGIN_PATHS } from "@/config/portalAccess";
 
 type EventItem = { id: string; code: string; name: string; timezone: string };
 const fieldClass =
@@ -164,7 +165,15 @@ export const CommitteeDetailPage: React.FC = () => {
             <div className="mb-4 flex flex-wrap items-center justify-between gap-3 border-y border-slate-200 bg-white p-4">
               <div>
                 <p className="text-sm font-black text-slate-950">{member.email}</p>
-                <p className="mt-1 text-sm text-slate-600">Login dengan email dan password. Admin lintas-event dapat memakai Portal Panitia dan Ruang Kelola Event.</p>
+                <p className="mt-1 text-sm text-slate-600">Petugas masuk melalui Portal Panitia, bukan Portal Admin. Gunakan email dan password akun ini; masa tugas harus sudah aktif.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <Link to={PORTAL_LOGIN_PATHS.committee} state={{ prefillEmail: member.email }} className="inline-flex min-h-11 items-center gap-2 whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-3 text-sm font-bold text-emerald-900 hover:bg-emerald-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"><LogIn className="h-4 w-4" />Portal Panitia</Link>
+                  <button type="button" onClick={async () => {
+                    try { await navigator.clipboard.writeText(new URL(PORTAL_LOGIN_PATHS.committee, window.location.origin).toString()); setNotice("Tautan Portal Panitia disalin. Bagikan kepada petugas; tidak berisi password."); }
+                    catch { setNotice(`Salin tautan Portal Panitia: ${new URL(PORTAL_LOGIN_PATHS.committee, window.location.origin).toString()}`); }
+                  }} className="inline-flex min-h-11 items-center whitespace-nowrap rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold text-slate-800 hover:bg-slate-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">Salin tautan login</button>
+                  {member.globalAccess && <Link to={PORTAL_LOGIN_PATHS.admin} state={{ prefillEmail: member.email }} className="inline-flex min-h-11 items-center whitespace-nowrap px-3 text-sm font-bold text-emerald-800 underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700">Portal Admin Semua Event</Link>}
+                </div>
               </div>
               <div className="flex flex-wrap items-center gap-2"><StatusBadge label={member.globalAccess ? "Akses semua event" : "Akses sesuai tugas"} variant={member.globalAccess ? "warning" : "info"} /><StatusBadge label={member.status === "ACTIVE" ? "Akun aktif" : "Akun nonaktif"} variant={member.status === "ACTIVE" ? "success" : "danger"} /></div>
             </div>

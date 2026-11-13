@@ -110,6 +110,7 @@ export const ADMIN_GUIDE_STAGES: GuideStage[] = [
     steps: [
       "Di Jadwal & sesi, tambahkan hanya tanggal kegiatan. Tandai sesi Wajib · scan QR, Wajib · catat manual, atau Opsional. Periksa jadwal sebelum memulai event.",
       "Di Kiosk QR, buat tautan aktivasi satu kali untuk perangkat di lokasi. Buka pada perangkat tersebut sebelum acara; aksesnya bisa dicabut.",
+      "Sebelum hari acara, buka Kiosk QR → Uji scanner panitia atau Uji kiosk. Pilih hari/sesi dan buat QR contoh; coba kamera, pemindai USB, atau QR peserta. Mode uji bisa dipakai di luar jadwal dan tidak mengubah presensi atau mengirim email. QR contoh tidak berlaku untuk absensi resmi.",
       "Pada perangkat kiosk, pilih hari atau sesi yang sedang dibuka lalu pindai QR pribadi setiap peserta. Kiosk tidak menampilkan daftar peserta atau menerima kode manual.",
       "Untuk check-in mandiri, panitia membuka QR Lokasi. Asatidz masuk ke portal, pindai QR yang berganti otomatis, lalu tekan Catat kehadiran.",
       "Jika QR tidak terbaca, gunakan Scanner Check-in panitia untuk mencari nama atau memasukkan kode. Untuk sesi manual atau koreksi, buka rapor peserta. Koreksi hanya bisa dilakukan sesuai izin dan wajib beralasan.",
@@ -224,6 +225,8 @@ export const AdminGuidePage: React.FC = () => {
           <details><summary><CircleHelp aria-hidden="true" size={18} /> Undangan tidak terbuka</summary><p>Pastikan event sudah terbit, jalur undangan aktif, lembaga dan tenggat benar, lalu buat tautan dari menu Pendaftaran → Undangan. Tautan lama dapat dibuat ulang bila perlu.</p></details>
           <details><summary><CircleHelp aria-hidden="true" size={18} /> QR tidak tercatat</summary><p>Periksa status persetujuan peserta, syarat konfirmasi hadir, hari atau sesi yang dipilih, dan jam check-in. Untuk kode manual atau koreksi, gunakan portal panitia yang sudah login.</p></details>
           <details><summary><CircleHelp aria-hidden="true" size={18} /> Kiosk perlu aktivasi</summary><p>Periksa status perangkat di menu Kiosk QR. Jika akses dicabut atau kedaluwarsa, buat tautan aktivasi baru dan buka sekali pada perangkat yang dipakai di lokasi.</p></details>
+          <details><summary><CircleHelp aria-hidden="true" size={18} /> Ingin mencoba QR sebelum acara</summary><p>Pilih Uji scanner, bukan membuka jadwal absensi lebih awal. Hasil uji menunjukkan apakah QR terbaca dan syarat apa yang belum terpenuhi. Kembali ke Absensi resmi saat acara; hasil uji tidak pernah dihitung sebagai hadir.</p></details>
+          <details><summary><CircleHelp aria-hidden="true" size={18} /> Akun panitia tidak bisa masuk</summary><p>Petugas menggunakan <Link to="/login/committee">Portal Panitia</Link>, bukan Portal Admin. Periksa status akun serta masa penugasan pada Data Panitia. Aktivasi atau lupa password dilakukan di portal yang sama. Jangan menambah peran Admin hanya untuk mengatasi salah halaman masuk.</p></details>
         </section>
 
         <footer className="admin-guide-footer">

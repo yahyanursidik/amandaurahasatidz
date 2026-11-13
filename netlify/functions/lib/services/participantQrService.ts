@@ -100,6 +100,9 @@ export async function verifyQrTokenForCheckinService(
   const db = getDbClient();
 
   const normalizedInput = qrTokenOrCode.trim();
+  if (normalizedInput.startsWith("rqr_")) {
+    throw new ValidationError("QR uji hanya berlaku dalam mode uji dan tidak dapat mencatat absensi resmi.");
+  }
   if (normalizedInput.startsWith("qr_tok_")) {
     throw new ValidationError("Format QR lama sudah tidak berlaku. Muat ulang kartu peserta.");
   }

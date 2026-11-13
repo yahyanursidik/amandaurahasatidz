@@ -2,6 +2,26 @@ import { describe, expect, it, vi } from "vitest";
 import { authProvider, verifyPersistedSession } from "../../src/lib/refine/authProvider";
 
 describe("Login session handshake", () => {
+  it("preserves only a same-app portal correction returned after verified credentials", async () => {
+    const previous = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { message: "Gunakan Portal Panitia", details: {
+      recommendedPortal: "committee", loginPath: "/login/committee" } } }), { status: 403 })));
+    try {
+      const result = await authProvider.login!({ email: "committee@test.invalid", password: "fixture-password", portal: "admin" });
+      expect(result).toMatchObject({ success: false, error: { name: "PortalAccessError", details: { loginPath: "/login/committee" } } });
+    } finally { vi.stubGlobal("fetch", previous); }
+  });
+
+  it("never accepts an external login redirect from an error response", async () => {
+    const previous = globalThis.fetch;
+    vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify({ error: { message: "Tidak tersedia", details: {
+      recommendedPortal: "committee", loginPath: "https://other.invalid/steal" } } }), { status: 403 })));
+    try {
+      const result = await authProvider.login!({ email: "committee@test.invalid", password: "fixture-password", portal: "admin" });
+      expect(result.error).toMatchObject({ name: "LoginError", details: undefined });
+    } finally { vi.stubGlobal("fetch", previous); }
+  });
+
   it("confirms the HttpOnly cookie before opening a protected dashboard", async () => {
     const request = vi.fn(async () => new Response("{}", { status: 200 }));
 

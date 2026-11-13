@@ -3,7 +3,7 @@ import { logError, logInfo, maskSensitiveData, redactSensitiveText } from "../..
 
 describe("redaksi akses pribadi pada log", () => {
   it("menghapus token undangan, bukti, QR, dan akses dari pesan request", () => {
-    for (const token of ["inv_inst_abc123", "inv_ind_abc123", "inv_self_abc123", "pcf_payload.signature", "prc_payload.signature", "pqr_payload.signature", "kpair_example", "loc_qr_example"]) {
+    for (const token of ["inv_inst_abc123", "inv_ind_abc123", "inv_self_abc123", "pcf_payload.signature", "prc_payload.signature", "pqr_payload.signature", "rqr_payload.signature", "kpair_example", "loc_qr_example"]) {
       expect(redactSensitiveText(`POST /public/${token}/response`)).toBe("POST /public/[REDACTED]/response");
     }
   });

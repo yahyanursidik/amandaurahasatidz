@@ -1,5 +1,5 @@
 export function redactSensitiveText(value: string) {
-  return value.replace(/\b(?:inv_(?:inst|self|ind|tok)_[A-Za-z0-9_]+|(?:pcf|prc|pqr)_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|kpair_[A-Za-z0-9_-]+|loc_qr_[A-Za-z0-9_-]+)\b/g, "[REDACTED]");
+  return value.replace(/\b(?:inv_(?:inst|self|ind|tok)_[A-Za-z0-9_]+|(?:pcf|prc|pqr|rqr)_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+|kpair_[A-Za-z0-9_-]+|loc_qr_[A-Za-z0-9_-]+)\b/g, "[REDACTED]");
 }
 
 export function maskSensitiveData(data?: Record<string, unknown>): Record<string, unknown> | undefined {
