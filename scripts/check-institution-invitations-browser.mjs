@@ -1,6 +1,7 @@
 /** Isolated browser regression: mocked APIs only; no database writes, email, or WhatsApp sends. */
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
+import { randomInt } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
@@ -121,7 +122,7 @@ const fixture = {
         data = { invitation: token === 'managed' ? invitations[0] : { ...invitations[0], quota: 3, allowGroup: true }, institution, event };
       } else if (/^\/invitations\/public\/institution\/\w+\/response$/.test(route) && method === 'POST') {
         data = { message: 'Konfirmasi tersimpan', emailQueued: body.delegates.length,
-          participants: body.delegates.map((person, index) => ({ id: `person-${index}`, participantCode: `P-TEST-${index}`, qrToken: `pqr_fixture${index}.signature`, cardUrl: `/card?token=pqr_fixture${index}.signature`, whatsapp: person.whatsapp })),
+          participants: body.delegates.map((person, index) => ({ id: `person-${index}`, participantCode: `P-TEST-${index}`, registrationStatusUrl: `/confirm#pcf_fixture${index}.signature`, whatsapp: person.whatsapp })),
           portalAccounts: body.delegates.map((person, index) => ({ participantId: `person-${index}`, participantName: person.fullName, email: person.email, passwordSetupRequired: true, loginUrl: '/login/ustadz' })) };
       } else if (route === '/invitations/public/individual/personal' && method === 'GET') {
         data = { invitation: { invitationNumber: 'PR-01', quota: 1, allowGroup: false, status: 'OPENED', responseDeadline: event.invitationResponseDeadline },
@@ -130,7 +131,7 @@ const fixture = {
         data = { invitationNumber: 'PR-01', quota: 1, allowGroup: false, status: 'OPENED', responseDeadline: event.invitationResponseDeadline };
       } else if (route === '/invitations/public/individual/personal/response' && method === 'POST') {
         data = { message: 'Konfirmasi tersimpan', emailQueued: 1,
-          participants: [{ id: 'personal-person', participantCode: 'P-PERSONAL', qrToken: 'pqr_personal.signature', cardUrl: '/card?token=pqr_personal.signature', whatsapp: body.delegates[0].whatsapp }],
+          participants: [{ id: 'personal-person', participantCode: 'P-PERSONAL', registrationStatusUrl: '/confirm#pcf_personal.signature', whatsapp: body.delegates[0].whatsapp }],
           portalAccounts: [{ participantId: 'personal-person', participantName: ustadz.fullName, email: body.delegates[0].email, passwordSetupRequired: true, loginUrl: '/login/ustadz' }] };
       } else { failures.push(`Unexpected fixture ${method} ${route}`); response.statusCode = 404; data = null; }
       response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ data, error: data === null ? { message: 'Unexpected test route' } : null }));
@@ -138,7 +139,9 @@ const fixture = {
   },
 };
 const server = await createServer({ root, configFile: false, envDir: false, cacheDir: path.join(temporary, 'vite-cache'), plugins: [react(), fixture],
-  resolve: { alias: { '@': path.join(root, 'src') } }, server: { host: '127.0.0.1', port: 0 } });
+  resolve: { alias: { '@': path.join(root, 'src') } },
+  optimizeDeps: { include: ['react', 'react-dom/client', 'react-router-dom', '@refinedev/core', 'lucide-react', 'qrcode.react'] },
+  server: { host: '127.0.0.1', port: randomInt(48000, 54000), strictPort: true } });
 let browser, socket;
 try {
   await server.listen(); const port = server.httpServer.address().port;
@@ -165,8 +168,8 @@ try {
     const result = await send('Runtime.evaluate', { expression, returnByValue: true, awaitPromise: true });
     if (result.exceptionDetails) throw new Error(JSON.stringify(result.exceptionDetails)); return result.result.value;
   };
-  const until = async (expression, label) => {
-    for (let i = 0; i < 150; i++) { if (await evaluate(`Boolean(${expression})`)) return; await new Promise((resolve) => setTimeout(resolve, 100)); }
+  const until = async (expression, label, attempts = 150) => {
+    for (let i = 0; i < attempts; i++) { if (await evaluate(`Boolean(${expression})`)) return; await new Promise((resolve) => setTimeout(resolve, 100)); }
     throw new Error(`Timeout ${label}; page=${await evaluate('document.body.innerText.slice(0,3000)')}; errors=${JSON.stringify(failures)}`);
   };
   const click = (label) => evaluate(`(()=>{const element=[...document.querySelectorAll('button')].find(el=>el.textContent.trim()===${JSON.stringify(label)});if(!element||element.disabled)throw new Error('Unavailable button: ${label}');element.click()})()`);
@@ -189,7 +192,7 @@ try {
   };
   await send('Runtime.enable'); await send('Page.enable');
   await navigate('mode=admin');
-  await until(`document.querySelector('article h2')?.textContent===${JSON.stringify(institution.name)}`, 'admin invitation list');
+  await until(`document.querySelector('article h2')?.textContent===${JSON.stringify(institution.name)}`, 'admin invitation list', 300);
   await clickLink('Edit undangan');
   await until(`document.querySelector('form[aria-label="Edit undangan lembaga"]')`, 'edit form');
   await checkWidths('dedicated editor'); await screenshot('editor-desktop');
@@ -377,7 +380,8 @@ try {
   await send('Emulation.setDeviceMetricsOverride', { width: 390, height: 850, deviceScaleFactor: 1, mobile: true });
   await screenshot('personal-public-mobile');
   await click('Kirim konfirmasi');
-  await until(`document.querySelector('.public-receipt')`, 'personal QR receipt');
+  await until(`document.querySelector('.public-receipt')`, 'personal registration receipt');
+  assert.equal(await evaluate(`!!document.querySelector('.public-receipt [aria-label^="QR presensi"]')`), false);
   await screenshot('personal-receipt');
   const personalResponse = requests.find((item) => item.route === '/invitations/public/individual/personal/response');
   assert.equal(personalResponse.body.delegates.length, 1);
@@ -418,7 +422,7 @@ try {
   assert.equal(await evaluate(`document.body.textContent.includes('Saya membawa rombongan')`), false);
   await checkWidths('converted public form');
   assert.deepEqual(failures, [], 'no browser exceptions or unexpected API requests');
-  console.log(JSON.stringify({ result: 'PASS', widths: [320, 375, 390, 414, 768, 1280], checks: ['master institution picker', 'dedicated create/edit pages', 'edit persists group policy', 'quota two from admin to same public invitation', 'unchecked group hides add button and clears members', 'admin disables public group controls', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection', 'revoked invitation replacement keeps old link disabled', 'personal picker and share', 'personal edit', 'personal public RSVP and QR', 'participant route filters', 'participant mobile cards', 'accepted delegation converted to reusable institution invitation'], screenshots }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', widths: [320, 375, 390, 414, 768, 1280], checks: ['master institution picker', 'dedicated create/edit pages', 'edit persists group policy', 'quota two from admin to same public invitation', 'unchecked group hides add button and clears members', 'admin disables public group controls', 'deadline precision', 'create and share', 'group quota', 'clear additional delegates', 'single-person payload', 'decline without participants', 'waitlist/decline/cancel', 'replacement picker', 'double-submit protection', 'revoked invitation replacement keeps old link disabled', 'personal picker and share', 'personal edit', 'personal public RSVP without early QR', 'participant route filters', 'participant mobile cards', 'accepted delegation converted to reusable institution invitation'], screenshots }, null, 2));
 } finally {
   socket?.close(); browser?.kill(); await server.close();
   await new Promise((resolve) => setTimeout(resolve, 400));

@@ -7,7 +7,8 @@ vi.mock("../../netlify/functions/lib/db/client", () => ({
     where: (condition: unknown) => { mocks.where(condition); return { limit: async () => mocks.rows }; },
   }) }) }) }) }),
 }));
-vi.mock("../../netlify/functions/lib/services/participantCardService", () => ({
+vi.mock(import("../../netlify/functions/lib/services/participantCardService"), async (original) => ({
+  ...await original(),
   signCardForParticipant: mocks.sign,
   cardPath: (token: string) => `/card?token=${encodeURIComponent(token)}`,
 }));
@@ -23,7 +24,7 @@ const details: ParticipantShareDetails = {
   whatsapp: "81234567890",
   eventName: "Liqaa Bandung",
   startDate: "2026-10-10",
-  endDate: "2026-10-11",
+  endDate: "2099-10-11",
   venueName: "Masjid Al-Hafidz",
   approvalStatus: "APPROVED",
   confirmationStatus: "CONFIRMED",
@@ -39,13 +40,15 @@ describe("pesan QR dan kode pendaftaran", () => {
     expect(links.emailUrl).toMatch(/^mailto:ahmad@example.org\?subject=/);
     expect(links.message).toContain("Kode pendaftaran: P-0001");
     expect(links.message).toContain("https://contoh.id/card?token=pqr_abc.def");
-    expect(links.message).toContain("Jangan meneruskannya");
+    expect(links.message).toContain("Jangan teruskan tautan pribadi");
   });
 
   it("peserta pending dapat membagikan kode tetapi tidak tautan atau token QR", () => {
-    const links = buildParticipantRegistrationShareLinks({ ...details, approvalStatus: "PENDING_REVIEW" }, "https://contoh.id");
+    const links = buildParticipantRegistrationShareLinks({ ...details, approvalStatus: "PENDING_REVIEW", confirmationStatus: "INVITED",
+      registrationStatusUrl: "/confirm#pcf_private.token" }, "https://contoh.id");
     expect(links.cardUrl).toBeNull();
-    expect(links.message).toContain("belum berlaku untuk presensi");
+    expect(links.message).toContain("QR presensi belum diterbitkan");
+    expect(links.message).toContain("https://contoh.id/confirm#pcf_private.token");
     expect(links.message).not.toContain("pqr_");
   });
 
@@ -60,16 +63,17 @@ describe("pesan QR dan kode pendaftaran", () => {
     const links = buildParticipantRegistrationShareLinks({ ...details, confirmationStatus: "INVITED",
       confirmationUrl: "/confirm#pcf_private.token" }, "https://contoh.id");
     expect(links.message).toContain("https://contoh.id/confirm#pcf_private.token");
-    expect(links.message).toContain("1. Konfirmasi hadir / berhalangan");
-    expect(links.message).toContain("2. Bukti QR pribadi (belum aktif)");
-    expect(links.confirmationUrl).toBe("https://contoh.id/confirm#pcf_private.token");
+    expect(links.message).toContain("perlu konfirmasi hadir");
+    expect(links.message).not.toContain("pqr_");
+    expect(links.cardUrl).toBeNull();
+    expect(links.statusUrl).toBe("https://contoh.id/confirm#pcf_private.token");
   });
 
   it("dua tautan tetap tersedia setelah konfirmasi agar peserta bisa mengundurkan diri", () => {
     const links = buildParticipantRegistrationShareLinks({ ...details,
       confirmationUrl: "/confirm#pcf_private.token", attendanceConfirmationRequired: true }, "https://contoh.id");
-    expect(links.message).toContain("1. Status hadir / mengundurkan diri");
-    expect(links.message).toContain("2. Kartu QR pribadi (aktif)");
+    expect(links.message).toContain("Lihat status pendaftaran (tanpa login)");
+    expect(links.message).toContain("Simpan QR presensi");
     expect(links.message).toContain("https://contoh.id/confirm#pcf_private.token");
     expect(links.message).toContain("https://contoh.id/card?token=pqr_abc.def");
   });
@@ -78,7 +82,7 @@ describe("pesan QR dan kode pendaftaran", () => {
     const links = buildParticipantRegistrationShareLinks({ ...details, confirmationStatus: "CANCELLED",
       confirmationUrl: "/confirm#pcf_private.token" }, "https://contoh.id");
     expect(links.cardUrl).toBeNull();
-    expect(links.confirmationUrl).toBeNull();
+    expect(links.statusUrl).toBeNull();
     expect(links.message).not.toContain("pqr_abc");
   });
 
@@ -97,7 +101,7 @@ describe("pesan QR dan kode pendaftaran", () => {
 describe("layanan berbagi peserta yang dibatasi event", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.rows = [{ ...details, id: details.participantId, qrTokenVersion: 1 }];
+    mocks.rows = [{ ...details, id: details.participantId, qrTokenVersion: 1, status: "PUBLISHED", timezone: "Asia/Jakarta" }];
     mocks.sign.mockReturnValue("pqr_abc.def");
   });
 
@@ -113,7 +117,7 @@ describe("layanan berbagi peserta yang dibatasi event", () => {
 
   it("menyediakan tautan pribadi lagi setelah hadir dikonfirmasi, untuk perubahan rencana", async () => {
     mocks.rows = [{ ...details, id: details.participantId, endDate: "2099-12-31",
-      attendanceConfirmationRequired: true, qrTokenVersion: 1 }];
+      attendanceConfirmationRequired: true, qrTokenVersion: 1, status: "PUBLISHED", timezone: "Asia/Jakarta" }];
     const result = await getParticipantShareService(details.eventId, details.participantId);
     expect(result.confirmationUrl).toMatch(/^\/confirm#pcf_/);
     expect(result.cardUrl).toBe("/card?token=pqr_abc.def");
@@ -124,6 +128,7 @@ describe("layanan berbagi peserta yang dibatasi event", () => {
     const result = await getParticipantShareService(details.eventId, details.participantId);
     expect(result.qrToken).toBeNull();
     expect(result.cardUrl).toBeNull();
+    expect(result.registrationStatusUrl).toMatch(/^\/confirm#pcf_/);
     expect(mocks.sign).not.toHaveBeenCalled();
   });
 

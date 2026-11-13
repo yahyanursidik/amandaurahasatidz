@@ -53,7 +53,7 @@ describe("all portal participant endpoints scope to actor ownership", () => {
       .mockReturnValueOnce(query([{ confirmationStatus: "CONFIRMED", approvalStatus: "APPROVED", confirmedAt: new Date() }]));
     mocks.db.mockReturnValue({ select });
     await confirmOwnPortalAttendanceService(userId, "login@example.invalid", "own-participant", "req-test");
-    expect(mocks.confirm).toHaveBeenCalledExactlyOnceWith("own-participant", "CONFIRMED", expect.any(String), userId, "req-test");
+    expect(mocks.confirm).toHaveBeenCalledExactlyOnceWith("own-participant", "CONFIRMED", expect.any(String), userId, "req-test", undefined, { requireApproved: true });
   });
   it("refuses confirmation of a cancelled participation", async () => {
     mocks.db.mockReturnValue({ select: vi.fn(() => query([{

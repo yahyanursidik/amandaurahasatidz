@@ -18,7 +18,7 @@ type InvitationData = {
 };
 type Submission = {
   message: string;
-  participants?: Array<{ id: string; participantCode: string; qrToken: string; cardUrl: string; confirmationUrl?: string | null; whatsapp?: string | null; approvalStatus: string }>;
+  participants?: Array<Pick<ReceiptParticipant, "participantCode" | "registrationStatusUrl" | "confirmationUrl" | "whatsapp" | "approvalStatus" | "confirmationStatus"> & { id: string }>;
   emailQueued?: number;
   portalAccounts?: Array<{ participantId: string; participantName: string; email: string; temporaryPassword?: string | null; temporaryPasswordIssued?: boolean; passwordSetupRequired?: boolean; loginUrl: string; setupError?: string }>;
 };
@@ -45,9 +45,10 @@ export const InvitationRegistrationPage: React.FC = () => {
       email: account?.email || delegates[index]?.email || "",
       whatsapp: person.whatsapp,
       participantCode: person.participantCode,
-      qrToken: person.qrToken,
-      cardUrl: person.cardUrl,
+      registrationStatusUrl: person.registrationStatusUrl,
       confirmationUrl: person.confirmationUrl,
+      approvalStatus: person.approvalStatus,
+      confirmationStatus: person.confirmationStatus,
       passwordSetupRequired: account?.passwordSetupRequired ?? !account?.temporaryPassword,
       temporaryPassword: account?.temporaryPassword,
       temporaryPasswordIssued: account?.temporaryPasswordIssued,
@@ -58,7 +59,7 @@ export const InvitationRegistrationPage: React.FC = () => {
 
   useEffect(() => {
     // A representative may reopen the same link after the foundation converts it
-    // to individual sign-up. Keep their old QR proof, but reveal the next-person action.
+    // to individual sign-up. Keep their saved receipt, but reveal the next-person action.
     if (!submission || !data || invitationType !== "institution" || selfRegistration) return;
     const controller = new AbortController();
     void fetch(`${ENV.API_BASE_URL}/invitations/public/institution/${encodeURIComponent(token)}/policy`, {
@@ -159,7 +160,7 @@ export const InvitationRegistrationPage: React.FC = () => {
           </header>
            {submission ? <>
              {receiptParticipants.length > 0 ? <PublicRegistrationReceipt event={data.event} participants={receiptParticipants} emailQueued={submission.emailQueued || 0} approvalStatus={submission.participants?.[0]?.approvalStatus} /> : <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-6" aria-live="polite"><CheckCircle2 className="h-8 w-8 text-emerald-700" /><h2 className="mt-3 text-xl font-black">Jawaban undangan tersimpan</h2><p className="mt-2 text-sm">{submission.message}</p><p className="mt-3 text-sm">Karena berhalangan hadir, tidak ada QR atau akses portal baru.</p></section>}
-             {selfRegistration && receiptParticipants.length > 0 && <section className="rounded-2xl border border-sky-200 bg-sky-50 p-5"><h2 className="font-black text-sky-950">Asatidz lain dari lembaga ini?</h2><p className="mt-1 text-sm text-sky-900">Simpan dahulu QR dan akses portal Anda. Setelah itu, formulir dapat dibuka lagi untuk satu asatidz berikutnya.</p><button type="button" onClick={() => { try { window.sessionStorage.removeItem(proofKey); } catch { /* The current receipt is still visible. */ } window.location.reload(); }} className="mt-3 inline-flex min-h-12 items-center gap-2 rounded-xl bg-sky-800 px-5 font-bold text-white hover:bg-sky-900"><Users className="h-5 w-5" /> Daftarkan asatidz lain</button></section>}
+             {selfRegistration && receiptParticipants.length > 0 && <section className="rounded-2xl border border-sky-200 bg-sky-50 p-5"><h2 className="font-black text-sky-950">Asatidz lain dari lembaga ini?</h2><p className="mt-1 text-sm text-sky-900">Simpan tautan status pribadi dan akses portal Anda sebelum membuka formulir untuk asatidz berikutnya.</p><button type="button" onClick={() => { try { window.sessionStorage.removeItem(proofKey); } catch { /* The current receipt is still visible. */ } window.location.reload(); }} className="mt-3 inline-flex min-h-12 items-center gap-2 rounded-xl bg-sky-800 px-5 font-bold text-white hover:bg-sky-900"><Users className="h-5 w-5" /> Daftarkan asatidz lain</button></section>}
            </> : selfRegistrationFull ? <section className="rounded-2xl border border-amber-200 bg-amber-50 p-6" role="status"><h2 className="text-xl font-black text-amber-950">Kuota lembaga sudah penuh</h2><p className="mt-2 text-sm text-amber-900">Seluruh {data.invitation.totalQuota || 1} kursi telah terisi atau sedang menunggu persetujuan admin. Hubungi panitia bila ada perubahan peserta.</p><button type="button" onClick={() => window.location.reload()} className="mt-4 min-h-11 rounded-lg border border-amber-700 px-4 text-sm font-bold text-amber-950">Periksa kuota lagi</button></section> : <InvitationResponseForm key={`${invitationType}:${token}`} data={data} invitationType={invitationType} saving={saving} error={error} policyNotice={policyNotice} unavailable={policyBlocked} onSubmit={(payload) => void submit(payload)} />}
         </>}
     </div>

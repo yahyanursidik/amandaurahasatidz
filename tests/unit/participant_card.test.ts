@@ -14,13 +14,13 @@ describe("kartu peserta pribadi", () => {
   });
 
   it("email untuk setiap peserta berisi kode dan tombol menuju kartu sendiri", () => {
-    const cardLink = "https://contoh.id/card?token=pqr_abc.def";
+    const registrationStatusLink = "https://contoh.id/confirm#pcf_abc.def";
     const rendered = renderHtmlEmailTemplate("REGISTRATION_AUTO_APPROVED", {
-      ustadzName: "Ahmad", eventName: "Daurah", participantCode: "P-ABC123", cardLink,
+      ustadzName: "Ahmad", eventName: "Daurah", participantCode: "P-ABC123", registrationStatusLink,
       email: "ahmad@example.id", portalLink: "https://contoh.id/login/ustadz",
     });
-    expect(rendered.textBody).toContain(cardLink);
+    expect(rendered.textBody).toContain(registrationStatusLink);
     expect(rendered.textBody).toContain("P-ABC123");
-    expect(rendered.htmlBody).toContain(`href="${cardLink.replace("&", "&amp;")}"`);
+    expect(rendered.htmlBody).toContain(`href="${registrationStatusLink}"`);
   });
 });

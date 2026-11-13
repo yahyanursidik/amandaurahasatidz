@@ -476,6 +476,8 @@ export async function commitEventParticipantImportService(
          await tx.update(eventParticipants).set({
            approvalStatus: nextApproval,
            confirmationStatus: "CONFIRMED",
+           ...(existingParticipant.approvalStatus !== nextApproval || existingParticipant.confirmationStatus !== "CONFIRMED"
+             ? { qrTokenVersion: sql`${eventParticipants.qrTokenVersion} + 1`, qrIssuedAt: null } : {}),
            confirmedAt: existingParticipant.confirmedAt || new Date(),
            approvedAt: nextApproval === "APPROVED" ? existingParticipant.approvedAt || new Date() : existingParticipant.approvedAt,
            approvedBy: nextApproval === "APPROVED" ? actorUserId || existingParticipant.approvedBy : existingParticipant.approvedBy,

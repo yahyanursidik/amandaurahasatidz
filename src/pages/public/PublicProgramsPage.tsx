@@ -271,7 +271,7 @@ export const PublicProgramsPage: React.FC = () => {
         <ol>
           <li><span>01</span><CalendarDays aria-hidden="true" /><div><h3>Lihat informasi kegiatan</h3><p>Periksa jadwal, lokasi, dan jalur pendaftaran bila tersedia.</p></div></li>
           <li><span>02</span><Users aria-hidden="true" /><div><h3>Isi pendaftaran</h3><p>Form reguler bisa memuat rombongan. Undangan lembaga memakai tautan khusus dari panitia.</p></div></li>
-          <li><span>03</span><QrCode aria-hidden="true" /><div><h3>Simpan QR pribadi</h3><p>Simpan bukti tiap peserta untuk kehadiran saat acara.</p></div></li>
+          <li><span>03</span><QrCode aria-hidden="true" /><div><h3>Pantau status pendaftaran</h3><p>Simpan QR presensi setelah disetujui dan, jika diwajibkan, setelah konfirmasi hadir.</p></div></li>
         </ol>
       </section>}
 

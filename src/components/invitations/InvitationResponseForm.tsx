@@ -122,10 +122,10 @@ export const InvitationResponseForm: React.FC<{
         </section>
       </>}
       <label className="block text-sm font-bold">Catatan untuk panitia <span className="font-normal text-slate-500">(opsional)</span><textarea value={notes} onChange={(event) => setNotes(event.target.value)} maxLength={1000} rows={2} className="mt-1 w-full rounded-lg border border-slate-300 p-3" /></label>
-      {responseStatus === "ACCEPTED" && <label className="flex items-start gap-3 rounded-xl bg-emerald-50 p-4 text-sm text-slate-700"><input name="consent" type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} required className="mt-1 h-4 w-4 shrink-0 accent-emerald-700" /><span>{groupActive ? "Data peserta sudah benar dan telah mendapat persetujuan masing-masing. Kartu QR dan akses portal dibagikan secara pribadi." : "Data saya sudah benar dan saya menyetujui pendaftaran ini."}</span></label>}
+      {responseStatus === "ACCEPTED" && <label className="flex items-start gap-3 rounded-xl bg-emerald-50 p-4 text-sm text-slate-700"><input name="consent" type="checkbox" checked={consent} onChange={(event) => setConsent(event.target.checked)} required className="mt-1 h-4 w-4 shrink-0 accent-emerald-700" /><span>{groupActive ? "Data peserta sudah benar dan telah mendapat persetujuan masing-masing. Tautan status dan akses portal dibagikan secara pribadi." : "Data saya sudah benar dan saya menyetujui pendaftaran ini."}</span></label>}
     </fieldset>
     {(validationError || error) && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-900">{validationError || error}</p>}
     <button type="submit" disabled={saving || expired || unavailable} className="inline-flex min-h-12 w-full items-center justify-center gap-2 rounded-xl bg-emerald-700 px-4 font-black text-white hover:bg-emerald-800 disabled:cursor-not-allowed disabled:opacity-50 sm:w-auto"><CheckCircle2 className="h-5 w-5" />{saving ? "Menyimpan…" : selfRegistration ? "Daftar sekarang" : "Kirim konfirmasi"}</button>
-    {responseStatus === "ACCEPTED" && <p className="text-sm text-slate-600">Bukti pendaftaran langsung tersedia. Peserta tetap menunggu persetujuan admin sebelum QR dapat digunakan untuk absensi.</p>}
+    {responseStatus === "ACCEPTED" && <p className="text-sm text-slate-600">Bukti pendaftaran langsung tersedia. QR presensi terbit setelah panitia menyetujui pendaftaran dan peserta mengonfirmasi hadir jika diwajibkan.</p>}
   </form>;
 };

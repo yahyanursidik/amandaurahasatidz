@@ -1,123 +1,144 @@
 import { getDbClient } from "../db/client";
-import { emailJobs, emailTemplates, ustadzProfiles } from "../db/schema";
-import { eq } from "drizzle-orm";
-import { renderEmailTemplate } from "./emailTemplateEngine";
-import { cardPublicUrl, signCardForParticipant } from "./participantCardService";
-import { participantConfirmationUrl, signConfirmationForParticipant } from "./participantConfirmationLink";
+import { emailJobs, emailTemplates, eventParticipants, events, ustadzProfiles } from "../db/schema";
+import { and, eq } from "drizzle-orm";
+import { renderEmailTemplate, TEMPLATE_WHITELISTS } from "./emailTemplateEngine";
+import { isAttendanceEventOpen } from "./attendanceModel";
+import { registrationStatusUrl } from "./participantConfirmationLink";
+import { registrationStage, type RegistrationState } from "../../../../src/lib/registrationStatus";
 
-export type CardRecipient = { participantId: string; ustadzName: string; email: string; participantCode: string; qrToken: string };
+type RegistrationEvent = {
+  id: string; name: string; slug: string; endDate: string;
+  status: string; timezone: string; archivedAt?: Date | null;
+  attendanceConfirmationRequired: boolean;
+};
+type Recipient = { participantId: string; ustadzName: string; email: string; participantCode: string };
+type Participant = Omit<RegistrationState, "attendanceConfirmationRequired"> & {
+  id: string; eventId: string; ustadzId: string; participantCode: string; qrTokenVersion: number;
+};
+type Outcome = "CONFIRM" | "DECLINE" | "WITHDRAW";
+type Variables = Record<string, string>;
 
-export async function queueRegistrationReceivedEmails(event: { id: string; name: string; slug: string; endDate: string; attendanceConfirmationRequired?: boolean }, recipients: CardRecipient[]) {
-  if (!recipients.length) return 0;
-  const db = getDbClient();
-  const code = "REGISTRATION_RECEIVED";
-  await db.insert(emailTemplates).values({ code, name: "Pendaftaran menunggu peninjauan",
-    subjectTemplate: "Pendaftaran menunggu peninjauan", bodyTemplate: "Pendaftaran diterima untuk ditinjau", status: "ACTIVE" })
-    .onConflictDoNothing({ target: emailTemplates.code });
-  const [template] = await db.select({ id: emailTemplates.id }).from(emailTemplates).where(eq(emailTemplates.code, code)).limit(1);
+const workflowCodes = new Set([
+  "REGISTRATION_RECEIVED", "REGISTRATION_APPROVED", "REGISTRATION_AUTO_APPROVED", "REGISTRATION_CONFIRMATION_REQUEST",
+  "PARTICIPANT_ATTENDANCE_CONFIRMED", "PARTICIPANT_ATTENDANCE_DECLINED", "PARTICIPANT_WITHDRAWN", "REGISTRATION_CONFIRMED",
+]);
+export const isRegistrationWorkflowEmail = (code: string) => workflowCodes.has(code);
+
+function emailLinks(event: Pick<RegistrationEvent, "id" | "slug" | "endDate">, participantId: string) {
   const origin = process.env.APP_URL || process.env.URL || "http://localhost:3000";
-  const portalLink = new URL("/login/ustadz", origin).toString();
-  const rundownLink = new URL(`/events/${encodeURIComponent(event.slug)}#jadwal-kegiatan`, origin).toString();
-  const jobs = recipients.filter((person) => person.email).map((person) => {
-    const confirmationLink = event.attendanceConfirmationRequired !== false
-      ? participantConfirmationUrl(signConfirmationForParticipant({ id: person.participantId, eventId: event.id }, event.endDate)) : "";
-    const variables = { ustadzName: person.ustadzName, eventName: event.name,
-      participantCode: person.participantCode, cardLink: cardPublicUrl(person.qrToken), rundownLink, portalLink,
-      confirmationInstruction: confirmationLink ? `Setelah admin menyetujui, konfirmasikan kehadiran pribadi tanpa login: ${confirmationLink}` : "" };
-    const rendered = renderEmailTemplate(code, variables);
-    return { eventId: event.id, templateId: template.id, recipientEmail: person.email, recipientName: person.ustadzName,
-      status: "QUEUED", scheduledAt: new Date(), idempotencyKey: `registration_received_${person.participantId}`,
-      payload: { templateCode: code, variables, subject: rendered.subject, bodyText: rendered.body } };
-  });
-  if (!jobs.length) return 0;
-  const inserted = await db.insert(emailJobs).values(jobs).onConflictDoNothing({ target: emailJobs.idempotencyKey }).returning({ id: emailJobs.id });
+  return {
+    registrationStatusLink: registrationStatusUrl({ id: participantId, eventId: event.id }, event.endDate),
+    rundownLink: new URL(`/events/${encodeURIComponent(event.slug)}#jadwal-kegiatan`, origin).toString(),
+    portalLink: new URL("/login/ustadz", origin).toString(),
+  };
+}
+
+function emailVariables(code: string, event: Pick<RegistrationEvent, "id" | "name" | "slug" | "endDate">, person: Recipient, ready = false): Variables {
+  const common = { ustadzName: person.ustadzName, eventName: event.name, participantCode: person.participantCode };
+  if (code === "PARTICIPANT_ATTENDANCE_DECLINED" || code === "PARTICIPANT_WITHDRAWN") return common;
+  const links = emailLinks(event, person.participantId);
+  if (code === "PARTICIPANT_ATTENDANCE_CONFIRMED") {
+    return { ...common, ...links, nextStep: ready
+      ? "QR presensi pribadi sudah tersedia pada halaman status. Tunjukkan kepada petugas saat presensi."
+      : "Konfirmasi perlu ditinjau kembali oleh panitia. QR presensi belum diterbitkan." };
+  }
+  return code === "REGISTRATION_APPROVED" || code === "REGISTRATION_AUTO_APPROVED"
+    ? { ...common, ...links, email: person.email } : { ...common, ...links };
+}
+
+async function queueRegistrationEmails(code: string, event: Pick<RegistrationEvent, "id" | "name">,
+  recipients: Recipient[], key: string, version?: number) {
+  const deliverable = recipients.filter((person) => person.email);
+  if (!deliverable.length) return 0;
+  const db = getDbClient();
+  const templateDefinition = TEMPLATE_WHITELISTS[code];
+  await db.insert(emailTemplates).values({ code, name: code, subjectTemplate: templateDefinition.subjectTemplate,
+    bodyTemplate: templateDefinition.bodyTemplate, status: "ACTIVE" }).onConflictDoNothing({ target: emailTemplates.code });
+  const [template] = await db.select({ id: emailTemplates.id }).from(emailTemplates).where(eq(emailTemplates.code, code)).limit(1);
+  const subject = renderEmailTemplate(code, { eventName: event.name }).subject;
+  const inserted = await db.insert(emailJobs).values(deliverable.map((person) => ({
+    eventId: event.id, templateId: template.id, recipientEmail: person.email, recipientName: person.ustadzName,
+    status: "QUEUED", scheduledAt: new Date(),
+    idempotencyKey: `${key}_${person.participantId}${version ? `_v${version}` : ""}`,
+    // Links and message body are derived from current state at delivery time.
+    payload: { templateCode: code, participantId: person.participantId, expectedVersion: version, subject },
+  }))).onConflictDoNothing({ target: emailJobs.idempotencyKey }).returning({ id: emailJobs.id });
   return inserted.length;
 }
 
-export async function queueApprovedParticipantCardEmail(
-  event: { id: string; name: string; slug: string; endDate: string; attendanceConfirmationRequired?: boolean },
-  participant: { id: string; eventId: string; ustadzId: string; participantCode: string; qrTokenVersion: number; confirmationStatus: string },
-) {
-  const [profile] = await getDbClient().select({ fullName: ustadzProfiles.fullName, email: ustadzProfiles.email })
-    .from(ustadzProfiles).where(eq(ustadzProfiles.id, participant.ustadzId)).limit(1);
-  if (!profile?.email) return 0;
-  if (event.attendanceConfirmationRequired !== false && participant.confirmationStatus !== "CONFIRMED") {
-    const db = getDbClient();
-    const code = "REGISTRATION_CONFIRMATION_REQUEST";
-    await db.insert(emailTemplates).values({ code, name: "Persetujuan dan permintaan konfirmasi pribadi",
-      subjectTemplate: "Pendaftaran disetujui — mohon konfirmasi", bodyTemplate: "Konfirmasi kehadiran pribadi", status: "ACTIVE" })
-      .onConflictDoNothing({ target: emailTemplates.code });
-    const [template] = await db.select({ id: emailTemplates.id }).from(emailTemplates).where(eq(emailTemplates.code, code)).limit(1);
-    const origin = process.env.APP_URL || process.env.URL || "http://localhost:3000";
-    const variables = { ustadzName: profile.fullName, eventName: event.name, participantCode: participant.participantCode,
-      confirmationLink: participantConfirmationUrl(signConfirmationForParticipant(participant, event.endDate)),
-      rundownLink: new URL(`/events/${encodeURIComponent(event.slug)}#jadwal-kegiatan`, origin).toString() };
-    const rendered = renderEmailTemplate(code, variables);
-    const inserted = await db.insert(emailJobs).values({ eventId: event.id, templateId: template.id,
-      recipientEmail: profile.email, recipientName: profile.fullName, status: "QUEUED", scheduledAt: new Date(),
-      idempotencyKey: `registration_confirmation_request_${participant.id}`,
-      payload: { templateCode: code, variables, subject: rendered.subject, bodyText: rendered.body } })
-      .onConflictDoNothing({ target: emailJobs.idempotencyKey }).returning({ id: emailJobs.id });
-    return inserted.length;
-  }
-  return queueParticipantCardEmails(event, [{ participantId: participant.id, ustadzName: profile.fullName,
-    email: profile.email, participantCode: participant.participantCode, qrToken: signCardForParticipant(participant) }]);
+export function queueRegistrationReceivedEmails(event: Pick<RegistrationEvent, "id" | "name">, recipients: Recipient[]) {
+  return queueRegistrationEmails("REGISTRATION_RECEIVED", event, recipients, "registration_received");
 }
 
-export async function queueParticipantConfirmationOutcomeEmail(
-  event: { id: string; name: string; slug: string; endDate: string },
-  participant: { id: string; eventId: string; ustadzId: string; participantCode: string; qrTokenVersion: number; approvalStatus: string },
-  decision: "CONFIRM" | "DECLINE" | "WITHDRAW",
-) {
+async function getRecipient(participant: Participant): Promise<Recipient | null> {
   const [profile] = await getDbClient().select({ fullName: ustadzProfiles.fullName, email: ustadzProfiles.email })
     .from(ustadzProfiles).where(eq(ustadzProfiles.id, participant.ustadzId)).limit(1);
-  if (!profile?.email) return 0;
-  const db = getDbClient();
+  return profile?.email ? { participantId: participant.id, ustadzName: profile.fullName, email: profile.email,
+    participantCode: participant.participantCode } : null;
+}
+
+export async function queueApprovedParticipantCardEmail(event: RegistrationEvent, participant: Participant) {
+  if (participant.approvalStatus !== "APPROVED" || participant.eventId !== event.id || !isAttendanceEventOpen(event)) return 0;
+  const stage = registrationStage({ ...participant, attendanceConfirmationRequired: event.attendanceConfirmationRequired });
+  if (stage !== "AWAITING_CONFIRMATION" && stage !== "READY") return 0;
+  const person = await getRecipient(participant);
+  if (!person) return 0;
+  return stage === "AWAITING_CONFIRMATION"
+    ? queueRegistrationEmails("REGISTRATION_CONFIRMATION_REQUEST", event, [person], "registration_confirmation_request", participant.qrTokenVersion)
+    : queueRegistrationEmails("REGISTRATION_APPROVED", event, [person], "registration_card", participant.qrTokenVersion);
+}
+
+export async function queueParticipantConfirmationOutcomeEmail(event: RegistrationEvent, participant: Participant, decision: Outcome) {
+  if (participant.eventId !== event.id) return 0;
+  const person = await getRecipient(participant);
+  if (!person) return 0;
   const code = decision === "CONFIRM" ? "PARTICIPANT_ATTENDANCE_CONFIRMED"
     : decision === "WITHDRAW" ? "PARTICIPANT_WITHDRAWN" : "PARTICIPANT_ATTENDANCE_DECLINED";
-  await db.insert(emailTemplates).values({ code, name: decision === "CONFIRM" ? "Konfirmasi kehadiran tersimpan"
-    : decision === "WITHDRAW" ? "Pemberitahuan pengunduran diri" : "Pemberitahuan berhalangan hadir",
-    subjectTemplate: "Status kehadiran diperbarui", bodyTemplate: "Status kehadiran pribadi", status: "ACTIVE" })
-    .onConflictDoNothing({ target: emailTemplates.code });
-  const [template] = await db.select({ id: emailTemplates.id }).from(emailTemplates).where(eq(emailTemplates.code, code)).limit(1);
-  const origin = process.env.APP_URL || process.env.URL || "http://localhost:3000";
-  const cardLink = decision === "CONFIRM" && participant.approvalStatus === "APPROVED"
-    ? cardPublicUrl(signCardForParticipant(participant)) : "";
-  const variables = { ustadzName: profile.fullName, eventName: event.name, participantCode: participant.participantCode,
-    cardLink, cardInstruction: cardLink ? `Kartu QR pribadi: ${cardLink}` : "QR belum aktif hingga admin meninjau kembali.",
-    confirmationLink: decision === "CONFIRM"
-      ? participantConfirmationUrl(signConfirmationForParticipant(participant, event.endDate)) : "",
-    rundownLink: new URL(`/events/${encodeURIComponent(event.slug)}#jadwal-kegiatan`, origin).toString(),
-    reviewNotice: participant.approvalStatus === "PENDING_REVIEW" ? "Karena melewati batas waktu, admin akan meninjau kembali sebelum QR aktif." : "" };
-  const rendered = renderEmailTemplate(code, variables);
-  const inserted = await db.insert(emailJobs).values({ eventId: event.id, templateId: template.id,
-    recipientEmail: profile.email, recipientName: profile.fullName, status: "QUEUED", scheduledAt: new Date(),
-    idempotencyKey: `participant_attendance_${decision.toLowerCase()}_${participant.id}`,
-    payload: { templateCode: code, variables, subject: rendered.subject, bodyText: rendered.body } })
-    .onConflictDoNothing({ target: emailJobs.idempotencyKey }).returning({ id: emailJobs.id });
-  return inserted.length;
+  return queueRegistrationEmails(code, event, [person], `participant_attendance_${decision.toLowerCase()}`, participant.qrTokenVersion);
 }
 
-/** One template lookup and one insert for a whole registration group. */
-export async function queueParticipantCardEmails(event: { id: string; name: string; slug: string }, recipients: CardRecipient[]) {
-  if (!recipients.length) return 0;
-  const db = getDbClient();
-  const code = "REGISTRATION_APPROVED";
-  await db.insert(emailTemplates).values({ code, name: "Kartu peserta dan QR pribadi",
-    subjectTemplate: "Kartu peserta dan QR", bodyTemplate: "Kartu peserta daurah", status: "ACTIVE" })
-    .onConflictDoNothing({ target: emailTemplates.code });
-  const [template] = await db.select({ id: emailTemplates.id }).from(emailTemplates).where(eq(emailTemplates.code, code)).limit(1);
-  const origin = process.env.APP_URL || process.env.URL || "http://localhost:3000";
-  const portalLink = new URL("/login/ustadz", origin).toString();
-  const rundownLink = new URL(`/events/${encodeURIComponent(event.slug)}#jadwal-kegiatan`, origin).toString();
-  const jobs = recipients.map((person) => {
-    const variables = { ustadzName: person.ustadzName, eventName: event.name, participantCode: person.participantCode,
-      email: person.email, cardLink: cardPublicUrl(person.qrToken), portalLink, rundownLink };
-    const rendered = renderEmailTemplate(code, variables);
-    return { eventId: event.id, templateId: template.id, recipientEmail: person.email, recipientName: person.ustadzName,
-      status: "QUEUED", scheduledAt: new Date(), idempotencyKey: `registration_card_${person.participantId}`,
-      payload: { templateCode: code, variables, subject: rendered.subject, bodyText: rendered.body } };
-  });
-  const inserted = await db.insert(emailJobs).values(jobs).onConflictDoNothing({ target: emailJobs.idempotencyKey }).returning({ id: emailJobs.id });
-  return inserted.length;
+const uuid = /^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i;
+const legacyKey = /^(?:registration_(?:received|confirmation_request|card)|participant_attendance_(?:confirm|decline|withdraw))_([0-9a-f-]{36})(?:_v\d+)?$/i;
+
+/** Re-render from current state; old queue payloads may contain pre-approval QR links. */
+export async function prepareRegistrationEmailForDelivery(db: ReturnType<typeof getDbClient>, job: {
+  eventId: string | null; recipientEmail: string; idempotencyKey: string; payload: Record<string, unknown>;
+}, code: string): Promise<{ code: string; variables: Variables } | null> {
+  const participantId = typeof job.payload.participantId === "string" ? job.payload.participantId : legacyKey.exec(job.idempotencyKey)?.[1];
+  if (!job.eventId || !participantId || !uuid.test(participantId)) return null;
+  const [row] = await db.select({
+    participantId: eventParticipants.id, participantCode: eventParticipants.participantCode, qrTokenVersion: eventParticipants.qrTokenVersion,
+    approvalStatus: eventParticipants.approvalStatus, confirmationStatus: eventParticipants.confirmationStatus,
+    email: ustadzProfiles.email, ustadzName: ustadzProfiles.fullName,
+    id: events.id, name: events.name, slug: events.slug, status: events.status, endDate: events.endDate, timezone: events.timezone,
+    archivedAt: events.archivedAt, attendanceConfirmationRequired: events.attendanceConfirmationRequired,
+    attendanceConfirmationDeadline: events.attendanceConfirmationDeadline, lateConfirmationPolicy: events.lateConfirmationPolicy,
+  }).from(eventParticipants).innerJoin(events, eq(events.id, eventParticipants.eventId))
+    .innerJoin(ustadzProfiles, eq(ustadzProfiles.id, eventParticipants.ustadzId))
+    .where(and(eq(eventParticipants.id, participantId), eq(eventParticipants.eventId, job.eventId))).limit(1);
+  if (!row?.email || row.email.trim().toLowerCase() !== job.recipientEmail.trim().toLowerCase()) return null;
+  const person = { ...row, email: row.email };
+  if (["PARTICIPANT_ATTENDANCE_DECLINED", "PARTICIPANT_WITHDRAWN"].includes(code)) {
+    // Don't send a historical cancellation for a different moderation cycle.
+    return row.confirmationStatus === "CANCELLED" &&
+      (job.payload.expectedVersion == null || job.payload.expectedVersion === row.qrTokenVersion)
+      ? { code, variables: emailVariables(code, row, person) } : null;
+  }
+  if (!isAttendanceEventOpen(row)) return null;
+  const stage = registrationStage(row);
+  if (stage === "INACTIVE" || stage === "DECLINED") return null;
+  if (code === "REGISTRATION_RECEIVED") return { code, variables: emailVariables(code, row, person) };
+  if (code === "REGISTRATION_CONFIRMATION_REQUEST") {
+    if (stage !== "AWAITING_CONFIRMATION" || (row.lateConfirmationPolicy === "BLOCK" &&
+      row.attendanceConfirmationDeadline && row.attendanceConfirmationDeadline < new Date())) return null;
+    return { code, variables: emailVariables(code, row, person) };
+  }
+  if (code === "PARTICIPANT_ATTENDANCE_CONFIRMED" && row.confirmationStatus === "CONFIRMED" &&
+    (stage === "READY" || stage === "REVIEWING_CONFIRMATION")) {
+    return { code, variables: emailVariables(code, row, person, stage === "READY") };
+  }
+  if (["REGISTRATION_APPROVED", "REGISTRATION_AUTO_APPROVED", "REGISTRATION_CONFIRMED"].includes(code) && stage === "READY") {
+    return { code: "REGISTRATION_APPROVED", variables: emailVariables("REGISTRATION_APPROVED", row, person) };
+  }
+  return null;
 }

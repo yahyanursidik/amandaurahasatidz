@@ -23,50 +23,42 @@ describe("persetujuan pendaftaran oleh admin", () => {
     expect(() => assertParticipantEligibleForCheckin({ ...pending, approvalStatus: "APPROVED", confirmationStatus: "CONFIRMED" }, event)).not.toThrow();
   });
 
-  it("email saat mendaftar hanya menyatakan menunggu, email kartu aktif setelah persetujuan", () => {
-    const received = renderEmailTemplate("REGISTRATION_RECEIVED", {
-      ustadzName: "Ustadz Hasan", eventName: "Daurah", participantCode: "P-ABC", portalLink: "https://contoh.id/login/ustadz",
-      cardLink: "https://contoh.id/card?token=example", rundownLink: "https://contoh.id/events/daurah#jadwal-kegiatan",
-    });
-    expect(received.body).toContain("sedang ditinjau");
-    expect(received.body).toContain("bukti QR ini belum berarti kursi disetujui");
-    expect(received.body).toContain("https://contoh.id/card?token=example");
-    const receivedHtml = renderHtmlEmailTemplate("REGISTRATION_RECEIVED", {
-      ustadzName: "Ustadz Hasan", eventName: "Daurah", participantCode: "P-ABC",
-      portalLink: "https://contoh.id/login/ustadz", cardLink: "https://contoh.id/card?token=example",
-      rundownLink: "https://contoh.id/events/daurah#jadwal-kegiatan",
-    });
-    expect(receivedHtml.htmlBody).toContain("Buka bukti pendaftaran");
-    const approved = renderEmailTemplate("REGISTRATION_APPROVED", {
-      ustadzName: "Ustadz Hasan", eventName: "Daurah", participantCode: "P-ABC",
-      cardLink: "https://contoh.id/card?token=example", rundownLink: "https://contoh.id/events/daurah#jadwal-kegiatan",
-      portalLink: "https://contoh.id/login/ustadz", email: "hasan@contoh.id",
-    });
-    expect(approved.body).toContain("telah disetujui panitia");
-    expect(approved.body).toContain("https://contoh.id/card?token=example");
-    const confirmationRequest = renderEmailTemplate("REGISTRATION_CONFIRMATION_REQUEST", {
-      ustadzName: "Ustadz Hasan", eventName: "Daurah", participantCode: "P-ABC",
-      confirmationLink: "https://contoh.id/confirm#pcf_example", rundownLink: "https://contoh.id/events/daurah#jadwal-kegiatan",
-    });
-    expect(confirmationRequest.body).toContain("tidak perlu login");
-    expect(confirmationRequest.body).toContain("https://contoh.id/confirm#pcf_example");
-    const confirmed = renderEmailTemplate("PARTICIPANT_ATTENDANCE_CONFIRMED", {
-      ustadzName: "Ustadz Hasan", eventName: "Daurah", participantCode: "P-ABC",
-      cardLink: "https://contoh.id/card?token=pqr_example", cardInstruction: "Kartu QR pribadi: https://contoh.id/card?token=pqr_example",
-      confirmationLink: "https://contoh.id/confirm#pcf_example", rundownLink: "https://contoh.id/events/daurah#jadwal-kegiatan",
-      reviewNotice: "",
-    });
-    expect(confirmed.body).toContain("mengundurkan diri tanpa login");
-    expect(confirmed.body).toContain("https://contoh.id/confirm#pcf_example");
-    const confirmedHtml = renderHtmlEmailTemplate("PARTICIPANT_ATTENDANCE_CONFIRMED", {
-      ustadzName: "Ustadz Hasan", eventName: "Daurah", participantCode: "P-ABC",
-      cardLink: "https://contoh.id/card?token=pqr_example", cardInstruction: "Kartu QR pribadi: https://contoh.id/card?token=pqr_example",
-      confirmationLink: "https://contoh.id/confirm#pcf_example", rundownLink: "https://contoh.id/events/daurah#jadwal-kegiatan",
-      reviewNotice: "",
-    });
-    expect(confirmedHtml.htmlBody).toContain('href="https://contoh.id/card?token=pqr_example"');
-    expect(confirmedHtml.htmlBody).toContain('href="https://contoh.id/confirm#pcf_example"');
-    expect(confirmedHtml.htmlBody).toContain("Status &amp; pengunduran diri");
+  const statusLink = "https://contoh.id/confirm#pcf_example.signature";
+  const oldCard = "https://contoh.id/card?token=pqr_old.signature";
+  const common = { ustadzName: "Ustadz Hasan", eventName: "Daurah", participantCode: "P-ABC",
+    rundownLink: "https://contoh.id/events/daurah#jadwal-kegiatan", registrationStatusLink: statusLink };
+
+  it("email pendaftaran awal hanya memberikan bukti dan tautan status; abaikan payload QR lama", () => {
+    const mail = renderHtmlEmailTemplate("REGISTRATION_RECEIVED", { ...common,
+      portalLink: "https://contoh.id/login/ustadz", cardLink: oldCard, confirmationInstruction: oldCard });
+    expect(mail.subject).toMatch(/Bukti pendaftaran/);
+    expect(mail.textBody).toContain("bukan persetujuan panitia");
+    expect(mail.textBody).toContain("QR presensi tidak terbit saat mendaftar");
+    expect(mail.htmlBody).toContain(`href="${statusLink}"`);
+    expect(mail.textBody + mail.htmlBody).not.toContain("pqr_");
+    expect(mail.htmlBody).toContain("Lihat status pendaftaran");
+  });
+
+  it("email persetujuan membedakan permintaan konfirmasi dari QR yang siap", () => {
+    const request = renderHtmlEmailTemplate("REGISTRATION_CONFIRMATION_REQUEST", { ...common, confirmationLink: oldCard });
+    expect(request.htmlBody).toContain("Konfirmasi kehadiran");
+    expect(request.textBody).toContain("Masih ada satu langkah");
+    expect(request.textBody + request.htmlBody).not.toContain("pqr_");
+    const ready = renderHtmlEmailTemplate("REGISTRATION_APPROVED", { ...common, cardLink: oldCard,
+      portalLink: "https://contoh.id/login/ustadz", email: "hasan@contoh.id" });
+    expect(ready.htmlBody).toContain("Buka QR presensi");
+    expect(ready.htmlBody).toContain(`href="${statusLink}"`);
+    expect(ready.textBody + ready.htmlBody).not.toContain("pqr_");
+  });
+
+  it("konfirmasi yang menunggu tinjauan tidak menyuruh peserta melakukan presensi", () => {
+    const mail = renderHtmlEmailTemplate("PARTICIPANT_ATTENDANCE_CONFIRMED", { ...common, cardInstruction: oldCard,
+      nextStep: "Konfirmasi perlu ditinjau kembali oleh panitia. QR presensi belum diterbitkan." });
+    expect(mail.textBody).toContain("Konfirmasi ini bukan presensi");
+    expect(mail.textBody).toContain("QR presensi belum diterbitkan");
+    expect(mail.textBody).not.toContain("Tunjukkan QR");
+    expect(mail.htmlBody).toContain(`href="${statusLink}"`);
+    expect(mail.textBody + mail.htmlBody).not.toContain("pqr_");
     const withdrawn = renderEmailTemplate("PARTICIPANT_WITHDRAWN", {
       ustadzName: "Ustadz Hasan", eventName: "Daurah", participantCode: "P-ABC",
     });

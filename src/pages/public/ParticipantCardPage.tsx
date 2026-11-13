@@ -8,8 +8,10 @@ import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { ParticipantQrCard } from "@/components/public/ParticipantQrCard";
 import { ENV } from "@/config/env";
 import { publicRundownPath } from "@/lib/publicRegistrationReceipt";
+import { isAttendanceQrEligible } from "@/lib/registrationStatus";
 
-type Card = { ustadzName: string; eventName: string; eventSlug?: string | null; participantCode: string; opaqueQrToken: string; approvalStatus: string; confirmationStatus: string; attendanceConfirmationRequired: boolean };
+type Card = { ustadzName: string; eventName: string; eventSlug?: string | null; participantCode: string;
+  opaqueQrToken: string | null; approvalStatus: string; confirmationStatus: string; attendanceConfirmationRequired: boolean; eventOpen: boolean };
 
 export function ParticipantCardPage() {
   const [params] = useSearchParams();
@@ -20,31 +22,36 @@ export function ParticipantCardPage() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${ENV.API_BASE_URL}/cards/public?token=${encodeURIComponent(token)}`, { signal: controller.signal })
+    setCard(null); setError(""); setLoading(true);
+    fetch(`${ENV.API_BASE_URL}/cards/public?token=${encodeURIComponent(token)}`, {
+      signal: controller.signal, cache: "no-store", referrerPolicy: "no-referrer",
+    })
       .then(async (response) => {
         const result = await response.json();
         if (!response.ok) throw new Error(result.error?.message || "Kartu tidak tersedia.");
-        setCard(result.data);
+        if (!controller.signal.aborted) setCard(result.data);
       })
       .catch((reason) => { if (!controller.signal.aborted) setError(reason instanceof Error ? reason.message : "Kartu tidak tersedia."); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [token]);
 
+  const qrToken = card?.eventOpen && isAttendanceQrEligible(card) && card.opaqueQrToken?.startsWith("pqr_") ? card.opaqueQrToken : null;
   return <PublicLayout><main className="participant-card-page">
-    <h1>{card?.approvalStatus === "APPROVED" && (card.confirmationStatus === "CONFIRMED" || !card.attendanceConfirmationRequired) ? "Kartu peserta" : "Bukti pendaftaran"}</h1>
-    {loading ? <p role="status">Memuat kartu peserta…</p> : error ? <p role="alert" className="rounded-xl bg-rose-50 p-4 text-rose-900">{error}</p> : card &&
+    <h1>{qrToken ? "Kartu presensi" : "Bukti pendaftaran"}</h1>
+    {loading ? <p role="status">Memuat status pendaftaran…</p> : error ?
+      <div className="rounded-xl bg-rose-50 p-4 text-rose-900"><p role="alert">{error}</p>
+        <Link className="mt-2 inline-flex min-h-11 items-center font-bold underline" to="/login/ustadz">Masuk Portal Asatidz</Link>
+      </div> : card &&
       <>
         <nav className="participant-card-page__links" aria-label="Informasi peserta">
           <Link to={card.eventSlug ? publicRundownPath(card.eventSlug) : "/programs"}>{card.eventSlug ? "Lihat rundown" : "Lihat program"}</Link>
           <Link to="/login/ustadz">Masuk Portal Asatidz</Link>
         </nav>
-        <p className="participant-card-page__note">Untuk keamanan, password tidak ditampilkan di tautan kartu yang bisa dibagikan. Masuk dengan email pribadi; jika lupa sandi, buat sandi baru melalui email di halaman login.</p>
-        {card.approvalStatus !== "APPROVED" && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 font-semibold text-amber-950">Pendaftaran menunggu persetujuan admin. QR ini adalah bukti pendaftaran dan belum dapat digunakan untuk absensi.</p>}
-        {card.approvalStatus === "APPROVED" && card.attendanceConfirmationRequired && card.confirmationStatus !== "CONFIRMED" && <p role="status" className="rounded-xl border border-amber-200 bg-amber-50 p-4 font-semibold text-amber-950">Pendaftaran disetujui, tetapi QR belum aktif. Buka tautan konfirmasi pribadi dari bukti pendaftaran atau email untuk memilih kehadiran tanpa login.</p>}
+        {!qrToken && <p className="participant-card-page__note">Ini tautan bukti lama, bukan kartu presensi. Untuk status terbaru, buka tautan pribadi terbaru dari panitia atau masuk ke Portal Asatidz.</p>}
         <ParticipantQrCard eventName={card.eventName} person={{ fullName: card.ustadzName, participantCode: card.participantCode,
-          qrToken: card.opaqueQrToken, cardUrl: `/card?token=${encodeURIComponent(token)}` }} approvalStatus={card.approvalStatus}
-          confirmationStatus={card.confirmationStatus} confirmationRequired={card.attendanceConfirmationRequired} />
+          qrToken }} approvalStatus={card.approvalStatus}
+          confirmationStatus={card.confirmationStatus} confirmationRequired={card.attendanceConfirmationRequired} eventOpen={card.eventOpen} />
       </>}
   </main></PublicLayout>;
 }

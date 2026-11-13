@@ -3,6 +3,7 @@ import { Check, Clipboard, Loader2, Mail, MessageCircle, Share2, X } from "lucid
 import { ENV } from "@/config/env";
 import { ParticipantQrCard } from "@/components/public/ParticipantQrCard";
 import { buildParticipantRegistrationShareLinks, type ParticipantShareDetails } from "@/lib/participantShare";
+import { registrationStage, registrationStageCopy } from "@/lib/registrationStatus";
 
 type Props = {
   eventId: string;
@@ -29,7 +30,7 @@ export function ParticipantShareDialog({ eventId, participantId, participantName
     setCopied(false);
     setError("");
     if (demoMode) {
-      setError("Pratinjau: berbagi kode dan QR tersedia pada event yang tersimpan. Tidak ada pesan yang dikirim.");
+      setError("Pratinjau: berbagi tautan status tersedia pada event yang tersimpan. Tidak ada pesan yang dikirim.");
       return;
     }
     setLoading(true);
@@ -78,28 +79,32 @@ export function ParticipantShareDialog({ eventId, participantId, participantName
         <button type="button" onClick={() => dialogRef.current?.close()} aria-label="Tutup berbagi peserta" className={buttonClass}><X className="h-4 w-4" /></button>
       </header>
       <div className="space-y-4 p-5">
-        {loading && <p role="status" className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Memuat kode dan kartu peserta…</p>}
+        {loading && <p role="status" className="flex items-center gap-2"><Loader2 className="h-4 w-4 animate-spin" />Memuat status pendaftaran…</p>}
         {error && <p role="alert" className="rounded-lg bg-rose-50 p-3 text-sm text-rose-900">{error}</p>}
         {details && links && <>
           <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-4">
             <p className="text-xs font-bold uppercase text-emerald-800">Kode pendaftaran</p>
             <p className="mt-1 break-all font-mono text-2xl font-black">{details.participantCode}</p>
-            {!links.cardUrl && <p className="mt-2 text-sm">QR belum tersedia. Kode dapat dibagikan, tetapi belum berlaku untuk presensi hingga disetujui panitia.</p>}
+            <p className="mt-2 text-sm">{details.eventOpen === false ? "Presensi tidak tersedia."
+              : registrationStageCopy[registrationStage(details)].label}</p>
           </div>
-          {links.confirmationUrl && <div className="rounded-lg border border-emerald-200 bg-white p-4">
-            <p className="font-black text-emerald-950">1. Tautan pribadi — {details.confirmationStatus === "CONFIRMED" ? "status & pengunduran diri" : "konfirmasi hadir"}</p>
-            <p className="mt-1 text-sm text-slate-700">Kirim hanya kepada {details.fullName}. Tautan ini untuk menjawab hadir, berhalangan, atau mengundurkan diri sebelum presensi; tidak perlu login.</p>
-            <a href={links.confirmationUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-11 items-center rounded-lg bg-emerald-800 px-4 py-2 font-bold text-white">Buka tautan pribadi</a>
+          {links.statusUrl && <div className="rounded-lg border border-emerald-200 bg-white p-4">
+            <p className="font-black text-emerald-950">Tautan status pribadi</p>
+            <p className="mt-1 text-sm text-slate-700">Kirim hanya kepada {details.fullName}. Peserta bisa membuka status dan, saat tersedia, mengonfirmasi hadir tanpa login.</p>
+            <a href={links.statusUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-11 items-center rounded-lg bg-emerald-800 px-4 py-2 font-bold text-white">Buka tautan status</a>
           </div>}
-          {links.cardUrl && <p className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700"><strong>{links.confirmationUrl ? "2. " : ""}Tautan kartu QR.</strong> {details.confirmationStatus === "CONFIRMED" ? "Aktif untuk presensi harian." : "Bukti pendaftaran; aktif setelah peserta mengonfirmasi hadir."} {links.confirmationUrl ? "Kedua tautan tercantum di draf pesan di bawah." : "Tautan tercantum di draf pesan di bawah."}</p>}
+          {links.cardUrl && <p className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">Draf pesan juga menyertakan tautan QR presensi yang sudah aktif.</p>}
           <div className="flex flex-wrap gap-2">
             {links.whatsappUrl ? <a href={links.whatsappUrl} target="_blank" rel="noopener noreferrer" className={buttonClass}><MessageCircle className="h-4 w-4" /> WhatsApp</a> : <button disabled className={buttonClass}>WhatsApp tidak tersedia</button>}
             {links.emailUrl ? <a href={links.emailUrl} className={buttonClass}><Mail className="h-4 w-4" /> Email</a> : <button disabled className={buttonClass}>Email tidak tersedia</button>}
             <button type="button" onClick={() => void copyMessage()} className={buttonClass}>{copied ? <Check className="h-4 w-4" /> : <Clipboard className="h-4 w-4" />}{copied ? "Pesan tersalin" : "Salin pesan"}</button>
           </div>
-          <p className="text-xs leading-5 text-slate-600">WhatsApp/email membuka pesan siap kirim di aplikasi Anda. Klik Kirim di aplikasi tujuan; tindakan ini tidak mengirim otomatis. QR dibagikan sebagai tautan kartu, bukan lampiran otomatis.</p>
+          <p className="text-xs leading-5 text-slate-600">WhatsApp/email membuka draf di aplikasi Anda. Pesan tidak dikirim otomatis.</p>
           <label className="block text-sm font-bold">Pratinjau pesan<textarea readOnly value={links.message} rows={12} className="mt-2 w-full rounded-lg border border-slate-300 bg-slate-50 p-3 text-sm font-normal leading-6" /></label>
-          {links.cardUrl && details.qrToken && <ParticipantQrCard showShareActions={false} eventName={details.eventName} person={{ fullName: details.fullName, participantCode: details.participantCode, qrToken: details.qrToken, cardUrl: links.cardUrl, email: details.email || undefined, whatsapp: details.whatsapp || details.phone }} approvalStatus={details.approvalStatus} confirmationStatus={details.confirmationStatus} confirmationRequired={details.attendanceConfirmationRequired !== false} />}
+          {links.cardUrl && details.qrToken && <ParticipantQrCard eventName={details.eventName}
+            person={{ fullName: details.fullName, participantCode: details.participantCode, qrToken: details.qrToken }}
+            approvalStatus={details.approvalStatus} confirmationStatus={details.confirmationStatus}
+            confirmationRequired={details.attendanceConfirmationRequired !== false} />}
         </>}
       </div>
     </dialog>

@@ -34,7 +34,8 @@ type CampaignJobPage = { total: number; page: number; pageSize: number; items: C
 const statusTone = (status: string) =>
   status === "SENT" ? "success" :
   status === "FAILED" || status === "DEAD_LETTER" ? "danger" :
-  status === "PROCESSING" ? "info" : "warning";
+  status === "PROCESSING" ? "info" : status === "CANCELLED" ? "neutral" : "warning";
+const deliveryStatusLabel = (status: string) => status === "CANCELLED" ? "Tidak dikirim" : status.replaceAll("_", " ");
 
 const formatTime = (value: string) => new Intl.DateTimeFormat("id-ID", {
   dateStyle: "medium",
@@ -334,12 +335,12 @@ export const AdminEmailJobsPage: React.FC<{ mode?: "broadcast" | "queue" }> = ({
         <div className="flex flex-col gap-3 border-b border-slate-200 p-4 sm:flex-row sm:items-center">
           <label className="relative flex-1"><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-400" /><span className="sr-only">Cari penerima atau error</span><input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Cari penerima atau penyebab gagal" className="min-h-[44px] w-full rounded-lg border border-slate-300 pl-10 pr-3 text-sm" /></label>
           <label className="sr-only" htmlFor="email-status">Filter status</label>
-          <select id="email-status" value={status} onChange={(event) => setStatus(event.target.value)} className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-sm"><option value="ALL">Semua status</option>{["QUEUED", "PENDING", "PROCESSING", "SENT", "FAILED", "DEAD_LETTER"].map((item) => <option key={item} value={item}>{item.replaceAll("_", " ")}</option>)}</select>
+          <select id="email-status" value={status} onChange={(event) => setStatus(event.target.value)} className="min-h-[44px] rounded-lg border border-slate-300 px-3 text-sm"><option value="ALL">Semua status</option>{["QUEUED", "PENDING", "PROCESSING", "SENT", "FAILED", "DEAD_LETTER", "CANCELLED"].map((item) => <option key={item} value={item}>{deliveryStatusLabel(item)}</option>)}</select>
         </div>
         {loading ? <p className="p-8 text-center text-sm text-slate-600">Memuat antrean email…</p> : visible.length === 0 ? <div className="grid justify-items-center gap-2 p-10 text-center text-slate-600"><Mail className="h-7 w-7" /><p className="text-sm">Tidak ada email yang cocok pada 50 pengiriman terakhir.</p></div> :
           <ul className="divide-y divide-slate-100">{visible.map((job) => <li key={job.id} className="flex flex-col gap-3 p-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="min-w-0"><p className="break-all text-sm font-black text-slate-950">{job.recipientName ? `${job.recipientName} · ` : ""}{job.recipientEmail}</p>{(job.templateName || job.subject) && <p className="mt-1 text-xs font-bold text-emerald-800">{job.templateName || job.subject}</p>}<p className="mt-1 text-xs text-slate-600">Jadwal {formatTime(job.scheduledAt)} · Dibuat {formatTime(job.createdAt)} · Percobaan {job.attemptCount}/{job.maxAttempts}</p>{job.lastError && <p className="mt-2 max-w-3xl break-words text-xs text-rose-700">{job.lastError}</p>}</div>
-            <div className="flex shrink-0 items-center gap-3"><StatusBadge label={job.status.replaceAll("_", " ")} variant={statusTone(job.status)} />{(job.status === "FAILED" || job.status === "DEAD_LETTER") && <button type="button" onClick={() => void retry(job.id)} disabled={Boolean(busy)} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-bold text-slate-800 disabled:opacity-50"><RotateCcw className="h-4 w-4" /> Coba ulang</button>}</div>
+            <div className="min-w-0"><p className="break-all text-sm font-black text-slate-950">{job.recipientName ? `${job.recipientName} · ` : ""}{job.recipientEmail}</p>{(job.templateName || job.subject) && <p className="mt-1 text-xs font-bold text-emerald-800">{job.templateName || job.subject}</p>}<p className="mt-1 text-xs text-slate-600">Jadwal {formatTime(job.scheduledAt)} · Dibuat {formatTime(job.createdAt)} · Percobaan {job.attemptCount}/{job.maxAttempts}</p>{job.lastError && <p className={`mt-2 max-w-3xl break-words text-xs ${job.status === "CANCELLED" ? "text-slate-600" : "text-rose-700"}`}>{job.lastError}</p>}</div>
+            <div className="flex shrink-0 items-center gap-3"><StatusBadge label={deliveryStatusLabel(job.status)} variant={statusTone(job.status)} />{(job.status === "FAILED" || job.status === "DEAD_LETTER") && <button type="button" onClick={() => void retry(job.id)} disabled={Boolean(busy)} className="inline-flex min-h-[44px] items-center gap-2 rounded-lg border border-slate-300 px-3 text-sm font-bold text-slate-800 disabled:opacity-50"><RotateCcw className="h-4 w-4" /> Coba ulang</button>}</div>
           </li>)}</ul>}
       </section>
        <p className="mt-4 text-sm text-slate-600">Tindakan pengiriman dan percobaan ulang tercatat di <Link to="/admin/audit-logs" className="font-bold text-emerald-800 underline">audit sistem</Link>.</p>

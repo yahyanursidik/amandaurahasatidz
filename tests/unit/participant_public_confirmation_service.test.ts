@@ -56,6 +56,7 @@ describe("keputusan kehadiran melalui tautan pribadi", () => {
   beforeEach(() => {
     state.participant.approvalStatus = "PENDING_REVIEW";
     state.participant.confirmationStatus = "INVITED";
+    state.participant.qrTokenVersion = 1;
     state.event.attendanceConfirmationDeadline = null;
     state.event.lateConfirmationPolicy = "BLOCK";
     state.update.mockClear();
@@ -66,7 +67,7 @@ describe("keputusan kehadiran melalui tautan pribadi", () => {
     state.update.mockImplementation(() => ({ set: (values: Record<string, unknown>) => {
       state.lastUpdate = values;
       return { where: () => ({ returning: async () => {
-        Object.assign(state.participant, values);
+        Object.assign(state.participant, { ...values, qrTokenVersion: values.qrTokenVersion ? state.participant.qrTokenVersion + 1 : state.participant.qrTokenVersion });
         return [state.participant];
       } }) };
     } }));
@@ -100,6 +101,8 @@ describe("keputusan kehadiran melalui tautan pribadi", () => {
     expect(result.confirmationStatus).toBe("CONFIRMED");
     expect(result.approvalStatus).toBe("APPROVED");
     expect(result.cardUrl).toContain("/card?token=pqr_");
+    expect(result.qrToken).toMatch(/^pqr_/);
+    expect(state.participant.qrTokenVersion).toBe(2);
     expect(state.lastUpdate.confirmedAt).toBeInstanceOf(Date);
     expect(state.audit).toHaveBeenCalledOnce();
     expect(state.email).toHaveBeenCalledWith(expect.any(Object), expect.any(Object), "CONFIRM");

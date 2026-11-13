@@ -88,6 +88,7 @@ export async function getPortalOverviewService(userId: string, email: string) {
         invitationResponseDeadline: events.invitationResponseDeadline,
         attendanceConfirmationDeadline: events.attendanceConfirmationDeadline,
         attendanceConfirmationRequired: events.attendanceConfirmationRequired,
+        lateConfirmationPolicy: events.lateConfirmationPolicy,
       })
       .from(eventParticipants)
       .innerJoin(events, eq(eventParticipants.eventId, events.id))
@@ -194,7 +195,7 @@ export async function confirmOwnPortalAttendanceService(
     throw new ForbiddenError("Kepesertaan ini tidak dapat dikonfirmasi. Hubungi panitia.");
   }
   if (participation.confirmationStatus !== "CONFIRMED") {
-    await updateParticipantStatusService(participantId, "CONFIRMED", "Konfirmasi hadir melalui portal asatidz.", userId, requestId);
+    await updateParticipantStatusService(participantId, "CONFIRMED", "Konfirmasi hadir melalui portal asatidz.", userId, requestId, undefined, { requireApproved: true });
   }
   const current = await db.select({
     confirmationStatus: eventParticipants.confirmationStatus,

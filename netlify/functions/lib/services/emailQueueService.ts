@@ -9,6 +9,7 @@ import { ConflictError, NotFoundError } from "../utils/errors";
 import { broadcastHtml } from "./broadcastService";
 import { getTransactionalEmailSettings } from "./transactionalEmailSettingsService";
 import type { TransactionalEmailCopy } from "./transactionalEmailCopy";
+import { isRegistrationWorkflowEmail, prepareRegistrationEmailForDelivery } from "./participantCardEmailService";
 
 export function nextBroadcastDay(now = new Date()) {
   // 08:00 WIB tomorrow, independent of the server's own timezone.
@@ -164,8 +165,21 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
     if (claimed.length === 0) continue;
 
     try {
-      const templateCode = String(payloadObj.templateCode || "");
-      const variables: Record<string, any> = (payloadObj.variables as Record<string, any>) || {};
+      let templateCode = String(payloadObj.templateCode || "");
+      let variables = (payloadObj.variables as Record<string, unknown>) || {};
+      const isRegistration = isRegistrationWorkflowEmail(templateCode);
+      if (isRegistration) {
+        const current = await prepareRegistrationEmailForDelivery(db, { ...job, payload: payloadObj }, templateCode);
+        if (!current) {
+          const reason = "Status atau alamat pendaftaran tidak lagi sesuai; email ini tidak dikirim.";
+          await db.update(emailJobs).set({ status: "CANCELLED", lastError: reason,
+            lockedAt: null, lockedBy: null, updatedAt: new Date() }).where(eq(emailJobs.id, job.id));
+          processedResults.push({ jobId: job.id, status: "CANCELLED", reason });
+          continue;
+        }
+        templateCode = current.code;
+        variables = current.variables;
+      }
 
       // Render HTML email template untuk pengiriman nyata
       let subjectStr: string;
@@ -189,7 +203,9 @@ export async function processEmailQueueWorker(workerId = "worker-1", batchSize =
           subjectStr = rendered.subject;
           htmlBody = rendered.htmlBody;
           textBody = rendered.textBody;
-        } catch {
+        } catch (error) {
+          // Never send the stored legacy body for registration; it may contain an early QR.
+          if (isRegistration) throw error;
           subjectStr = String(payloadObj.subject || "Email Notification");
           textBody = String(payloadObj.bodyText || "");
           htmlBody = broadcastHtml(textBody);

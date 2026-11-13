@@ -97,7 +97,8 @@ describe("Email Engine, Queue & Template Whitelist Unit Tests", () => {
 
     expect(html).toContain("<!DOCTYPE html>");
     expect(html).toContain("PAR-2026-0099");
-    expect(html).toContain("Pendaftaran Berhasil");
+    expect(html).toContain("Ini bukan kartu presensi");
+    expect(html).not.toContain("/qr/PAR-2026-0099.png");
     expect(html).toContain("Ustadz Zaid bin Ali");
     expect(html).toContain("no-reply@yts.web.id");
   });

@@ -2,9 +2,10 @@ import { getDbClient } from "../db/client";
 import { eventParticipants, ustadzProfiles, institutions, events } from "../db/schema";
 import { eq, and, sql } from "drizzle-orm";
 import { signParticipantQrToken, verifyParticipantQrToken } from "../utils/token";
-import { NotFoundError, ValidationError, ForbiddenError } from "../utils/errors";
+import { ConflictError, NotFoundError, ValidationError, ForbiddenError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
 import { assertParticipantEligibleForCheckin } from "./deadlineService";
+import { canDisplayAttendanceQr } from "./participantCardService";
 
 export interface ParticipantQrInfo {
   participantId: string;
@@ -30,6 +31,10 @@ export async function getParticipantQrTokenService(participantId: string): Promi
       approvalStatus: eventParticipants.approvalStatus,
       attendanceConfirmationRequired: events.attendanceConfirmationRequired,
       eventName: events.name,
+      eventStatus: events.status,
+      endDate: events.endDate,
+      timezone: events.timezone,
+      archivedAt: events.archivedAt,
       ustadzName: ustadzProfiles.fullName,
     })
     .from(eventParticipants)
@@ -56,13 +61,16 @@ export async function getParticipantQrTokenService(participantId: string): Promi
   if (p.attendanceConfirmationRequired && p.status !== "CONFIRMED") {
     throw new ForbiddenError("Konfirmasikan kehadiran pribadi sebelum membuka QR presensi.");
   }
+  if (!canDisplayAttendanceQr({ ...p, confirmationStatus: p.status }, { ...p, status: p.eventStatus })) {
+    throw new ForbiddenError("QR presensi tidak tersedia untuk acara ini. Periksa status acara di portal.");
+  }
 
   const issuedAt = p.qrIssuedAt || new Date();
   if (!p.qrIssuedAt) {
     await db
       .update(eventParticipants)
       .set({ qrIssuedAt: issuedAt, updatedAt: issuedAt })
-      .where(eq(eventParticipants.id, p.id));
+      .where(and(eq(eventParticipants.id, p.id), eq(eventParticipants.qrTokenVersion, p.qrTokenVersion)));
   }
   const opaqueQrToken = signParticipantQrToken({
     participantId: p.id,
@@ -188,27 +196,33 @@ export async function rotateParticipantQrTokenService(
   requestId = "req-qr-rotate"
 ) {
   const db = getDbClient();
-  const found = await db
-    .select()
+  const [current] = await db
+    .select({
+      eventId: eventParticipants.eventId, participantCode: eventParticipants.participantCode,
+      qrTokenVersion: eventParticipants.qrTokenVersion, approvalStatus: eventParticipants.approvalStatus,
+      confirmationStatus: eventParticipants.confirmationStatus, attendanceConfirmationRequired: events.attendanceConfirmationRequired,
+      status: events.status, endDate: events.endDate, timezone: events.timezone, archivedAt: events.archivedAt,
+    })
     .from(eventParticipants)
+    .innerJoin(events, eq(events.id, eventParticipants.eventId))
     .where(eq(eventParticipants.id, participantId))
     .limit(1);
 
-  if (found.length === 0) throw new NotFoundError(`Peserta ID ${participantId} tidak ditemukan.`);
+  if (!current) throw new NotFoundError(`Peserta ID ${participantId} tidak ditemukan.`);
+  if (!canDisplayAttendanceQr(current, current)) throw new ForbiddenError("QR presensi belum tersedia untuk peserta ini.");
 
   const rotatedAt = new Date();
-  const nextVersion = found[0].qrTokenVersion + 1;
-  const updatedRows = await db
+  const [updated] = await db
     .update(eventParticipants)
     .set({
-      qrTokenVersion: nextVersion,
+      qrTokenVersion: sql`${eventParticipants.qrTokenVersion} + 1`,
       qrIssuedAt: rotatedAt,
       qrRotatedAt: rotatedAt,
       updatedAt: rotatedAt,
     })
-    .where(eq(eventParticipants.id, participantId))
+    .where(and(eq(eventParticipants.id, participantId), eq(eventParticipants.qrTokenVersion, current.qrTokenVersion)))
     .returning();
-  const updated = updatedRows[0];
+  if (!updated) throw new ConflictError("Status atau QR peserta berubah. Muat ulang portal sebelum mencoba lagi.");
   const newOpaqueQrToken = signParticipantQrToken({
     participantId: updated.id,
     eventId: updated.eventId,
@@ -221,15 +235,15 @@ export async function rotateParticipantQrTokenService(
       action: "PARTICIPANT_QR_ROTATED",
       resourceType: "EVENT_PARTICIPANT",
       resourceId: participantId,
-      eventId: found[0].eventId,
-      reason: `Token QR peserta ${found[0].participantCode} di-rotate/revoked secara aman.`,
+      eventId: current.eventId,
+      reason: `Token QR peserta ${current.participantCode} diganti.`,
       requestId,
     });
   }
 
   return {
     participantId,
-    participantCode: found[0].participantCode,
+    participantCode: current.participantCode,
     newOpaqueQrToken,
     rotatedAt,
   };

@@ -3,7 +3,9 @@ import { getDbClient } from "../db/client";
 import { eventParticipants, events, ustadzProfiles } from "../db/schema";
 import { NotFoundError, ValidationError } from "../utils/errors";
 import { cardPath, signCardForParticipant } from "./participantCardService";
-import { participantConfirmationPath, signConfirmationForParticipant } from "./participantConfirmationLink";
+import { isAttendanceEventOpen } from "./attendanceModel";
+import { isAttendanceQrEligible } from "../../../../src/lib/registrationStatus";
+import { registrationStatusPath } from "./participantConfirmationLink";
 
 export async function getParticipantShareService(eventId: string, participantId: string) {
   const db = getDbClient();
@@ -21,6 +23,9 @@ export async function getParticipantShareService(eventId: string, participantId:
     eventName: events.name,
     startDate: events.startDate,
     endDate: events.endDate,
+    status: events.status,
+    timezone: events.timezone,
+    archivedAt: events.archivedAt,
     attendanceConfirmationRequired: events.attendanceConfirmationRequired,
     venueName: events.venueName,
   }).from(eventParticipants)
@@ -35,7 +40,9 @@ export async function getParticipantShareService(eventId: string, participantId:
     throw new ValidationError("Pendaftaran tidak aktif. Kode dan QR tidak dapat dibagikan.");
   }
 
-  const qrToken = participant.approvalStatus === "APPROVED" ? signCardForParticipant(participant) : null;
+  const eventOpen = isAttendanceEventOpen(participant);
+  const qrToken = eventOpen && isAttendanceQrEligible(participant) ? signCardForParticipant(participant) : null;
+  const registrationStatusUrl = registrationStatusPath(participant, participant.endDate);
   // The browser resolves this same-origin path; no deployment URL or token enters list responses.
   return {
     participantId: participant.id,
@@ -52,9 +59,10 @@ export async function getParticipantShareService(eventId: string, participantId:
     approvalStatus: participant.approvalStatus,
     confirmationStatus: participant.confirmationStatus,
     attendanceConfirmationRequired: participant.attendanceConfirmationRequired,
+    eventOpen,
+    registrationStatusUrl,
     qrToken,
     cardUrl: qrToken ? cardPath(qrToken) : null,
-    confirmationUrl: participant.approvalStatus === "APPROVED" && participant.attendanceConfirmationRequired
-      ? participantConfirmationPath(signConfirmationForParticipant(participant, participant.endDate)) : null,
+    confirmationUrl: participant.approvalStatus === "APPROVED" && participant.attendanceConfirmationRequired ? registrationStatusUrl : null,
   };
 }

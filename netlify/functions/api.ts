@@ -1708,7 +1708,8 @@ export const handler: Handler = async (event, _context) => {
         session.email,
         event.queryStringParameters?.participantId,
       );
-      return buildSuccessResponse(qrData, requestId);
+      const response = buildSuccessResponse(qrData, requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store" } };
     }
 
     if (path === "/portal/qr/rotate" && method === "POST") {
@@ -1723,7 +1724,8 @@ export const handler: Handler = async (event, _context) => {
         session.userId,
         requestId,
       );
-      return buildSuccessResponse(rotated, requestId);
+      const response = buildSuccessResponse(rotated, requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store" } };
     }
 
     if (path === "/checkin/verify-qr" && method === "POST") {

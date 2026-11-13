@@ -1,5 +1,5 @@
 import { ValidationError } from "../utils/errors";
-import { ATTENDANCE_INACTIVE_CONFIRMATIONS } from "./attendanceModel";
+import { registrationStage } from "../../../../src/lib/registrationStatus";
 
 type DeadlineEvent = {
   startDate?: string | null;
@@ -63,12 +63,9 @@ export function assertParticipantEligibleForCheckin(
 export function participantCheckinBlockReason(
   participant: { confirmationStatus: string; approvalStatus: string }, event: DeadlineEvent,
 ): string | null {
-  if (ATTENDANCE_INACTIVE_CONFIRMATIONS.includes(participant.confirmationStatus)) {
-    return participant.confirmationStatus === "CANCELLED" ? "kepesertaan dibatalkan atau berhalangan." : "peserta telah diganti.";
-  }
-  if (participant.approvalStatus !== "APPROVED") return "data peserta belum disetujui panitia.";
-  if (event.attendanceConfirmationRequired !== false && participant.confirmationStatus !== "CONFIRMED") {
-    return "peserta belum mengonfirmasi kehadiran.";
-  }
-  return null;
+  const stage = registrationStage({ ...participant, attendanceConfirmationRequired: event.attendanceConfirmationRequired });
+  if (stage === "INACTIVE") return participant.confirmationStatus === "REPLACED"
+    ? "peserta telah diganti." : "kepesertaan dibatalkan atau berhalangan.";
+  if (stage === "AWAITING_CONFIRMATION") return "peserta belum mengonfirmasi kehadiran.";
+  return stage === "READY" ? null : "data peserta belum disetujui panitia.";
 }
