@@ -9,6 +9,9 @@ import {
   invitations,
   auditLogs,
   attendanceRecords,
+  checkinLogs,
+  announcementRecipients,
+  emailJobs,
   roles,
   userRoleAssignments,
   users,
@@ -41,6 +44,71 @@ export async function countInstitutionParticipantsRepository(eventId: string, in
     );
 
   return res[0]?.total || 0;
+}
+
+/** Remove only this event registration; master profiles and portal accounts remain available. */
+export async function deleteParticipantTxRepository(
+  eventId: string,
+  participantId: string,
+  reason: string,
+  actorUserId: string,
+  requestId: string,
+) {
+  return withTransaction(async (tx) => {
+    // Use the same lock order as registration, quota changes and replacement.
+    await lockRegistrationEvent(tx, eventId);
+    const [participant] = await tx.select().from(eventParticipants)
+      .where(and(eq(eventParticipants.id, participantId), eq(eventParticipants.eventId, eventId)))
+      .limit(1).for("update");
+    if (!participant) throw new NotFoundError("Peserta tidak ditemukan pada event ini.");
+
+    let successorParticipantId: string | null = null;
+    const group = participant.publicGroupId
+      ? eq(eventParticipants.publicGroupId, participant.publicGroupId)
+      : participant.invitationId && participant.institutionId
+        ? and(eq(eventParticipants.invitationId, participant.invitationId), eq(eventParticipants.institutionId, participant.institutionId))
+        : undefined;
+    if (participant.isDelegationLead && group) {
+      const [successor] = await tx.select({ id: eventParticipants.id }).from(eventParticipants)
+        .where(and(eq(eventParticipants.eventId, eventId), group,
+          sql`${eventParticipants.id} <> ${participantId}`,
+          notInArray(eventParticipants.confirmationStatus, ["CANCELLED", "REPLACED"]),
+          notInArray(eventParticipants.approvalStatus, ["DECLINED", "REJECTED", "CANCELLED"])))
+        .orderBy(desc(eventParticipants.isDelegationLead), asc(eventParticipants.createdAt), asc(eventParticipants.id))
+        .limit(1).for("update");
+      if (successor) {
+        successorParticipantId = successor.id;
+        await tx.update(eventParticipants).set({ isDelegationLead: true, updatedAt: new Date() })
+          .where(and(eq(eventParticipants.id, successor.id), eq(eventParticipants.eventId, eventId)));
+      }
+    }
+
+    // Keep historical scan logs, including the former registration identity, without a dangling FK.
+    await tx.update(checkinLogs).set({ participantId: null,
+      metadata: sql`coalesce(${checkinLogs.metadata}, '{}'::jsonb) || ${JSON.stringify({
+        deletedParticipantId: participantId, deletedParticipantCode: participant.participantCode,
+      })}::jsonb`,
+    }).where(eq(checkinLogs.participantId, participantId));
+    await tx.delete(announcementRecipients).where(eq(announcementRecipients.participantId, participantId));
+    // Older jobs embed the UUID in their idempotency key; newer jobs also carry payload.participantId.
+    // Do not affect delivered mail or unrelated event messages addressed to the same email account.
+    await tx.update(emailJobs).set({ status: "CANCELLED", lastError: "Pendaftaran peserta telah dihapus dari event.",
+      lockedAt: null, lockedBy: null, updatedAt: new Date() })
+      .where(and(eq(emailJobs.eventId, eventId),
+        inArray(emailJobs.status, ["QUEUED", "PENDING", "FAILED", "DEAD_LETTER"]),
+        or(sql`${emailJobs.payload}->>'participantId' = ${participantId}`,
+          sql`strpos(${emailJobs.idempotencyKey}, ${participantId}) > 0`)));
+    await tx.update(eventParticipants).set({ replacementForParticipantId: null, updatedAt: new Date() })
+      .where(and(eq(eventParticipants.eventId, eventId), eq(eventParticipants.replacementForParticipantId, participantId)));
+
+    // Status and attendance records cascade on participant deletion. The audit has no participant FK.
+    await tx.insert(auditLogs).values({ actorUserId, action: "PARTICIPANT_DELETED", resourceType: "EVENT_PARTICIPANT",
+      resourceId: participantId, eventId, beforeData: participant,
+      afterData: { deleted: true, successorParticipantId }, reason, requestId });
+    await tx.delete(eventParticipants)
+      .where(and(eq(eventParticipants.id, participantId), eq(eventParticipants.eventId, eventId)));
+    return { participantId, eventId, deleted: true as const, successorParticipantId };
+  });
 }
 
 const participantColumns = {

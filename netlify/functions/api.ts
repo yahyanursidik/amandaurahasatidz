@@ -174,6 +174,8 @@ import {
   waitlistParticipantSchema,
   declineParticipantSchema,
   cancelParticipantSchema,
+  deleteParticipantSchema,
+  participantResourceParamsSchema,
   bulkApproveSchema,
   replacePortalDelegationMemberSchema,
   requestPasswordSetupSchema,
@@ -198,6 +200,7 @@ import {
   waitlistParticipantService,
   declineParticipantService,
   cancelParticipantService,
+  deleteParticipantService,
   bulkApproveParticipantsService,
   provisionParticipantPortalAccountService,
 } from "./lib/services/participantService";
@@ -1192,6 +1195,19 @@ export const handler: Handler = async (event, _context) => {
       return buildSuccessResponse(result, requestId);
     }
 
+    const participantResourceMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/([a-f0-9-]+)$/i);
+    if (participantResourceMatch && method === "DELETE") {
+      const session = requireAuth(userSession);
+      const { eventId, participantId } = validateRequestData(participantResourceParamsSchema, {
+        eventId: participantResourceMatch[1], participantId: participantResourceMatch[2],
+      });
+      const staffSession = { ...session, assignments: session.assignments.filter((assignment) =>
+        !["USTADZ", "INSTITUTION_REPRESENTATIVE"].includes(assignment.roleCode) && !assignment.institutionId) };
+      requirePermission(staffSession, "participants.delete", eventId);
+      const input = validateRequestData(deleteParticipantSchema, event.body ? JSON.parse(event.body) : {});
+      return buildSuccessResponse(await deleteParticipantService(eventId, participantId, input.reason, session.userId, requestId), requestId);
+    }
+
     const partBulkApproveMatch = path.match(/^\/events\/([a-f0-9-]+)\/participants\/bulk-approve$/i);
     if (partBulkApproveMatch && method === "POST") {
       const eventId = partBulkApproveMatch[1];
@@ -1209,6 +1225,14 @@ export const handler: Handler = async (event, _context) => {
       // This is the staff list, not the institution representative's portal.
       requirePermission(userSession ? { ...userSession, assignments: userSession.assignments.filter((assignment) =>
         !["USTADZ", "INSTITUTION_REPRESENTATIVE"].includes(assignment.roleCode)) } : null, "invitations.read", eventId);
+      if (event.queryStringParameters?.includeAccessCodes === "true") {
+        requirePermission(userSession, "invitations.create", eventId);
+        const result = await getInvitationsService(eventId, true);
+        await createAuditLog({ actorUserId: userSession!.userId, action: "INVITATION_ACCESS_CODES_VIEWED",
+          resourceType: "EVENT", resourceId: eventId, eventId, requestId });
+        const response = buildSuccessResponse(result, requestId);
+        return { ...response, headers: { ...response.headers, "Cache-Control": "no-store" } };
+      }
       return buildSuccessResponse(await getInvitationsService(eventId), requestId);
     }
 

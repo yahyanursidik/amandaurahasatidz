@@ -88,6 +88,15 @@ export const cancelParticipantSchema = z.object({
   reason: z.string().trim().min(2, "Alasan pembatalan peserta wajib diisi").max(1000),
 });
 
+export const deleteParticipantSchema = z.object({
+  reason: z.string().trim().min(3, "Alasan penghapusan peserta minimal 3 karakter").max(1000),
+}).strict();
+
+export const participantResourceParamsSchema = z.object({
+  eventId: z.string().uuid("ID event tidak valid."),
+  participantId: z.string().uuid("ID peserta tidak valid."),
+});
+
 export const replaceParticipantSchema = z.object({
   oldParticipantId: z.string().uuid("ID Peserta lama tidak valid"),
   newUstadzId: z.string().uuid("ID Ustadz baru tidak valid"),

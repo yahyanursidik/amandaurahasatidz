@@ -10,6 +10,7 @@ import {
   replaceParticipantTxRepository,
   provisionParticipantPortalAccountRepository,
   findReplacementCandidatesRepository,
+  deleteParticipantTxRepository,
 } from "../repositories/participantRepository";
 import { randomInt } from "node:crypto";
 import { findEventByIdRepository } from "../repositories/eventRepository";
@@ -45,6 +46,16 @@ export async function getParticipantsService(eventId: string) {
 
 export async function getParticipantPageService(eventId: string, query: ParticipantPageQuery) {
   return findParticipantPageRepository(eventId, query);
+}
+
+export async function deleteParticipantService(
+  eventId: string,
+  participantId: string,
+  reason: string,
+  actorUserId: string,
+  requestId: string,
+) {
+  return deleteParticipantTxRepository(eventId, participantId, reason, actorUserId, requestId);
 }
 
 export async function provisionParticipantPortalAccountService(
