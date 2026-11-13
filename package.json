@@ -22,6 +22,7 @@
     "test:performance:browser": "node scripts/check-performance-browser.mjs",
     "test:performance:reads": "node scripts/check-performance-reads.mjs",
     "test:kiosk:browser": "node scripts/check-kiosk-browser.mjs",
+    "test:committee-login:browser": "node scripts/check-committee-login-browser.mjs",
     "preview": "vite preview",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",

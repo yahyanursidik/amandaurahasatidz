@@ -2,13 +2,12 @@ import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { and, eq, isNull } from "drizzle-orm";
 import { getDbClient } from "../db/client";
 import { roles, userRoleAssignments, users } from "../db/schema";
-import { RoleCode } from "../../../../src/config/permissions";
+import { hasPortalAccess, type PortalCode } from "../../../../src/config/portalAccess";
 import { AppError, UnauthorizedError } from "../utils/errors";
 import { hashPassword } from "../utils/password";
 import { sendImmediateTransactionalTemplate } from "./emailTransport";
 import { createAuditLog } from "./auditService";
 
-type PortalCode = "admin" | "committee" | "ustadz";
 type ChallengePayload = {
   kind: "password_setup";
   userId: string;
@@ -17,20 +16,6 @@ type ChallengePayload = {
   issuedAt: number;
   expiresAt: number;
   credentialVersion: string;
-};
-
-const PORTAL_ROLES: Record<PortalCode, RoleCode[]> = {
-  admin: ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD", "REPORT_VIEWER", "EVENT_ADMIN", "COMMITTEE_ORGANIZER"],
-  committee: [
-    "COMMITTEE_ORGANIZER",
-    "COMMITTEE_ADMIN",
-    "COMMITTEE_LEAD",
-    "REGISTRATION_OFFICER",
-    "CHECKIN_OFFICER",
-    "INFORMATION_OFFICER",
-    "EVENT_VIEWER",
-  ],
-  ustadz: ["USTADZ"],
 };
 
 function isProductionRuntime() {
@@ -93,12 +78,7 @@ async function findPortalAccount(email: string, portal: PortalCode) {
     .from(userRoleAssignments)
     .innerJoin(roles, eq(userRoleAssignments.roleId, roles.id))
     .where(eq(userRoleAssignments.userId, user.id));
-  const now = Date.now();
-  const allowed = assignments.some((assignment) =>
-    PORTAL_ROLES[portal].includes(assignment.roleCode as RoleCode)
-    && (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= now)
-    && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > now),
-  );
+  const allowed = hasPortalAccess(portal, assignments);
   return allowed ? user : null;
 }
 

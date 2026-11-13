@@ -30,6 +30,12 @@ export const publicKioskCheckinSchema = z.object({
   ...unitSelection,
 }).strict().refine(oneUnit, unitError);
 
+export const attendanceRehearsalQrSchema = z.object({ ...unitSelection }).strict().refine(oneUnit, unitError);
+export const attendanceRehearsalScanSchema = z.object({
+  qrTokenOrCode: z.string().trim().min(4, "Pindai QR uji atau isi kode peserta.").max(512),
+  ...unitSelection,
+}).strict().refine(oneUnit, unitError);
+
 export const queryCheckinLogsSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(20),
 });

@@ -7733,3 +7733,15 @@
 @media (max-width: 39.999rem) { .public-receipt__confirmation-actions > * { width: 100%; } }
 @media (hover: hover) and (pointer: fine) { .public-confirm__primary:hover:not(:disabled), .public-receipt__confirmation-actions a:first-child:hover { background: var(--color-public-focus); } .public-confirm__secondary:hover:not(:disabled), .public-confirm__links a:hover, .public-confirm__cancel:hover:not(:disabled), .public-receipt__confirmation-actions a:not(:first-child):hover, .public-receipt__confirmation-actions button:hover { background: var(--color-public-paper); } }
 @media (prefers-reduced-motion: reduce) { .public-confirm button:active, .public-confirm__links a:active, .public-receipt__confirmation a:active, .public-receipt__confirmation button:active { transform: none; } }
+
+/* Touch-sized portal correction links keep their label and arrow on one row. */
+a.login-activation__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-login-3);
+  white-space: nowrap;
+  padding: var(--space-login-3) var(--space-login-4);
+  text-decoration: none;
+}
+a.login-activation__toggle svg { flex-shrink: 0; width: 1.25rem; height: 1.25rem; }

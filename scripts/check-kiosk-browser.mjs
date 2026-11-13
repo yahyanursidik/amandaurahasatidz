@@ -22,7 +22,7 @@ const locationToken = `loc_qr_${'a'.repeat(64)}`;
 const fixture = { name: 'daurah-kiosk-fixture', configureServer(server) {
   server.middlewares.use(async (request, response, next) => {
     const route = new URL(request.url, 'http://127.0.0.1').pathname;
-    if (!['/check-in/daurah-coba', '/committee/location-qr', '/portal/attendance', '/login/ustadz'].includes(route)) return next();
+    if (!['/check-in/daurah-coba', '/committee/check-in', '/committee/location-qr', '/portal/attendance', '/login/ustadz'].includes(route)) return next();
     response.setHeader('Content-Type', 'text/html');
     response.end(await server.transformIndexHtml(request.url, `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body><div id="root"></div><script type="module">
       import React from 'react';
@@ -32,9 +32,14 @@ const fixture = { name: 'daurah-kiosk-fixture', configureServer(server) {
       import '/src/index.css';
       const eventId = '${eventId}', dayId = '${dayId}', participantId = '${participantId}';
       const date = '2026-11-13', checkinAt = '2026-11-13T01:00:00Z';
-      const unit = {id:'DAY:'+dayId,type:'DAY',dayId,sessionId:null,title:'Hari pertama',date,isOpen:true,openAt:date+'T00:00:00Z',closeAt:date+'T23:59:59Z'};
+      const unit = {id:'DAY:'+dayId,type:'DAY',dayId,sessionId:null,title:'Hari pertama',date,isOpen:!location.search.includes('closed=1'),openAt:date+'T00:00:00Z',closeAt:date+'T23:59:59Z'};
+      window.__unit = unit;
       const schedule = {units:[unit], timezone:'Asia/Makassar', attendanceMode:'DAILY_ONLY', manualUnitCount:0, eventAllowsCheckin:true};
       window.__paired = false; window.__posts = []; window.__selfPosts = []; window.__issued = []; window.__expireNextScan = false;
+      window.__testPosts = []; window.__testIssued = []; window.__summaryReads = 0;
+      const testToken = 'rqr_'+ 'a'.repeat(60)+'.'+'b'.repeat(43);
+      const rehearsal = {mode:'REHEARSAL',eventId,attendanceUnit:unit,liveReady:false,
+        blockers:[{code:'UNIT_WINDOW',message:'Absensi resmi di luar jadwal.'},{code:'TEST_QR',message:'QR contoh tidak berlaku untuk presensi resmi.'}],recorded:false};
       if (location.search.includes('fixture=committee')) sessionStorage.setItem('fixture-role','CHECKIN_OFFICER');
       if (location.search.includes('fixture=anonymous')) sessionStorage.removeItem('fixture-role');
       const imageForQr = (svg) => new Promise((resolve,reject) => { const img=new Image(); img.onload=()=>resolve(img); img.onerror=reject;
@@ -69,6 +74,9 @@ const fixture = { name: 'daurah-kiosk-fixture', configureServer(server) {
         if (pathname.endsWith('/committee/context')) return reply({assignments:[{id:'task-one',eventId,eventName:'Daurah Coba Asatidz',
           eventCode:'DC-27',eventSlug:'daurah-coba',eventStatus:'ONGOING',committeeRole:'CHECKIN_OFFICER',effectivePermissions:['attendance.read','attendance.record']}]});
         if (pathname.endsWith('/sessions/active')) return reply(schedule);
+        if (pathname.includes('/checkin/rehearsal/qr')) { window.__testIssued.push(JSON.parse(options.body)); return reply({...rehearsal,qrToken:testToken,expiresAt:'2099-01-01T00:00:00Z'}); }
+        if (pathname.includes('/checkin/rehearsal')) { window.__testPosts.push(JSON.parse(options.body)); return reply({...rehearsal,status:'TEST_SUCCESS',synthetic:JSON.parse(options.body).qrTokenOrCode.startsWith('rqr_'),checkedAt:checkinAt}); }
+        if (pathname.endsWith('/checkin/logs')) return reply([]);
         if (pathname.endsWith('/location-qr')) { window.__issued.push(JSON.parse(options.body)); return reply({
           eventId,dayId,sessionId:null,rawToken:'${locationToken}',validForMs:30000,
         }); }
@@ -87,7 +95,9 @@ const fixture = { name: 'daurah-kiosk-fixture', configureServer(server) {
         if (!window.__paired) return reply(null,401);
         if (pathname.endsWith('/session')) return reply({device:{id:'device-one',label:'Meja utama',deviceExpiresAt:'2027-12-01T00:00:00Z'},event:{slug:'daurah-coba',code:'DC-27',name:'Daurah Coba Asatidz'}});
         if (pathname.endsWith('/units')) return reply(schedule);
-        if (pathname.endsWith('/summary')) return reply({unitId:unit.id,total:30,present:12,excused:1,absent:17});
+        if (pathname.endsWith('/rehearsal-qr')) { window.__testIssued.push(JSON.parse(options.body)); return reply({...rehearsal,qrToken:testToken,expiresAt:'2099-01-01T00:00:00Z'}); }
+        if (pathname.endsWith('/rehearsal')) { window.__testPosts.push(JSON.parse(options.body)); await new Promise(resolve=>setTimeout(resolve,250)); return reply({...rehearsal,status:'TEST_SUCCESS',synthetic:JSON.parse(options.body).qrToken.startsWith('rqr_'),checkedAt:checkinAt,participant:{ustadzName:'Nama pribadi rahasia'}}); }
+        if (pathname.endsWith('/summary')) {window.__summaryReads++; return reply({unitId:unit.id,total:30,present:12,excused:1,absent:17});}
         if (pathname.endsWith('/checkin')) { window.__posts.push(JSON.parse(options.body)); return reply({
           participant:{ustadzName:'Ustadz Ahmad'},attendanceUnit:unit,attendanceStatus:'PRESENT',checkinAt,
         }); }
@@ -164,6 +174,62 @@ try {
 
   await evaluate(`window.__paired=false; document.dispatchEvent(new Event('visibilitychange'));`);
   await waitFor(`document.body.textContent.includes('Kiosk belum aktif')`, 'kiosk did not lock after revocation');
+  await send('Page.navigate', {url: `${origin}/check-in/daurah-coba?mode=test&closed=1#pair=kpair_fixture`});
+  await waitFor(`!!document.querySelector('.attendance-test-tools')`, 'pre-event test tools did not load');
+  assert.match(await evaluate(`document.querySelector('.attendance-test-mode__notice').textContent`), /Tidak mencatat kehadiran/);
+  assert.equal(await evaluate(`document.querySelector('#kiosk-qr-input').disabled`), false, 'closed-time rehearsal allows scanner input');
+  assert.equal(await evaluate(`window.__summaryReads`), 0, 'rehearsal does not poll attendance counters');
+  await click('Buat QR uji');
+  await waitFor(`!!document.querySelector('.attendance-test-tools__sample svg')`, 'synthetic QR not rendered');
+  const testSvg = await evaluate(`new XMLSerializer().serializeToString(document.querySelector('.attendance-test-tools__sample svg'))`);
+  const testQr = await evaluate(`window.__decodeQr(${JSON.stringify(testSvg)})`);
+  assert.match(testQr, /^rqr_/);
+  assert.deepEqual(await evaluate(`window.__testIssued`), [{dayId}]);
+  const savedExample = await evaluate(`(async()=>{
+    const original=HTMLAnchorElement.prototype.click; let saved;
+    HTMLAnchorElement.prototype.click=function(){saved={url:this.href,name:this.download}};
+    try {
+      [...document.querySelectorAll('button')].find(button=>button.textContent.includes('Simpan QR uji')).click();
+      return {name:saved.name,svg:await (await fetch(saved.url)).text()};
+    } finally {HTMLAnchorElement.prototype.click=original;}
+  })()`);
+  assert.match(savedExample.name,/QR-UJI-bukan-presensi/);
+  assert.match(savedExample.svg,/>QR UJI</); assert.match(savedExample.svg,/>BUKAN PRESENSI</);
+  assert.match(savedExample.svg,/>Hari pertama</); assert.match(savedExample.svg,/>Tidak berlaku untuk absensi resmi</);
+  await evaluate(`window.__fakeCamera(${JSON.stringify(testSvg)})`);
+  await click('Aktifkan kamera');
+  await waitFor(`window.__testPosts.length === 1`, 'camera did not decode example QR');
+  assert.equal(await evaluate(`document.querySelector('.attendance-test-mode__controls button').disabled`), true, 'mode is locked while request is running');
+  await waitFor(`!!document.querySelector('.attendance-test-result')`, 'rehearsal result not shown');
+  assert.match(await evaluate(`document.querySelector('.attendance-test-result').textContent`), /QR terbaca · uji berhasil/);
+  assert.equal(await evaluate(`document.body.textContent.includes('Hadir tercatat') || document.body.textContent.includes('Nama pribadi rahasia')`), false);
+  assert.deepEqual(await evaluate(`window.__posts`), [], 'rehearsal never calls official check-in');
+  assert.deepEqual(await evaluate(`window.__testPosts[0]`), {qrToken:testQr,sessionId:null,dayId});
+  for (const width of [320,375,414,768]) {
+    await send('Emulation.setDeviceMetricsOverride',{width,height:850,deviceScaleFactor:1,mobile:width<768});
+    assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth`),true,`rehearsal overflow at ${width}px`);
+  }
+  await send('Emulation.setDeviceMetricsOverride',{width:375,height:850,deviceScaleFactor:1,mobile:true});
+  const rehearsalShot = await send('Page.captureScreenshot',{format:'png',captureBeyondViewport:true});
+  const rehearsalTarget=path.join(os.tmpdir(),'daurah-kiosk-rehearsal-375.png'); await writeFile(rehearsalTarget,Buffer.from(rehearsalShot.data,'base64')); screenshots.push(rehearsalTarget);
+  await click('Absensi resmi');
+  await waitFor(`!document.querySelector('.attendance-test-result')`, 'rehearsal result remained in official mode');
+  assert.equal(await evaluate(`document.querySelector('#kiosk-qr-input').value`),'','switching mode clears the last QR');
+  assert.equal(await evaluate(`document.querySelector('#kiosk-qr-input').disabled`),true,'official attendance stays blocked outside schedule');
+  await evaluate(`window.__unit.isOpen=true; document.dispatchEvent(new Event('visibilitychange'))`);
+  await waitFor(`!document.querySelector('#kiosk-qr-input').disabled`, 'official unit did not refresh');
+  await input('#kiosk-qr-input',testQr);
+  await evaluate(`document.querySelector('.kiosk-page__scanner-input').requestSubmit()`);
+  await waitFor(`document.body.textContent.includes('QR uji hanya untuk mode uji')`, 'example QR not rejected in live mode');
+  assert.deepEqual(await evaluate(`window.__posts`), [], 'synthetic QR never reaches official attendance endpoint');
+  await send('Page.navigate',{url:`${origin}/committee/check-in?fixture=committee&mode=test&closed=1`});
+  await waitFor(`!!document.querySelector('.attendance-test-tools') && !document.querySelector('.attendance-test-tools button').disabled`,'staff pre-event rehearsal unavailable');
+  await click('Buat QR uji'); await waitFor(`!!document.querySelector('.attendance-test-tools__sample svg')`,'staff example QR not rendered');
+  await click('Isi kolom uji'); await click('Uji QR');
+  await waitFor(`!!document.querySelector('.attendance-test-result')`,'staff rehearsal failed');
+  assert.deepEqual(await evaluate(`window.__posts`),[]);
+  assert.deepEqual(await evaluate(`window.__testPosts[0]`),{dayId,qrTokenOrCode:testQr});
+  assert.equal(await evaluate(`document.body.textContent.includes('Aktivitas terbaru')`),false,'staff test view does not present official logs');
   await send('Page.navigate', { url: `${origin}/committee/location-qr?fixture=committee` });
   await waitFor(`[...document.querySelectorAll('button')].some(button=>button.textContent.includes('Tampilkan QR')&&!button.disabled)`, 'QR Lokasi did not find the open unit');
   await click('Tampilkan QR');
@@ -209,7 +275,7 @@ try {
     assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`), true, `portal overflow at ${width}px`);
   }
   assert.deepEqual(failures, [], 'no browser runtime errors');
-  console.log(JSON.stringify({ result: 'PASS', flows: ['kiosk pairing and revocation', 'rendered QR, login and self check-in', 'expired QR after login requires a fresh scan', 'camera fallback'], widths: [320, 375, 414, 768, 1280, 1920], screenshots }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', flows: ['kiosk pairing and revocation', 'pre-event kiosk and staff rehearsal without presence writes', 'rendered example QR camera decoding', 'mode reset and synthetic QR live rejection', 'rendered QR, login and self check-in', 'expired QR after login requires a fresh scan', 'camera fallback'], widths: [320, 375, 414, 768, 1280, 1920], screenshots }, null, 2));
 } finally {
   socket?.close(); browser?.kill(); await server.close();
   if (!path.resolve(profile).startsWith(`${path.resolve(os.tmpdir())}${path.sep}`)) throw new Error('Unsafe temporary profile path');

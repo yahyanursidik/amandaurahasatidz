@@ -242,7 +242,11 @@ import {
 } from "./lib/services/portalService";
 import { updatePortalProfileService } from "./lib/services/portalProfileService";
 
-import { locationQrIssueSchema, processCheckinSchema, publicKioskCheckinSchema, queryCheckinLogsSchema, searchCheckinParticipantSchema, selfCheckinSchema } from "./lib/validations/attendanceValidation";
+import { attendanceRehearsalQrSchema, attendanceRehearsalScanSchema, locationQrIssueSchema, processCheckinSchema, publicKioskCheckinSchema, queryCheckinLogsSchema, searchCheckinParticipantSchema, selfCheckinSchema } from "./lib/validations/attendanceValidation";
+import {
+  issueAttendanceRehearsalQrService, processAttendanceRehearsalService,
+  issueKioskAttendanceRehearsalQrService, processKioskAttendanceRehearsalService,
+} from "./lib/services/attendanceRehearsalService";
 import {
   kioskCookieName, assertKioskWriteOrigin, createKioskPairingService, isKioskCookieShape,
   isKioskPairingToken,
@@ -288,7 +292,7 @@ import {
 
 import { sql } from "drizzle-orm";
 
-const publicGateRoute = /^\/gate\/events\/([a-z0-9-]+)\/(pair|session|units|checkin|summary)$/i;
+const publicGateRoute = /^\/gate\/events\/([a-z0-9-]+)\/(pair|session|units|checkin|summary|rehearsal|rehearsal-qr)$/i;
 const attendanceUuid = "[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}";
 const correctAttendanceRoute = new RegExp(`^/events/(${attendanceUuid})/attendance/(${attendanceUuid})/correct$`, "i");
 const locationQrRoute = new RegExp(`^/events/(${attendanceUuid})/(?:sessions/(${attendanceUuid})/)?location-qr(?:/(rotate))?$`, "i");
@@ -1808,6 +1812,28 @@ export const handler: Handler = async (event, _context) => {
         const response = buildSuccessResponse(await getGateAttendanceSummaryService(gateEvent.id, unitId), requestId);
         return { ...response, headers: { ...response.headers, ...noStore } };
       }
+      if (["rehearsal", "rehearsal-qr"].includes(gateAction) && method === "POST") {
+        assertKioskWriteOrigin(event.headers);
+        const limit = checkRateLimit(`kiosk_rehearsal_${kiosk.id}`, 60, 60_000);
+        if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak pengujian. Coba lagi sebentar.", requestId, 429);
+        const body = event.body ? JSON.parse(event.body) : {};
+        if (gateAction === "rehearsal-qr") {
+          const selection = validateRequestData(attendanceRehearsalQrSchema, body);
+          const response = buildSuccessResponse(await issueKioskAttendanceRehearsalQrService(gateEvent.id, cookies[cookieName], selection), requestId);
+          return { ...response, headers: { ...response.headers, ...noStore } };
+        }
+        if (!body || typeof body !== "object" || Array.isArray(body)) throw new ValidationError("Data pengujian QR tidak valid.");
+        const { qrToken, ...selection } = body;
+        if (typeof qrToken !== "string" || !/^(?:pqr|rqr)_[A-Za-z0-9_-]{20,}\.[A-Za-z0-9_-]{20,}$/.test(qrToken.trim()))
+          throw new ValidationError("Gunakan QR peserta atau QR contoh uji, bukan kode peserta.");
+        const input = validateRequestData(attendanceRehearsalScanSchema, { ...selection, qrTokenOrCode: qrToken });
+        const result = await processKioskAttendanceRehearsalService(gateEvent.id, cookies[cookieName], input.qrTokenOrCode, input);
+        // Kiosk acknowledgements never reveal participant identity, including in rehearsal.
+        const response = buildSuccessResponse({ mode: result.mode, status: result.status, synthetic: result.synthetic,
+          recorded: result.recorded, checkedAt: result.checkedAt, attendanceUnit: result.attendanceUnit,
+          liveReady: result.liveReady, blockers: result.blockers, notice: result.notice }, requestId);
+        return { ...response, headers: { ...response.headers, ...noStore } };
+      }
       if (gateAction === "checkin" && method === "POST") {
         assertKioskWriteOrigin(event.headers);
         const limit = checkRateLimit(`kiosk_checkin_${kiosk.id}`, 60, 60_000);
@@ -1838,12 +1864,31 @@ export const handler: Handler = async (event, _context) => {
       return buildSuccessResponse(result, requestId);
     }
 
+    const rehearsalMatch = path.match(new RegExp(`^/events/(${attendanceUuid})/checkin/rehearsal(/qr)?$`, "i"));
+    if (rehearsalMatch && method === "POST") {
+      const eventId = rehearsalMatch[1];
+      const session = requireAuth(userSession);
+      requirePermission(session, "attendance.record", eventId);
+      const limit = checkRateLimit(`staff_rehearsal_${session.userId}_${eventId}`, 60, 60_000);
+      if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak pengujian. Coba lagi sebentar.", requestId, 429);
+      const body = event.body ? JSON.parse(event.body) : {};
+      const result = rehearsalMatch[2]
+        ? await issueAttendanceRehearsalQrService(eventId, validateRequestData(attendanceRehearsalQrSchema, body))
+        : await (async () => {
+          const input = validateRequestData(attendanceRehearsalScanSchema, body);
+          return processAttendanceRehearsalService(eventId, input.qrTokenOrCode, input);
+        })();
+      const response = buildSuccessResponse(result, requestId);
+      return { ...response, headers: { ...response.headers, ...privateAttendanceHeaders } };
+    }
     const checkinExecMatch = path.match(/^\/events\/([a-f0-9-]+)\/checkin$/i);
     if (checkinExecMatch && method === "POST") {
       const eventId = checkinExecMatch[1];
       const session = requireAuth(userSession);
       requirePermission(session, "attendance.record", eventId);
       const body = event.body ? JSON.parse(event.body) : {};
+      if (body && typeof body === "object" && ("mode" in body || "testMode" in body || "rehearsal" in body))
+        throw new ValidationError("Pengujian harus melalui Uji scanner. Jalur absensi resmi tidak menerima penanda mode uji.");
       const validated = validateRequestData(processCheckinSchema, body);
       const result = await processOnSiteCheckinService(
         eventId,

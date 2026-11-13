@@ -8,6 +8,7 @@ import { parseCookies } from "../utils/cookie";
 import { createHmac, randomBytes, randomUUID, timingSafeEqual } from "node:crypto";
 import { verifyPassword } from "../utils/password";
 import { AppError, UnauthorizedError, ForbiddenError } from "../utils/errors";
+import { getAccessiblePortals, hasPortalAccess, PORTAL_LABELS, PORTAL_LOGIN_PATHS, type PortalCode } from "../../../../src/config/portalAccess";
 
 function isProductionRuntime() {
   return process.env.APP_ENV === "production" || process.env.CONTEXT === "production";
@@ -77,26 +78,10 @@ export function createSessionToken(
   };
 }
 
-const PORTAL_ROLES: Record<string, RoleCode[]> = {
-  admin: ["SUPER_ADMIN", "SYSTEM_ADMIN", "DATA_STEWARD", "REPORT_VIEWER", "EVENT_ADMIN", "COMMITTEE_ORGANIZER"],
-  committee: [
-    "SUPER_ADMIN",
-    "EVENT_ADMIN",
-    "COMMITTEE_ORGANIZER",
-    "COMMITTEE_ADMIN",
-    "COMMITTEE_LEAD",
-    "REGISTRATION_OFFICER",
-    "CHECKIN_OFFICER",
-    "INFORMATION_OFFICER",
-    "EVENT_VIEWER",
-  ],
-  ustadz: ["USTADZ"],
-};
-
 export async function authenticatePasswordService(
   email: string,
   password: string,
-  portal: "admin" | "committee" | "ustadz"
+  portal: PortalCode
 ): Promise<UserContext> {
   const normalizedEmail = email.trim().toLowerCase();
   if (!normalizedEmail.includes("@") || password.length < 8) {
@@ -134,12 +119,14 @@ export async function authenticatePasswordService(
     throw new UnauthorizedError("Email atau password tidak sesuai.");
   }
 
-  const allowedRoles = PORTAL_ROLES[portal] || [];
-  const now = Date.now();
-  if (!context.assignments.some((assignment) => allowedRoles.includes(assignment.roleCode)
-    && (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= now)
-    && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > now))) {
-    throw new ForbiddenError(`Akun ini tidak memiliki akses ke portal ${portal}.`);
+  if (!hasPortalAccess(portal, context.assignments)) {
+    // Only disclose a correction after the password has been verified. Public
+    // password recovery must not reveal roles based on an email address alone.
+    const recommendedPortal = getAccessiblePortals(context.assignments)[0];
+    throw new ForbiddenError(recommendedPortal
+      ? `Email dan password benar. Gunakan ${PORTAL_LABELS[recommendedPortal]} sesuai tugas akun ini.`
+      : "Akun belum memiliki peran aktif untuk portal ini. Hubungi admin untuk memeriksa masa tugas.",
+    recommendedPortal ? { recommendedPortal, loginPath: PORTAL_LOGIN_PATHS[recommendedPortal] } : undefined);
   }
 
   return context;

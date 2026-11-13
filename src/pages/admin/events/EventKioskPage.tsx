@@ -3,7 +3,7 @@
  */
 import React, { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { CheckCircle2, Copy, ExternalLink, LockKeyhole, MonitorUp, Plus, RefreshCw, ShieldOff } from "lucide-react";
+import { CheckCircle2, Copy, ExternalLink, FlaskConical, LockKeyhole, MonitorUp, Plus, RefreshCw, ShieldOff } from "lucide-react";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { EventWorkspaceNav } from "@/components/admin/events/EventWorkspaceNav";
 import { PageHeader } from "@/components/common/PageHeader";
@@ -85,6 +85,17 @@ export const EventKioskPage: React.FC = () => {
     {notice && <p role="status" className="mb-4 rounded-lg border border-emerald-200 bg-emerald-50 p-4 text-sm font-semibold text-emerald-900">{notice}</p>}
     {loading ? <p className="p-6 text-slate-600">Memuat perangkat kiosk…</p> : event && <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_19rem]">
       <div className="space-y-5">
+        <section className="rounded-xl border border-emerald-200 bg-emerald-50 p-5 sm:p-6" aria-labelledby="rehearsal-title">
+          <div className="flex items-start gap-3"><FlaskConical className="mt-1 h-6 w-6 shrink-0 text-emerald-800" aria-hidden="true" /><div>
+            <h2 id="rehearsal-title" className="text-xl font-black text-emerald-950">Uji scanner sebelum acara</h2>
+            <p className="mt-2 text-sm leading-6 text-emerald-950">Pilih hari atau sesi, buat QR contoh, lalu coba kamera atau pemindai USB. Bisa dilakukan di luar jadwal tanpa mencatat kehadiran, mengubah peserta, atau mengirim email.</p>
+          </div></div>
+          <div className="mt-4 flex flex-wrap gap-3">
+            <Link to={`/committee/check-in?eventId=${encodeURIComponent(id)}&mode=test`} className="inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-800 px-4 font-bold text-white hover:bg-emerald-900 active:bg-emerald-950 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"><FlaskConical className="h-5 w-5" aria-hidden="true" />Uji scanner panitia</Link>
+            <a href={event ? `/check-in/${event.slug}?mode=test` : undefined} target="_blank" rel="noopener noreferrer" className="inline-flex min-h-12 items-center justify-center gap-2 whitespace-nowrap rounded-lg border border-emerald-300 bg-white px-4 font-bold text-emerald-900 hover:bg-emerald-100 active:bg-emerald-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700"><ExternalLink className="h-5 w-5" aria-hidden="true" />Uji kiosk</a>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-emerald-900">Kiosk tetap perlu diaktifkan di perangkat tersebut. Hasil uji tidak masuk rekap atau rapor; QR contoh tidak berlaku untuk absensi resmi.</p>
+        </section>
         <section className="border border-slate-200 bg-white p-5 sm:p-6">
           <div className="flex items-start gap-3"><MonitorUp className="mt-1 h-6 w-6 text-emerald-800" /><div>
             <h2 className="text-xl font-black text-slate-900">Aktifkan perangkat di lokasi</h2>

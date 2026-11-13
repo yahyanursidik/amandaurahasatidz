@@ -3,7 +3,7 @@
  * enrichment: existing faceless library interior · nav: N9 Edge-aligned minimal · footer: Ft2 Inline rule
  * audience: admin, panitia, dan asatidz · use: masuk cepat ke ruang kerja sesuai peran
  */
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { authProvider } from "@/lib/refine/authProvider";
 import {
@@ -25,6 +25,7 @@ import {
 import { AppFooter } from "@/components/common/AppFooter";
 import { ENV } from "@/config/env";
 import { portalLoginReturnPath } from "@/lib/portalLoginReturn";
+import { portalLoginHint } from "@/lib/portalLoginHint";
 
 type PortalCode = "admin" | "committee" | "ustadz";
 
@@ -84,6 +85,8 @@ export const LoginPage: React.FC = () => {
   const [showPassword, setShowPassword] = useState(false);
   const [capsLockOn, setCapsLockOn] = useState(false);
   const [error, setError] = useState("");
+  const [loginHint, setLoginHint] = useState<ReturnType<typeof portalLoginHint>>(null);
+  const requestEpoch = useRef(0);
   const [isPending, setIsPending] = useState(false);
   const [activationOpen, setActivationOpen] = useState(false);
   const [activationEmail, setActivationEmail] = useState("");
@@ -97,14 +100,18 @@ export const LoginPage: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
 
   useEffect(() => {
+    requestEpoch.current += 1;
     window.scrollTo(0, 0);
-    const fromReceipt = portal === "ustadz" && typeof location.state?.prefillEmail === "string"
-      ? location.state.prefillEmail.trim().toLowerCase() : "";
+    const fromReceipt = typeof location.state?.prefillEmail === "string"
+      ? location.state.prefillEmail.trim().toLowerCase().slice(0, 254) : "";
     setEmail(fromReceipt);
     setPassword("");
     setShowPassword(false);
     setCapsLockOn(false);
     setError("");
+    setLoginHint(null);
+    setIsPending(false);
+    setActivationPending(false);
     setActivationOpen(Boolean(fromReceipt && location.state?.openActivation));
     setActivationStep("request");
     setActivationError("");
@@ -114,6 +121,7 @@ export const LoginPage: React.FC = () => {
     setActivationCode("");
     setNewPassword("");
     setConfirmPassword("");
+    return () => { requestEpoch.current += 1; };
   }, [portal, location.key]);
 
   useEffect(() => {
@@ -128,6 +136,7 @@ export const LoginPage: React.FC = () => {
   };
 
   const sendActivationCode = async (address: string) => {
+    const epoch = requestEpoch.current;
     const normalizedEmail = address.trim().toLowerCase();
     setActivationPending(true);
     setActivationError("");
@@ -139,18 +148,20 @@ export const LoginPage: React.FC = () => {
       });
       if (!response.ok) throw new Error(await readApiError(response));
       const payload = await response.json();
+      if (requestEpoch.current !== epoch) return;
       setChallengeToken(payload.data.challengeToken);
       setRequestedEmail(normalizedEmail);
       setActivationCode("");
       setActivationStep("complete");
     } catch (activationRequestError) {
+      if (requestEpoch.current !== epoch) return;
       setActivationError(
         activationRequestError instanceof Error
           ? activationRequestError.message
           : "Kode aktivasi gagal dikirim.",
       );
     } finally {
-      setActivationPending(false);
+      if (requestEpoch.current === epoch) setActivationPending(false);
     }
   };
 
@@ -166,6 +177,7 @@ export const LoginPage: React.FC = () => {
 
   const completeActivation = async (event: React.FormEvent) => {
     event.preventDefault();
+    const epoch = requestEpoch.current;
     setActivationError("");
     if (newPassword !== confirmPassword) {
       setActivationError("Konfirmasi password tidak sama. Ketik ulang password yang sama.");
@@ -185,8 +197,10 @@ export const LoginPage: React.FC = () => {
         }),
       });
       if (!response.ok) throw new Error(await readApiError(response));
+      if (requestEpoch.current !== epoch) return;
       setEmail(requestedEmail);
       const loginResult = await authProvider.login!({ email: requestedEmail, password: newPassword, portal });
+      if (requestEpoch.current !== epoch) return;
       setNewPassword("");
       setConfirmPassword("");
       setActivationCode("");
@@ -197,22 +211,26 @@ export const LoginPage: React.FC = () => {
       setPassword("");
       setActivationStep("success");
     } catch (activationCompleteError) {
+      if (requestEpoch.current !== epoch) return;
       setActivationError(
         activationCompleteError instanceof Error
           ? activationCompleteError.message
           : "Password baru gagal disimpan.",
       );
     } finally {
-      setActivationPending(false);
+      if (requestEpoch.current === epoch) setActivationPending(false);
     }
   };
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();
+    const epoch = requestEpoch.current;
     setError("");
+    setLoginHint(null);
     setIsPending(true);
     try {
       const result = await authProvider.login!({ email, password, portal });
+      if (requestEpoch.current !== epoch) return;
       if (result.success) {
         const destination = loginDestination(result.redirectTo);
         // A hard replace starts the protected workspace with a fresh Refine
@@ -222,10 +240,13 @@ export const LoginPage: React.FC = () => {
         return;
       }
       setError(result.error?.message || "Email atau password tidak sesuai.");
+      setLoginHint(portalLoginHint(result.error, portal));
     } catch (loginError) {
+      if (requestEpoch.current !== epoch) return;
       setError(loginError instanceof Error ? loginError.message : "Login tidak dapat diproses.");
+      setLoginHint(portalLoginHint(loginError, portal));
     } finally {
-      setIsPending(false);
+      if (requestEpoch.current === epoch) setIsPending(false);
     }
   };
 
@@ -309,7 +330,7 @@ export const LoginPage: React.FC = () => {
                     spellCheck={false}
                     placeholder="nama@email.id"
                     disabled={isPending}
-                    aria-invalid={Boolean(error) || undefined}
+                    aria-invalid={Boolean(error) && !loginHint || undefined}
                   />
                 </div>
               </div>
@@ -335,7 +356,7 @@ export const LoginPage: React.FC = () => {
                     onBlur={() => setCapsLockOn(false)}
                     placeholder="Masukkan password"
                     disabled={isPending}
-                    aria-invalid={Boolean(error) || undefined}
+                    aria-invalid={Boolean(error) && !loginHint || undefined}
                     aria-describedby={capsLockOn ? `${portal}-caps-lock` : undefined}
                   />
                   <button
@@ -365,6 +386,9 @@ export const LoginPage: React.FC = () => {
                   {error}
                 </div>
               )}
+              {loginHint && <Link to={loginHint.path} state={{ prefillEmail: email }} className="login-activation__toggle" data-login-portal-hint>
+                <span>Buka {loginHint.label}</span><ArrowRight aria-hidden="true" />
+              </Link>}
 
               <button
                 type="submit"
@@ -506,6 +530,10 @@ export const LoginPage: React.FC = () => {
                   )}
 
                   {activationError && <p role="alert" className="login-activation__error">{activationError}</p>}
+                  {activationError && portal === "admin" && <div className="login-activation__form">
+                    <p>Petugas absensi dan panitia masuk melalui Portal Panitia. Data panitia tidak otomatis memberi akses Admin.</p>
+                    <Link to="/login/committee" state={{ prefillEmail: activationEmail, openActivation: true }} className="login-activation__toggle"><span>Buka Portal Panitia</span><ArrowRight aria-hidden="true" /></Link>
+                  </div>}
                 </section>
               )}
             </div>

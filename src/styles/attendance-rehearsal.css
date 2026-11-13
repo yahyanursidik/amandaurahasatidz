@@ -1,0 +1,21 @@
+/* Hallmark · component: rehearsal controls · genre: modern-minimal · theme: existing emerald-slate */
+.attendance-test-mode, .attendance-test-tools, .attendance-test-result { min-width: 0; display: grid; gap: var(--space-event-sm); margin-block: var(--space-event-md); color: var(--color-event-ink); font-family: var(--font-event-body); }
+.attendance-test-mode__controls, .attendance-test-tools__actions { display: flex; flex-wrap: wrap; gap: var(--space-event-xs); }
+.attendance-test-mode button, .attendance-test-tools button { min-height: 2.75rem; display: inline-flex; align-items: center; justify-content: center; gap: var(--space-event-xs); max-width: 100%; padding: var(--space-event-xs) var(--space-event-sm); border: var(--rule-event) solid var(--color-event-muted); border-radius: var(--radius-event-control); background: var(--color-event-paper); color: var(--color-event-ink); font: inherit; font-size: var(--text-event-small); font-weight: 750; white-space: nowrap; }
+.attendance-test-mode button[aria-pressed=true] { background: var(--color-event-accent); color: var(--color-event-accent-ink); border-color: var(--color-event-accent); }
+.attendance-test-mode__notice, .attendance-test-result { border: var(--rule-event) solid var(--color-login-ustadz); border-radius: var(--radius-event-control); background: var(--color-login-ustadz-tint); color: var(--color-event-ink); padding: var(--space-event-md); }
+.attendance-test-mode p, .attendance-test-tools p, .attendance-test-result p { margin: 0; font-size: var(--text-event-small); line-height: 1.6; }
+.attendance-test-mode__hint { color: var(--color-event-muted); }
+.attendance-test-tools h2, .attendance-test-result h2 { margin: 0; display: flex; align-items: start; gap: var(--space-event-xs); font-size: var(--text-event-title); font-weight: 800; overflow-wrap: anywhere; }
+.attendance-test-result h2 svg { flex-shrink: 0; margin-top: .125rem; }
+.attendance-test-result h3 { font-size: var(--text-event-body); font-weight: 800; }
+.attendance-test-result ul { list-style: disc; padding-inline-start: var(--space-event-lg); font-size: var(--text-event-small); line-height: 1.7; }
+.attendance-test-tools__sample { min-width: 0; display: grid; justify-items: start; gap: var(--space-event-sm); }
+.attendance-test-tools__sample svg { max-width: 100%; height: auto; }
+.attendance-test-tools__sample > div { min-width: 0; max-width: 100%; }
+.attendance-test-tools__error { color: var(--color-login-error); }
+.attendance-test-mode button:focus-visible, .attendance-test-tools button:focus-visible { outline: 3px solid var(--color-event-focus); outline-offset: 3px; }
+.attendance-test-mode button:disabled, .attendance-test-tools button:disabled { opacity: .55; cursor: not-allowed; }
+@media (hover:hover) { .attendance-test-mode button:not(:disabled):hover, .attendance-test-tools button:not(:disabled):hover { background: var(--color-event-paper-muted); color: var(--color-event-ink); } }
+.attendance-test-mode button:not(:disabled):active, .attendance-test-tools button:not(:disabled):active { transform: translateY(1px); }
+@media (prefers-reduced-motion:reduce) { .attendance-test-mode button:not(:disabled):active, .attendance-test-tools button:not(:disabled):active { transform: none; } }
