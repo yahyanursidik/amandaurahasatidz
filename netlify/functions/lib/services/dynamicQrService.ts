@@ -1,71 +1,63 @@
-import { getDbClient } from "../db/client";
-import { checkinTokens, eventSessions, eventDays } from "../db/schema";
-import { eq, and } from "drizzle-orm";
+import { withTransaction } from "../db/transaction";
+import { checkinTokens } from "../db/schema";
+import { eq, and, gt, isNull } from "drizzle-orm";
 import { generateSecureToken } from "../utils/token";
-import { NotFoundError, ValidationError } from "../utils/errors";
+import { ConflictError, NotFoundError, ValidationError } from "../utils/errors";
+import { findAttendanceScheduleForEventRepository } from "../repositories/attendanceRepository";
+import { buildRequiredAttendanceUnits, CHECKIN_EVENT_STATUSES, findAttendanceUnit, isAttendanceWindowOpen,
+  type AttendanceMode, type AttendanceUnitSelection } from "./attendanceModel";
+import { createAuditLog } from "./auditService";
 
 export interface LocationQrInfo {
   tokenId: string;
   eventId: string;
-  sessionId: string;
+  dayId: string | null;
+  sessionId: string | null;
   rawToken: string;
   validFrom: Date;
   validUntil: Date;
   secondsRemaining: number;
+  validForMs: number;
 }
 
 export async function getOrGenerateLocationQrTokenService(
   eventId: string,
-  sessionId: string,
-  rotationSeconds = 30
+  selection: AttendanceUnitSelection,
+  actorUserId: string,
+  rotate = false,
+  requestId = "location-qr",
 ): Promise<LocationQrInfo> {
-  const db = getDbClient();
-  if (!Number.isInteger(rotationSeconds) || rotationSeconds < 5 || rotationSeconds > 120) {
-    throw new ValidationError("Masa berlaku QR lokasi harus 5–120 detik.");
-  }
-  const session = (await db.select({ id: eventSessions.id }).from(eventSessions)
-    .innerJoin(eventDays, eq(eventSessions.eventDayId, eventDays.id))
-    .where(and(eq(eventSessions.id, sessionId), eq(eventDays.eventId, eventId))).limit(1))[0];
-  if (!session) throw new NotFoundError("Sesi tidak termasuk dalam event ini.");
-
-  // A stored hash cannot reconstruct its bearer token. Issue fresh entropy rather
-  // than a fabricated token derived from the hash. Previous tokens expire normally.
-  const tokenGen = generateSecureToken("loc_qr");
-  const validFrom = new Date();
-  const validUntil = new Date(Date.now() + rotationSeconds * 1000);
-
-  const inserted = await db
-    .insert(checkinTokens)
-    .values({
-      eventId,
-      eventSessionId: sessionId,
-      tokenHash: tokenGen.tokenHash,
-      validFrom,
-      validUntil,
-      maxUses: null,
-    })
-    .returning();
-
-  return {
-    tokenId: inserted[0].id,
-    eventId,
-    sessionId,
-    rawToken: tokenGen.rawToken,
-    validFrom,
-    validUntil,
-    secondsRemaining: rotationSeconds,
-  };
-}
-
-export async function rotateLocationQrTokenService(eventId: string, sessionId: string, actorUserId?: string) {
-  const db = getDbClient();
-
-  // Revoke all active tokens for this session
-  await db
-    .update(checkinTokens)
-    .set({ revokedAt: new Date() })
-    .where(and(eq(checkinTokens.eventId, eventId), eq(checkinTokens.eventSessionId, sessionId)));
-
-  // Issue brand new token
-  return await getOrGenerateLocationQrTokenService(eventId, sessionId, 30);
+  const result = await withTransaction(async (tx) => {
+    const schedule = await findAttendanceScheduleForEventRepository(eventId, tx, true);
+    if (!schedule) throw new NotFoundError("Event tidak ditemukan.");
+    const { event } = schedule;
+    if (event.archivedAt || !CHECKIN_EVENT_STATUSES.includes(event.status)) {
+      throw new ConflictError("QR Lokasi tidak tersedia pada status event ini.");
+    }
+    const unit = findAttendanceUnit(buildRequiredAttendanceUnits(event.attendanceMode as AttendanceMode,
+      schedule.days, schedule.sessions, event.timezone), selection);
+    if (!unit) throw new NotFoundError("Hari atau sesi tidak termasuk dalam jadwal presensi event ini.");
+    const validFrom = new Date();
+    if (!unit.qrEnabled) throw new ValidationError("Unit ini menggunakan pencatatan manual; QR Lokasi tidak tersedia.");
+    if (!isAttendanceWindowOpen(unit, validFrom) || unit.endsAt <= validFrom) {
+      throw new ValidationError("Jendela check-in belum dibuka atau sudah ditutup.");
+    }
+    const validUntil = new Date(Math.min(validFrom.getTime() + 30_000, unit.endsAt.getTime()));
+    if (rotate) {
+      const unitScope = unit.sessionId ? eq(checkinTokens.eventSessionId, unit.sessionId)
+        : and(eq(checkinTokens.eventDayId, unit.dayId), isNull(checkinTokens.eventSessionId));
+      await tx.update(checkinTokens).set({ revokedAt: validFrom }).where(and(eq(checkinTokens.eventId, eventId),
+        unitScope, isNull(checkinTokens.revokedAt), gt(checkinTokens.validUntil, validFrom)));
+    }
+    const token = generateSecureToken("loc_qr");
+    const [inserted] = await tx.insert(checkinTokens).values({ eventId, eventDayId: unit.dayId,
+      eventSessionId: unit.sessionId, tokenHash: token.tokenHash, validFrom, validUntil, createdBy: actorUserId,
+    }).returning({ id: checkinTokens.id });
+    return { tokenId: inserted.id, eventId, dayId: unit.sessionId ? null : unit.dayId, sessionId: unit.sessionId,
+      rawToken: token.rawToken, validFrom, validUntil };
+  });
+  if (rotate) await createAuditLog({ actorUserId, action: "LOCATION_QR_ROTATED", resourceType: "CHECKIN_TOKEN",
+    resourceId: result.tokenId, eventId, afterData: { dayId: result.dayId, sessionId: result.sessionId }, requestId });
+  const validForMs = Math.max(0, result.validUntil.getTime() - Date.now());
+  return { ...result, validForMs, secondsRemaining: Math.ceil(validForMs / 1000) };
 }

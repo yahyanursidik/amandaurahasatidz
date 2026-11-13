@@ -3,7 +3,6 @@ import { events, eventDays, eventSessions, eventCommitteeAssignments, users } fr
 import { eq, ilike, and, or, isNull, count, desc, asc, inArray, sql, getTableColumns, ne } from "drizzle-orm";
 import { publicPosterUrl, publicProgramColumns } from "./eventReadProjections";
 import type { PublicProgramQuery } from "../validations/eventValidation";
-import { withTransaction } from "../db/transaction";
 import { assertRegistrationQuotaEdit } from "../services/registrationCapacity";
 
 export async function findEventCatalogRepository(query: { page: number; pageSize: number; search: string; status: string }, allowedEventIds: string[] | null = null) {
@@ -128,8 +127,7 @@ export async function findRegistrationEventRepository(id: string) {
   return event || null;
 }
 
-export async function findEventByIdRepository(id: string) {
-  const db = getDbClient();
+export async function findEventByIdRepository(id: string, db = getDbClient()) {
   const found = await db.select().from(events).where(eq(events.id, id)).limit(1);
   if (found.length === 0) return null;
 
@@ -236,21 +234,17 @@ export async function createEventRepository(data: typeof events.$inferInsert) {
   return created;
 }
 
-export async function updateEventRepository(id: string, data: Partial<typeof events.$inferInsert>) {
-  const db = getDbClient();
+/** The caller holds the event lock used by capacity and attendance writers. */
+export async function updateEventRepository(id: string, data: Partial<typeof events.$inferInsert>,
+  db: ReturnType<typeof getDbClient>, current: typeof events.$inferSelect) {
 
   // Strip status column to prevent arbitrary status mutation in PATCH update!
   const sanitizedData = { ...data };
   delete sanitizedData.status;
 
-  if (["capacity", "regularQuota", "invitationQuota"].some((key) => key in sanitizedData)) {
-    return withTransaction(async (tx) => {
-      const [current] = await tx.select().from(events).where(eq(events.id, id)).limit(1).for("update");
-      if (!current) return null;
-      await assertRegistrationQuotaEdit(tx, { ...current, ...sanitizedData });
-      const [updated] = await tx.update(events).set({ ...sanitizedData, updatedAt: new Date() }).where(eq(events.id, id)).returning();
-      return updated;
-    });
+  if ((["capacity", "regularQuota", "invitationQuota"] as const).some((key) =>
+    sanitizedData[key] !== undefined && sanitizedData[key] !== current[key])) {
+    await assertRegistrationQuotaEdit(db, { ...current, ...sanitizedData });
   }
 
   const updated = await db
@@ -262,8 +256,7 @@ export async function updateEventRepository(id: string, data: Partial<typeof eve
   return updated[0] || null;
 }
 
-export async function updateEventStatusRepository(id: string, newStatus: string) {
-  const db = getDbClient();
+export async function updateEventStatusRepository(id: string, newStatus: string, db = getDbClient()) {
   const updated = await db
     .update(events)
     .set({ status: newStatus, updatedAt: new Date() })
@@ -272,14 +265,12 @@ export async function updateEventStatusRepository(id: string, newStatus: string)
   return updated[0] || null;
 }
 
-export async function createEventDayRepository(data: typeof eventDays.$inferInsert) {
-  const db = getDbClient();
+export async function createEventDayRepository(data: typeof eventDays.$inferInsert, db = getDbClient()) {
   const created = await db.insert(eventDays).values(data).returning();
   return created[0];
 }
 
-export async function createEventSessionRepository(data: typeof eventSessions.$inferInsert) {
-  const db = getDbClient();
+export async function createEventSessionRepository(data: typeof eventSessions.$inferInsert, db = getDbClient()) {
   const created = await db.insert(eventSessions).values(data).returning();
   return created[0];
 }

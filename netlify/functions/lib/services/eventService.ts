@@ -25,6 +25,9 @@ import { eventDays, eventSessions, events } from "../db/schema";
 import { and, eq, isNull } from "drizzle-orm";
 import { normalizePhone } from "../utils/normalization";
 import type { PublicProgramQuery } from "../validations/eventValidation";
+import { withTransaction } from "../db/transaction";
+import { eventHasAttendanceRecords } from "../repositories/attendanceRepository";
+import { CHECKIN_EVENT_STATUSES, CLOSED_EVENT_STATUSES, buildRequiredAttendanceUnits, eventCalendarDate, type AttendanceMode } from "./attendanceModel";
 
 export async function getEventsService(search?: string, status?: string, allowedEventIds: string[] | null = null) {
   return await findEventsRepository(search, status, allowedEventIds);
@@ -48,12 +51,29 @@ export async function removeEventFromCatalogService(id: string, actorUserId: str
   return { id, status: archived.status, message: "Event diarsipkan dari katalog aktif. Riwayat peserta tetap tersimpan." };
 }
 
-export async function getEventByIdService(id: string) {
-  const event = await findEventByIdRepository(id);
+export async function getEventByIdService(id: string, db?: ReturnType<typeof getDbClient>) {
+  const event = await findEventByIdRepository(id, db);
   if (!event) {
     throw new NotFoundError(`Event Daurah dengan ID ${id} tidak ditemukan.`);
   }
   return event;
+}
+
+export async function getEventAttendanceSetupService(eventId: string) {
+  const db = getDbClient();
+  const [event, hasAttendanceRecords] = await Promise.all([getEventByIdService(eventId, db), eventHasAttendanceRecords(db, eventId)]);
+  const units = buildRequiredAttendanceUnits(event.attendanceMode as AttendanceMode, event.days, event.sessions, event.timezone);
+  const validWindows = units.every((unit) => unit.openAt < unit.endsAt);
+  const now = new Date();
+  return { ...event, attendanceSetup: {
+    hasAttendanceRecords,
+    scheduleClosed: Boolean(event.archivedAt) || CLOSED_EVENT_STATUSES.includes(event.status),
+    readyToStart: validWindows && units.length > 0 && (event.attendanceMode === "DAILY_ONLY" || units.some((unit) => unit.type === "SESSION")),
+    openOrFutureUnitCount: units.filter((unit) => unit.endsAt >= now).length,
+    qrUnitCount: units.filter((unit) => unit.qrEnabled && unit.openAt < unit.endsAt).length,
+    remainingQrUnitCount: units.filter((unit) => unit.qrEnabled && unit.openAt < unit.endsAt && unit.endsAt > now).length,
+    manualUnitCount: units.filter((unit) => !unit.qrEnabled).length,
+  } };
 }
 
 export async function getEventBySlugPublicService(slug: string) {
@@ -103,10 +123,36 @@ export async function getPublicGateEventService(slug: string) {
   const [event] = await getDbClient().select({ id: events.id, slug: events.slug, code: events.code,
     name: events.name, status: events.status })
     .from(events).where(and(eq(events.slug, slug), isNull(events.archivedAt))).limit(1);
-  if (!event || !["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING"].includes(event.status)) {
+  if (!event || !CHECKIN_EVENT_STATUSES.includes(event.status)) {
     throw new NotFoundError("Program gate tidak tersedia.");
   }
   return { id: event.id, slug: event.slug, code: event.code, name: event.name };
+}
+
+type EventDetail = Awaited<ReturnType<typeof getEventByIdService>>;
+type EventDb = ReturnType<typeof getDbClient>;
+
+/** Attendance transactions take a shared lock here before reading the plan. */
+async function withLockedEvent<T>(eventId: string, change: (tx: EventDb, event: EventDetail) => Promise<T>) {
+  return withTransaction(async (tx) => {
+    const [event] = await tx.select({ id: events.id }).from(events).where(eq(events.id, eventId)).limit(1).for("update");
+    if (!event) throw new NotFoundError("Event tidak ditemukan.");
+    return change(tx, await getEventByIdService(eventId, tx));
+  });
+}
+
+function assertScheduleEditable(event: EventDetail) {
+  if (event.archivedAt || CLOSED_EVENT_STATUSES.includes(event.status)) {
+    throw new ConflictError("Jadwal event yang selesai, dibatalkan, atau diarsipkan sudah dikunci.");
+  }
+}
+
+const asNullableDate = (value: unknown) => value ? (value instanceof Date ? value : new Date(String(value))) : null;
+
+function assertValidWindow(openAt: Date, closeAt: Date) {
+  if (Number.isNaN(openAt.getTime()) || Number.isNaN(closeAt.getTime()) || openAt >= closeAt) {
+    throw new ValidationError("Waktu pembukaan check-in harus lebih awal daripada penutupan, termasuk bila salah satu memakai jam bawaan.");
+  }
 }
 
 export async function getPublicEventsService(query: PublicProgramQuery) {
@@ -154,44 +200,58 @@ export async function createEventService(data: any, actorUserId: string, request
 }
 
 export async function updateEventService(id: string, data: any, actorUserId: string, requestId: string) {
-  const existing = await getEventByIdService(id);
-
   if (data.status) {
     throw new ValidationError(
       "Pengubahan status event tidak diizinkan via payload update biasa. Gunakan command transition resmi."
     );
   }
+  const { existing, updated } = await withLockedEvent(id, async (tx, existing) => {
+    if ((data.slug !== undefined && data.slug !== existing.slug) || (data.code !== undefined && data.code !== existing.code)) {
+      throw new ConflictError("Kode dan alamat event tidak dapat diubah setelah dibuat agar tautan publik dan kiosk tetap berlaku.");
+    }
+    const changesAttendance = (["attendanceMode", "attendanceConfirmationRequired", "timezone", "startDate", "endDate"] as const)
+      .some((key) => data[key] !== undefined && data[key] !== existing[key]);
+    if (changesAttendance) {
+      assertScheduleEditable(existing);
+      if (await eventHasAttendanceRecords(tx, id)) {
+        throw new ConflictError("Mode, zona waktu, tanggal, dan aturan konfirmasi dikunci setelah ada catatan presensi.");
+      }
+    }
 
-  const nextStartDate = data.startDate ?? existing.startDate;
-  const nextEndDate = data.endDate ?? existing.endDate;
-  if (nextStartDate > nextEndDate) {
-    throw new ValidationError("Tanggal mulai tidak boleh lebih lambat dari tanggal selesai.");
-  }
-  if ((nextStartDate !== existing.startDate || nextEndDate !== existing.endDate) &&
-    existing.days.some((day) => day.date < nextStartDate || day.date > nextEndDate)) {
-    throw new ValidationError("Rentang tanggal baru tidak mencakup semua hari kegiatan. Sesuaikan jadwal hari terlebih dahulu.");
-  }
-  if (data.timezone && data.timezone !== existing.timezone && existing.sessions.length > 0) {
-    throw new ValidationError("Zona waktu tidak dapat diubah setelah sesi dibuat. Sesuaikan jadwal sesi terlebih dahulu.");
-  }
-  validateEventDeadlines({ ...existing, ...data });
-  assertValidQuotaAllocation({ ...existing, ...data });
-  if ((["capacity", "regularQuota", "invitationQuota"] as const).some((key) => data[key] !== undefined && data[key] !== existing[key])) {
-    const [regular, invitation, total] = await Promise.all([
-      countApprovedParticipantsBySourceRepository(id, true),
-      countApprovedParticipantsBySourceRepository(id, false),
-      countApprovedParticipantsForEventRepository(id),
-    ]);
-    assertQuotaCoversApproved({ ...existing, ...data }, { regular, invitation, total });
-  }
+    const nextStartDate = data.startDate ?? existing.startDate;
+    const nextEndDate = data.endDate ?? existing.endDate;
+    if (nextStartDate > nextEndDate) {
+      throw new ValidationError("Tanggal mulai tidak boleh lebih lambat dari tanggal selesai.");
+    }
+    if ((nextStartDate !== existing.startDate || nextEndDate !== existing.endDate) &&
+      existing.days.some((day) => day.date < nextStartDate || day.date > nextEndDate)) {
+      throw new ValidationError("Rentang tanggal baru tidak mencakup semua hari kegiatan. Sesuaikan jadwal hari terlebih dahulu.");
+    }
+    if (data.timezone && data.timezone !== existing.timezone && (existing.sessions.length > 0 ||
+      existing.days.some((day) => day.checkinOpenAt || day.checkinCloseAt))) {
+      throw new ValidationError("Zona waktu tidak dapat diubah setelah sesi atau jam check-in harian diatur.");
+    }
+    validateEventDeadlines({ ...existing, ...data });
+    assertValidQuotaAllocation({ ...existing, ...data });
+    if ((["capacity", "regularQuota", "invitationQuota"] as const).some((key) => data[key] !== undefined && data[key] !== existing[key])) {
+      const [regular, invitation, total] = await Promise.all([
+        countApprovedParticipantsBySourceRepository(id, true),
+        countApprovedParticipantsBySourceRepository(id, false),
+        countApprovedParticipantsForEventRepository(id),
+      ]);
+      assertQuotaCoversApproved({ ...existing, ...data }, { regular, invitation, total });
+    }
 
-  const updated = await updateEventRepository(id, {
-    ...data,
-    ...(data.publicContactWhatsapp !== undefined && { publicContactWhatsapp: normalizePhone(data.publicContactWhatsapp) }),
-    ...(data.registrationOpenAt !== undefined && { registrationOpenAt: data.registrationOpenAt ? new Date(data.registrationOpenAt) : null }),
-    ...(data.registrationCloseAt !== undefined && { registrationCloseAt: data.registrationCloseAt ? new Date(data.registrationCloseAt) : null }),
-    ...(data.invitationResponseDeadline !== undefined && { invitationResponseDeadline: data.invitationResponseDeadline ? new Date(data.invitationResponseDeadline) : null }),
-    ...(data.attendanceConfirmationDeadline !== undefined && { attendanceConfirmationDeadline: data.attendanceConfirmationDeadline ? new Date(data.attendanceConfirmationDeadline) : null }),
+    const updated = await updateEventRepository(id, {
+      ...data,
+      ...(data.publicContactWhatsapp !== undefined && { publicContactWhatsapp: normalizePhone(data.publicContactWhatsapp) }),
+      ...(data.registrationOpenAt !== undefined && { registrationOpenAt: asNullableDate(data.registrationOpenAt) }),
+      ...(data.registrationCloseAt !== undefined && { registrationCloseAt: asNullableDate(data.registrationCloseAt) }),
+      ...(data.invitationResponseDeadline !== undefined && { invitationResponseDeadline: asNullableDate(data.invitationResponseDeadline) }),
+      ...(data.attendanceConfirmationDeadline !== undefined && { attendanceConfirmationDeadline: asNullableDate(data.attendanceConfirmationDeadline) }),
+    }, tx, existing);
+    if (!updated) throw new NotFoundError("Event tidak ditemukan.");
+    return { existing, updated };
   });
 
   await createAuditLog({
@@ -213,20 +273,37 @@ export async function transitionEventStatusService(
   actorUserId: string,
   requestId: string
 ) {
-  const existing = await getEventByIdService(id);
-  const currentStatus = existing.status as EventStatus;
-
-  const nextStatus = getNextEventStatus(currentStatus, action);
-  if (action === "OPEN_REGISTRATION" && existing.registrationCloseAt && existing.registrationCloseAt <= new Date()) {
-    throw new ValidationError("Batas pendaftaran sudah lewat. Perbarui tanggal penutupan di pengaturan event sebelum membuka kembali.");
-  }
-  const updated = await updateEventStatusRepository(id, nextStatus);
+  const { currentStatus, nextStatus, updated } = await withLockedEvent(id, async (tx, existing) => {
+    const currentStatus = existing.status as EventStatus;
+    const nextStatus = getNextEventStatus(currentStatus, action);
+    if (action === "OPEN_REGISTRATION" && existing.registrationCloseAt && existing.registrationCloseAt <= new Date()) {
+      throw new ValidationError("Batas pendaftaran sudah lewat. Perbarui tanggal penutupan di pengaturan event sebelum membuka kembali.");
+    }
+    if (action === "START_EVENT") {
+      const mode = existing.attendanceMode as AttendanceMode;
+      const units = buildRequiredAttendanceUnits(mode, existing.days, existing.sessions, existing.timezone);
+      if (!units.length || mode !== "DAILY_ONLY" && !units.some((unit) => unit.type === "SESSION")) {
+        throw new ValidationError("Lengkapi hari dan sesi wajib di Jadwal sebelum memulai, atau pilih mode Harian saja bila tanpa sesi wajib.");
+      }
+      for (const unit of units) assertValidWindow(unit.openAt, unit.endsAt);
+    }
+    if (action === "COMPLETE_EVENT") {
+      const units = buildRequiredAttendanceUnits(existing.attendanceMode as AttendanceMode, existing.days, existing.sessions, existing.timezone);
+      if (units.some((unit) => unit.endsAt >= new Date())) {
+        throw new ValidationError("Masih ada hari atau sesi wajib yang belum ditutup. Periksa jadwal presensi sebelum menyelesaikan event.");
+      }
+    }
+    const updated = await updateEventStatusRepository(id, nextStatus, tx);
+    if (!updated) throw new NotFoundError("Event tidak ditemukan.");
+    return { currentStatus, nextStatus, updated };
+  });
 
   await createAuditLog({
     actorUserId,
     action: `EVENT_TRANSITION_${action}`,
     resourceType: "EVENT",
     resourceId: id,
+    eventId: id,
     beforeData: { status: currentStatus },
     afterData: { status: nextStatus },
     reason: `Status event diubah dari ${currentStatus} ke ${nextStatus} via command ${action}.`,
@@ -237,30 +314,17 @@ export async function transitionEventStatusService(
 }
 
 export async function addEventDayService(eventId: string, data: any, actorUserId: string, requestId: string) {
-  const event = await getEventByIdService(eventId);
-
-  if (data.date < event.startDate || data.date > event.endDate) {
-    throw new ValidationError("Tanggal hari kegiatan harus berada dalam rentang tanggal event.");
-  }
-  const orderedDays = [...event.days, { dayNumber: data.dayNumber, date: data.date }]
-    .sort((a, b) => a.dayNumber - b.dayNumber);
-  if (orderedDays.some((day, index) => index > 0 && day.date <= orderedDays[index - 1].date)) {
-    throw new ValidationError(
-      "Nomor hari harus mengikuti urutan tanggal kegiatan. Tanggal berjeda tetap diperbolehkan.",
-    );
-  }
-
-  if (data.checkinOpenAt && data.checkinCloseAt) {
-    if (new Date(data.checkinOpenAt) >= new Date(data.checkinCloseAt)) {
-      throw new ValidationError("Waktu pembukaan check-in harus lebih awal daripada waktu penutupan.");
+  const created = await withLockedEvent(eventId, async (tx, event) => {
+    assertScheduleEditable(event);
+    if (await eventHasAttendanceRecords(tx, eventId)) {
+      throw new ConflictError("Hari kegiatan tidak dapat ditambahkan setelah presensi tercatat.");
     }
-  }
-
-  const created = await createEventDayRepository({
-    ...data,
-    eventId,
-    checkinOpenAt: data.checkinOpenAt ? new Date(data.checkinOpenAt) : null,
-    checkinCloseAt: data.checkinCloseAt ? new Date(data.checkinCloseAt) : null,
+    const next = { ...data, eventId, checkinOpenAt: asNullableDate(data.checkinOpenAt), checkinCloseAt: asNullableDate(data.checkinCloseAt) };
+    assertDayWithinEvent(event, next.date);
+    assertDayOrder([...event.days, next]);
+    const [unit] = buildRequiredAttendanceUnits("DAILY_ONLY", [{ ...next, id: "new-day" }], [], event.timezone);
+    assertValidWindow(unit.openAt, unit.endsAt);
+    return createEventDayRepository(next, tx);
   });
 
   await createAuditLog({
@@ -276,79 +340,79 @@ export async function addEventDayService(eventId: string, data: any, actorUserId
   return created;
 }
 
-export async function updateEventDayService(eventId: string, dayId: string, input: Record<string, unknown>, actorUserId: string, requestId: string) {
-  const event = await getEventByIdService(eventId);
-  const existing = event.days.find((day) => day.id === dayId);
-  if (!existing) throw new NotFoundError("Hari kegiatan tidak ditemukan pada event ini.");
-  if (["COMPLETED", "CANCELLED", "ARCHIVED"].includes(event.status)) {
-    throw new ValidationError("Hari kegiatan pada event yang selesai atau tidak aktif tidak dapat diubah.");
-  }
-  const nextDate = String(input.date ?? existing.date);
-  const nextNumber = Number(input.dayNumber ?? existing.dayNumber);
-  if (event.status === "ONGOING" && (nextDate !== existing.date || nextNumber !== existing.dayNumber)) {
-    throw new ValidationError("Tanggal dan nomor hari tidak dapat digeser saat event berlangsung.");
-  }
-  if (nextDate < event.startDate || nextDate > event.endDate) {
-    throw new ValidationError("Tanggal hari kegiatan harus berada dalam rentang tanggal event.");
-  }
-  if (nextDate !== existing.date && event.sessions.some((session) => session.eventDayId === dayId)) {
-    throw new ValidationError("Tanggal hari yang sudah memiliki sesi tidak dapat diubah. Sesuaikan sesi terlebih dahulu.");
-  }
-  const orderedDays = event.days.map((day) => day.id === dayId ? { ...day, date: nextDate, dayNumber: nextNumber } : day)
-    .sort((a, b) => a.dayNumber - b.dayNumber);
-  if (orderedDays.some((day, index) => index > 0 && (day.dayNumber === orderedDays[index - 1].dayNumber || day.date <= orderedDays[index - 1].date))) {
+function assertDayWithinEvent(event: EventDetail, date: string) {
+  if (date < event.startDate || date > event.endDate) throw new ValidationError("Tanggal hari kegiatan harus berada dalam rentang tanggal event.");
+}
+
+function assertDayOrder(days: Array<{ dayNumber: number; date: string }>) {
+  const ordered = [...days].sort((a, b) => a.dayNumber - b.dayNumber);
+  if (ordered.some((day, index) => index > 0 && (day.dayNumber === ordered[index - 1].dayNumber || day.date <= ordered[index - 1].date))) {
     throw new ValidationError("Nomor hari dan tanggal harus unik serta berurutan. Tanggal berjeda diperbolehkan.");
   }
-  const open = input.checkinOpenAt === undefined ? existing.checkinOpenAt : input.checkinOpenAt;
-  const close = input.checkinCloseAt === undefined ? existing.checkinCloseAt : input.checkinCloseAt;
-  if ((open && Number.isNaN(new Date(String(open)).getTime())) || (close && Number.isNaN(new Date(String(close)).getTime())) ||
-    (open && close && new Date(String(open)) >= new Date(String(close)))) {
-    throw new ValidationError("Pembukaan check-in harian harus lebih awal daripada penutupannya.");
+}
+
+function sessionTiming(input: { startAt: unknown; endAt: unknown; checkinOpenAt?: unknown; checkinCloseAt?: unknown }, date: string, timezone: string) {
+  const startAt = asNullableDate(input.startAt);
+  const endAt = asNullableDate(input.endAt);
+  const checkinOpenAt = asNullableDate(input.checkinOpenAt);
+  const checkinCloseAt = asNullableDate(input.checkinCloseAt);
+  if (!startAt || !endAt || Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime()) ||
+    startAt >= endAt || eventCalendarDate(startAt, timezone) !== date || eventCalendarDate(endAt, timezone) !== date) {
+    throw new ValidationError("Jam sesi harus valid, berurutan, dan berada pada tanggal hari kegiatan dalam zona waktu event.");
   }
-  const db = getDbClient();
-  const [updated] = await db.update(eventDays).set({
-    ...input,
-    ...(input.checkinOpenAt !== undefined && { checkinOpenAt: input.checkinOpenAt ? new Date(String(input.checkinOpenAt)) : null }),
-    ...(input.checkinCloseAt !== undefined && { checkinCloseAt: input.checkinCloseAt ? new Date(String(input.checkinCloseAt)) : null }),
-    updatedAt: new Date(),
-  }).where(and(eq(eventDays.id, dayId), eq(eventDays.eventId, eventId))).returning();
-  if (!updated) throw new NotFoundError("Hari kegiatan tidak lagi tersedia. Segarkan halaman.");
+  assertValidWindow(checkinOpenAt || new Date(startAt.getTime() - 3_600_000), checkinCloseAt || new Date(endAt.getTime() + 3_600_000));
+  return { startAt, endAt, checkinOpenAt, checkinCloseAt };
+}
+
+const changedTime = (before: Date | null, after: Date | null) => before?.getTime() !== after?.getTime();
+
+export async function updateEventDayService(eventId: string, dayId: string, input: Record<string, unknown>, actorUserId: string, requestId: string) {
+  const { existing, updated } = await withLockedEvent(eventId, async (tx, event) => {
+    const existing = event.days.find((day) => day.id === dayId);
+    if (!existing) throw new NotFoundError("Hari kegiatan tidak ditemukan pada event ini.");
+    assertScheduleEditable(event);
+    const next = { ...existing, date: String(input.date ?? existing.date), dayNumber: Number(input.dayNumber ?? existing.dayNumber),
+      checkinOpenAt: input.checkinOpenAt === undefined ? existing.checkinOpenAt : asNullableDate(input.checkinOpenAt),
+      checkinCloseAt: input.checkinCloseAt === undefined ? existing.checkinCloseAt : asNullableDate(input.checkinCloseAt) };
+    const structureChanged = next.date !== existing.date || next.dayNumber !== existing.dayNumber;
+    if (event.status === "ONGOING" && structureChanged) {
+      throw new ValidationError("Tanggal dan nomor hari tidak dapat digeser saat event berlangsung.");
+    }
+    assertDayWithinEvent(event, next.date);
+    if (next.date !== existing.date && event.sessions.some((session) => session.eventDayId === dayId)) {
+      throw new ValidationError("Tanggal hari yang sudah memiliki sesi tidak dapat diubah. Sesuaikan sesi terlebih dahulu.");
+    }
+    assertDayOrder(event.days.map((day) => day.id === dayId ? next : day));
+    const [unit] = buildRequiredAttendanceUnits("DAILY_ONLY", [next], [], event.timezone);
+    assertValidWindow(unit.openAt, unit.endsAt);
+    const [oldUnit] = buildRequiredAttendanceUnits("DAILY_ONLY", [existing], [], event.timezone);
+    const closedWindowChanged = event.attendanceMode !== "SESSION_ONLY" && oldUnit.endsAt < new Date() &&
+      (changedTime(existing.checkinOpenAt, next.checkinOpenAt) || changedTime(existing.checkinCloseAt, next.checkinCloseAt));
+    if ((structureChanged || closedWindowChanged) && await eventHasAttendanceRecords(tx, eventId)) {
+      throw new ConflictError("Tanggal, urutan, atau jendela harian yang telah ditutup tidak dapat diubah setelah ada presensi.");
+    }
+    const [updated] = await tx.update(eventDays).set({ ...input, date: next.date, dayNumber: next.dayNumber,
+      checkinOpenAt: next.checkinOpenAt, checkinCloseAt: next.checkinCloseAt, updatedAt: new Date(),
+    }).where(and(eq(eventDays.id, dayId), eq(eventDays.eventId, eventId))).returning();
+    if (!updated) throw new NotFoundError("Hari kegiatan tidak lagi tersedia. Segarkan halaman.");
+    return { existing, updated };
+  });
   await createAuditLog({ actorUserId, action: "EVENT_DAY_UPDATED", resourceType: "EVENT_DAY", resourceId: dayId,
     eventId, beforeData: existing as any, afterData: updated as any, requestId });
   return updated;
 }
 
 export async function addEventSessionService(eventId: string, data: any, actorUserId: string, requestId: string) {
-  const event = await getEventByIdService(eventId);
-  const selectedDay = event.days.find((day) => day.id === data.eventDayId);
-  if (!selectedDay) {
-    throw new ValidationError("Hari yang dipilih tidak termasuk dalam event ini.");
-  }
-
-  const localDateKey = (value: string) => new Intl.DateTimeFormat("en-CA", { timeZone: event.timezone,
-    year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(value));
-  const startDateKey = localDateKey(data.startAt);
-  const endDateKey = localDateKey(data.endAt);
-  if (startDateKey !== selectedDay.date || endDateKey !== selectedDay.date) {
-    throw new ValidationError("Tanggal mulai dan selesai sesi harus sama dengan tanggal hari kegiatan.");
-  }
-
-  if (new Date(data.startAt) >= new Date(data.endAt)) {
-    throw new ValidationError("Jam mulai sesi harus lebih awal daripada jam selesai.");
-  }
-
-  if (data.checkinOpenAt && data.checkinCloseAt) {
-    if (new Date(data.checkinOpenAt) >= new Date(data.checkinCloseAt)) {
-      throw new ValidationError("Waktu pembukaan check-in sesi harus lebih awal daripada penutupan.");
+  const created = await withLockedEvent(eventId, async (tx, event) => {
+    assertScheduleEditable(event);
+    const day = event.days.find((item) => item.id === data.eventDayId);
+    if (!day) throw new ValidationError("Hari yang dipilih tidak termasuk dalam event ini.");
+    const attendanceRequired = data.attendanceRequired !== false;
+    if (event.attendanceMode !== "DAILY_ONLY" && attendanceRequired && await eventHasAttendanceRecords(tx, eventId)) {
+      throw new ConflictError("Sesi wajib baru akan mengubah rapor yang sudah tercatat. Tambahkan sebagai sesi opsional.");
     }
-  }
-
-  const created = await createEventSessionRepository({
-    ...data,
-    startAt: new Date(data.startAt),
-    endAt: new Date(data.endAt),
-    checkinOpenAt: data.checkinOpenAt ? new Date(data.checkinOpenAt) : null,
-    checkinCloseAt: data.checkinCloseAt ? new Date(data.checkinCloseAt) : null,
+    return createEventSessionRepository({ ...data, ...sessionTiming(data, day.date, event.timezone),
+      attendanceRequired, checkinRequired: attendanceRequired && data.checkinRequired !== false }, tx);
   });
 
   await createAuditLog({
@@ -365,37 +429,33 @@ export async function addEventSessionService(eventId: string, data: any, actorUs
 }
 
 export async function updateEventSessionService(eventId: string, sessionId: string, input: Record<string, unknown>, actorUserId: string, requestId: string) {
-  const event = await getEventByIdService(eventId);
-  const existing = event.sessions.find((session) => session.id === sessionId);
-  if (!existing) throw new NotFoundError("Sesi tidak ditemukan pada event ini.");
-  const day = event.days.find((item) => item.id === existing.eventDayId);
-  if (!day) throw new NotFoundError("Hari kegiatan sesi tidak ditemukan.");
-  const updated = { ...existing, ...input };
-  const start = new Date(String(updated.startAt));
-  const end = new Date(String(updated.endAt));
-  const dayKey = (value: Date) => new Intl.DateTimeFormat("en-CA", { timeZone: event.timezone,
-    year: "numeric", month: "2-digit", day: "2-digit" }).format(value);
-  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || dayKey(start) !== day.date || dayKey(end) !== day.date || start >= end) {
-    throw new ValidationError("Jam sesi harus valid, berurutan, dan berada pada hari kegiatan yang sama.");
-  }
-  const checkinOpen = updated.checkinOpenAt ? new Date(String(updated.checkinOpenAt)) : null;
-  const checkinClose = updated.checkinCloseAt ? new Date(String(updated.checkinCloseAt)) : null;
-  if ((checkinOpen && Number.isNaN(checkinOpen.getTime())) || (checkinClose && Number.isNaN(checkinClose.getTime())) ||
-    (checkinOpen && checkinClose && checkinOpen >= checkinClose)) {
-    throw new ValidationError("Pembukaan check-in sesi harus lebih awal daripada penutupannya.");
-  }
-  const db = getDbClient();
-  const rows = await db.update(eventSessions).set({
-    ...input,
-    ...(input.startAt !== undefined && { startAt: start }),
-    ...(input.endAt !== undefined && { endAt: end }),
-    ...(input.checkinOpenAt !== undefined && { checkinOpenAt: input.checkinOpenAt ? new Date(String(input.checkinOpenAt)) : null }),
-    ...(input.checkinCloseAt !== undefined && { checkinCloseAt: input.checkinCloseAt ? new Date(String(input.checkinCloseAt)) : null }),
-    updatedAt: new Date(),
-  }).where(eq(eventSessions.id, sessionId)).returning();
+  const { existing, updated } = await withLockedEvent(eventId, async (tx, event) => {
+    const existing = event.sessions.find((session) => session.id === sessionId);
+    if (!existing) throw new NotFoundError("Sesi tidak ditemukan pada event ini.");
+    assertScheduleEditable(event);
+    const day = event.days.find((item) => item.id === existing.eventDayId);
+    if (!day) throw new NotFoundError("Hari kegiatan sesi tidak ditemukan.");
+    const timing = sessionTiming({ ...existing, ...input }, day.date, event.timezone);
+    const attendanceRequired = Boolean(input.attendanceRequired ?? existing.attendanceRequired);
+    const checkinRequired = attendanceRequired && Boolean(input.checkinRequired ?? existing.checkinRequired);
+    const structureChanged = attendanceRequired !== existing.attendanceRequired || checkinRequired !== existing.checkinRequired ||
+      changedTime(existing.startAt, timing.startAt) || changedTime(existing.endAt, timing.endAt);
+    const oldClose = existing.checkinCloseAt || new Date(existing.endAt.getTime() + 3_600_000);
+    const closedWindowChanged = oldClose < new Date() && (changedTime(existing.checkinOpenAt, timing.checkinOpenAt) ||
+      changedTime(existing.checkinCloseAt, timing.checkinCloseAt));
+    if (event.attendanceMode !== "DAILY_ONLY" && (existing.attendanceRequired || attendanceRequired) &&
+      (structureChanged || closedWindowChanged) && await eventHasAttendanceRecords(tx, eventId)) {
+      throw new ConflictError("Jadwal sesi wajib, pengaturan QR, atau jendela yang telah ditutup dikunci setelah presensi tercatat.");
+    }
+    const [updated] = await tx.update(eventSessions).set({ ...input, ...timing, attendanceRequired, checkinRequired,
+      updatedAt: new Date(),
+    }).where(and(eq(eventSessions.id, sessionId), eq(eventSessions.eventDayId, day.id))).returning();
+    if (!updated) throw new NotFoundError("Sesi tidak ditemukan pada event ini.");
+    return { existing, updated };
+  });
   await createAuditLog({ actorUserId, action: "EVENT_SESSION_UPDATED", resourceType: "EVENT_SESSION",
-    resourceId: sessionId, eventId, beforeData: existing as any, afterData: rows[0] as any, requestId });
-  return rows[0];
+    resourceId: sessionId, eventId, beforeData: existing as any, afterData: updated as any, requestId });
+  return updated;
 }
 
 export async function assignEventCommitteeService(

@@ -5,25 +5,80 @@ import {
   eventDays,
   events,
   attendanceRecords,
+  checkinTokens,
   checkinLogs,
+  eventKioskDevices,
   eventParticipants,
   ustadzProfiles,
   institutions,
 } from "../db/schema";
-import { eq, and, desc, isNull, asc } from "drizzle-orm";
+import { eq, and, desc, isNull, asc, lte, gt, inArray, notInArray, or, sql, type SQL } from "drizzle-orm";
 import { assertParticipantEligibleForCheckin } from "../services/deadlineService";
+import {
+  ATTENDANCE_INACTIVE_CONFIRMATIONS, ATTENDED_STATUSES, CHECKIN_EVENT_STATUSES, EXCUSED_STATUSES, buildRequiredAttendanceUnits,
+  calculateLatenessMinutes, findAttendanceUnit, isAttendanceWindowOpen, toCheckinUnit,
+  type AttendanceMode, type AttendanceUnitSelection,
+} from "../services/attendanceModel";
+import { ConflictError, NotFoundError, UnauthorizedError, ValidationError } from "../utils/errors";
+import { portalProfileOwnership } from "./portalProfileRepository";
 
-export async function findAttendanceScheduleForEventRepository(eventId: string) {
-  const db = getDbClient();
-  const event = (await db
+export class DuplicateAttendanceError extends ConflictError {
+  constructor() { super("Peserta sudah memiliki catatan pada hari atau sesi ini."); }
+}
+
+export function attendanceEligibilityCondition(confirmationRequired: boolean | SQL) {
+  return and(eq(eventParticipants.approvalStatus, "APPROVED"),
+    notInArray(eventParticipants.confirmationStatus, ATTENDANCE_INACTIVE_CONFIRMATIONS),
+    confirmationRequired === false ? undefined : or(
+      eq(eventParticipants.confirmationStatus, "CONFIRMED"),
+      confirmationRequired === true ? undefined : sql`${confirmationRequired} is false`,
+    ))!;
+}
+
+export function attendanceRosterCondition(eventId: string, confirmationRequired: boolean) {
+  return and(eq(eventParticipants.eventId, eventId), attendanceEligibilityCondition(confirmationRequired))!;
+}
+
+/** Whole-event no-show is decided after completion, not while future units are still pending. */
+export function eventNoShowCondition(eventId?: string) {
+  return and(eventId ? eq(eventParticipants.eventId, eventId) : undefined, eq(events.status, "COMPLETED"),
+    attendanceEligibilityCondition(sql`${events.attendanceConfirmationRequired}`),
+    sql`exists (
+      select 1 from ${eventDays} d where d.event_id = ${events.id}
+        and (${events.attendanceMode} <> 'SESSION_ONLY' or exists (
+          select 1 from ${eventSessions} s where s.event_day_id = d.id and s.attendance_required
+        ))
+    )`,
+    sql`not exists (
+      select 1 from ${attendanceRecords} ar where ar.event_id = ${events.id}
+        and ar.participant_id = ${eventParticipants.id}
+        and ar.attendance_status in (${sql.join([...ATTENDED_STATUSES, ...EXCUSED_STATUSES].map((status) => sql`${status}`), sql`, `)})
+    )`,
+  )!;
+}
+
+export async function eventHasAttendanceRecords(db: ReturnType<typeof getDbClient>, eventId: string) {
+  const [record] = await db.select({ id: attendanceRecords.id }).from(attendanceRecords)
+    .where(eq(attendanceRecords.eventId, eventId)).limit(1);
+  return Boolean(record);
+}
+
+export async function findAttendanceScheduleForEventRepository(eventId: string, db = getDbClient(), lockEvent = false) {
+  const eventQuery = db
     .select({
       id: events.id,
       attendanceMode: events.attendanceMode,
       timezone: events.timezone,
+      status: events.status,
+      archivedAt: events.archivedAt,
+      attendanceConfirmationRequired: events.attendanceConfirmationRequired,
     })
     .from(events)
     .where(eq(events.id, eventId))
-    .limit(1))[0];
+    .limit(1);
+  // Schedule edits take an exclusive lock on the same event row. A scan can
+  // never record against a mode, session, or window that changed mid-request.
+  const [event] = await (lockEvent ? eventQuery.for("share") : eventQuery);
   if (!event) return null;
   const days = await db
     .select()
@@ -103,32 +158,80 @@ export async function recordCheckinLogRepository(data: {
   }).returning();
 }
 
-export async function recordAttendanceTransactionRepository(data: {
+export async function recordAttendanceTransactionRepository(data: AttendanceUnitSelection & {
   eventId: string;
-  dayId: string;
-  sessionId?: string | null;
-  participantId: string;
+  participantId?: string;
   method: string;
   attendanceStatus?: string;
   notes?: string | null;
   actorUserId?: string;
   requestId?: string;
   sourceDevice?: string;
+  expectedQrTokenVersion?: number;
+  locationTokenHash?: string;
 }) {
   return await withTransaction(async (tx) => {
+    const isSelfScan = data.method === "SELF_SCAN";
+    if (isSelfScan && (!data.actorUserId || !data.locationTokenHash)) {
+      throw new UnauthorizedError("Check-in mandiri memerlukan login dan QR Lokasi.");
+    }
+    if (!isSelfScan && !data.participantId) throw new ValidationError("Peserta belum dipilih.");
+    const schedule = await findAttendanceScheduleForEventRepository(data.eventId, tx, true);
+    if (!schedule) throw new NotFoundError("Event presensi tidak ditemukan.");
+    const { event } = schedule;
+    const manual = data.method === "MANUAL_MARK";
+    if (event.archivedAt || (!CHECKIN_EVENT_STATUSES.includes(event.status) && !(manual && event.status === "COMPLETED"))) {
+      throw new ConflictError("Presensi tidak dapat dicatat pada status event ini.");
+    }
+    const units = buildRequiredAttendanceUnits(event.attendanceMode as AttendanceMode, schedule.days, schedule.sessions, event.timezone);
+    const selected = Boolean(data.sessionId || data.dayId);
+    const nowAtSelection = new Date();
+    const openUnits = units.filter((unit) => unit.qrEnabled && isAttendanceWindowOpen(unit, nowAtSelection));
+    const unit = selected ? findAttendanceUnit(units, data) : !manual && openUnits.length === 1 ? openUnits[0] : undefined;
+    if (!unit) throw new ValidationError(selected ? "Hari atau sesi ini bukan unit presensi event tersebut."
+      : openUnits.length > 1 ? "Beberapa unit sedang dibuka. Pilih hari atau sesi terlebih dahulu."
+        : "Belum ada unit kehadiran yang sedang membuka check-in.");
+
     // Recheck while holding the participant row: a public "Berhalangan" response
     // cannot race a QR scan and leave an attendance record on a cancelled seat.
     const [participant] = await tx.select().from(eventParticipants)
-      .where(and(eq(eventParticipants.id, data.participantId), eq(eventParticipants.eventId, data.eventId)))
+      .where(and(eq(eventParticipants.eventId, data.eventId), isSelfScan
+        ? inArray(eventParticipants.ustadzId, tx.select({ id: ustadzProfiles.id }).from(ustadzProfiles)
+          .where(and(portalProfileOwnership(data.actorUserId!), isNull(ustadzProfiles.deletedAt), isNull(ustadzProfiles.mergedIntoId))))
+        : eq(eventParticipants.id, data.participantId!)))
       .limit(1).for("update");
-    const [event] = await tx.select({ attendanceConfirmationRequired: events.attendanceConfirmationRequired })
-      .from(events).where(eq(events.id, data.eventId)).limit(1);
-    if (!participant || !event) throw new Error("Peserta atau event tidak ditemukan saat presensi.");
+    if (!participant) throw new NotFoundError("Peserta tidak ditemukan pada event ini.");
     assertParticipantEligibleForCheckin(participant, event);
-    const unitCondition = data.sessionId
-      ? eq(attendanceRecords.eventSessionId, data.sessionId)
+    if (data.expectedQrTokenVersion !== undefined && participant.qrTokenVersion !== data.expectedQrTokenVersion) {
+      throw new ValidationError("Token QR peserta sudah dirotasi. Minta peserta membuka kartu terbaru.");
+    }
+    const now = new Date();
+    if (!manual && (!unit.qrEnabled || !isAttendanceWindowOpen(unit, now))) {
+      throw new ValidationError(unit.qrEnabled ? `Jendela check-in '${unit.title}' belum dibuka atau telah ditutup.`
+        : "Unit ini menggunakan pencatatan manual. Buka rapor peserta untuk mencatat.");
+    }
+    if (manual && now < unit.openAt) throw new ValidationError("Unit belum dimulai. Catat presensi setelah jendelanya dibuka.");
+
+    if (data.sourceDevice) {
+      const [device] = await tx.select({ expiresAt: eventKioskDevices.deviceExpiresAt }).from(eventKioskDevices)
+        .where(and(eq(eventKioskDevices.id, data.sourceDevice), eq(eventKioskDevices.eventId, data.eventId),
+          isNull(eventKioskDevices.revokedAt), gt(eventKioskDevices.deviceExpiresAt, now))).limit(1).for("share");
+      if (!device?.expiresAt || device.expiresAt <= new Date()) throw new UnauthorizedError("Perangkat kiosk tidak lagi aktif.");
+    }
+
+    if (data.locationTokenHash) {
+      const unitScope = unit.sessionId ? eq(checkinTokens.eventSessionId, unit.sessionId)
+        : and(eq(checkinTokens.eventDayId, unit.dayId), isNull(checkinTokens.eventSessionId));
+      const [token] = await tx.select({ validUntil: checkinTokens.validUntil }).from(checkinTokens).where(and(
+        eq(checkinTokens.eventId, data.eventId), unitScope, eq(checkinTokens.tokenHash, data.locationTokenHash),
+        isNull(checkinTokens.revokedAt), lte(checkinTokens.validFrom, now), gt(checkinTokens.validUntil, now),
+      )).limit(1).for("share");
+      if (!token || token.validUntil <= new Date()) throw new ValidationError("QR lokasi sudah kedaluwarsa atau tidak sesuai. Pindai QR terbaru di lokasi.");
+    }
+    const unitCondition = unit.sessionId
+      ? eq(attendanceRecords.eventSessionId, unit.sessionId)
       : and(
-          eq(attendanceRecords.eventDayId, data.dayId),
+          eq(attendanceRecords.eventDayId, unit.dayId),
           isNull(attendanceRecords.eventSessionId),
         );
     const existing = await tx
@@ -137,14 +240,14 @@ export async function recordAttendanceTransactionRepository(data: {
       .where(
         and(
           eq(attendanceRecords.eventId, data.eventId),
-          eq(attendanceRecords.participantId, data.participantId),
+          eq(attendanceRecords.participantId, participant.id),
           unitCondition,
         )
       )
       .limit(1);
 
     if (existing.length > 0) {
-      throw new Error("DUPLICATE: Peserta sudah memiliki catatan pada unit kehadiran ini.");
+      throw new DuplicateAttendanceError();
     }
 
     let inserted;
@@ -153,11 +256,11 @@ export async function recordAttendanceTransactionRepository(data: {
         .insert(attendanceRecords)
         .values({
           eventId: data.eventId,
-          eventDayId: data.dayId,
-          eventSessionId: data.sessionId || null,
-          participantId: data.participantId,
-          attendanceStatus: data.attendanceStatus || "PRESENT",
-          checkinAt: new Date(),
+          eventDayId: unit.dayId,
+          eventSessionId: unit.sessionId,
+          participantId: participant.id,
+          attendanceStatus: data.attendanceStatus || (unit.startsAt && calculateLatenessMinutes(now, unit.startsAt).isLate ? "LATE" : "PRESENT"),
+          checkinAt: now,
           checkinMethod: data.method,
           sourceDevice: data.sourceDevice || null,
           notes: data.notes || null,
@@ -165,8 +268,8 @@ export async function recordAttendanceTransactionRepository(data: {
         })
         .returning();
     } catch (error: any) {
-      if (error?.code === "23505" || error?.message?.includes("uniq_attendance_part_")) {
-        throw new Error("DUPLICATE: Peserta sudah memiliki catatan pada unit kehadiran ini.");
+      if (error?.code === "23505" || error?.cause?.code === "23505" || error?.message?.includes("uniq_attendance_part_")) {
+        throw new DuplicateAttendanceError();
       }
       throw error;
     }
@@ -174,28 +277,29 @@ export async function recordAttendanceTransactionRepository(data: {
     // 3. Log success
     await tx.insert(checkinLogs).values({
       eventId: data.eventId,
-      participantId: data.participantId,
-      eventSessionId: data.sessionId || null,
+      participantId: participant.id,
+      eventSessionId: unit.sessionId,
       method: data.method,
       result: "SUCCESS",
       scannedBy: data.actorUserId || null,
       requestId: data.requestId || null,
-      metadata: data.sourceDevice ? { kioskDeviceId: data.sourceDevice } : null,
+      metadata: { attendanceUnitId: unit.id, dayId: unit.dayId, ...(data.sourceDevice && { kioskDeviceId: data.sourceDevice }) },
     });
 
-    return inserted[0];
+    return { ...inserted[0], participantCode: participant.participantCode,
+      attendanceUnit: toCheckinUnit(unit, now, !manual), timezone: event.timezone };
   });
 }
 
-export async function recordCheckinTransactionRepository(data: {
+export async function recordCheckinTransactionRepository(data: AttendanceUnitSelection & {
   eventId: string;
-  dayId: string;
-  sessionId?: string | null;
-  participantId: string;
+  participantId?: string;
   method: string;
   actorUserId?: string;
   requestId?: string;
   sourceDevice?: string;
+  expectedQrTokenVersion?: number;
+  locationTokenHash?: string;
 }) {
   return recordAttendanceTransactionRepository(data);
 }
@@ -212,6 +316,7 @@ export async function getRecentCheckinLogsRepository(eventId: string, limitCount
       participantCode: eventParticipants.participantCode,
       ustadzName: ustadzProfiles.fullName,
       institutionName: institutions.name,
+      metadata: checkinLogs.metadata,
     })
     .from(checkinLogs)
     .leftJoin(eventParticipants, eq(checkinLogs.participantId, eventParticipants.id))

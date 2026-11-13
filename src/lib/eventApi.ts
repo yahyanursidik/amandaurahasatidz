@@ -1,5 +1,12 @@
 import { ENV } from "@/config/env";
 
+export class EventApiError extends Error {
+  constructor(message: string, public readonly status: number, public readonly code?: string) {
+    super(message);
+    this.name = "EventApiError";
+  }
+}
+
 export async function eventApiEnvelope<T, TMeta = unknown>(path: string, options?: RequestInit): Promise<{ data: T; meta?: TMeta }> {
   const response = await fetch(`${ENV.API_BASE_URL}${path}`, {
     ...options,
@@ -17,7 +24,7 @@ export async function eventApiEnvelope<T, TMeta = unknown>(path: string, options
 
   const result = await response.json();
   if (!response.ok) {
-    throw new Error(result.error?.message || "Permintaan tidak dapat diproses.");
+    throw new EventApiError(result.error?.message || "Permintaan tidak dapat diproses.", response.status, result.error?.code);
   }
   return result;
 }

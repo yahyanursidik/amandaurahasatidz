@@ -1,5 +1,13 @@
 [
   {
+    "date": "2026-11-13",
+    "scope": "app/check-in, committee/location-qr, committee/check-in, portal/attendance, attendance reports",
+    "macrostructure": "Workbench · in-place",
+    "theme": "existing emerald-slate",
+    "enrichment": "none",
+    "brief": "Separate public kiosk, staff scanner and participant self-check-in, with a legible action and status at each step"
+  },
+  {
     "date": "2026-11-11",
     "scope": "app/admin/events/invitations new and edit",
     "macrostructure": "Workbench (dedicated invitation editor)",
@@ -150,13 +158,5 @@
     "theme": "existing emerald-slate",
     "enrichment": "existing faceless library interior",
     "brief": "Role-specific login revamp, account recovery, and seamless portal return"
-  },
-  {
-    "date": "2026-09-28",
-    "scope": "app",
-    "macrostructure": "Narrative Workflow / Workbench",
-    "theme": "existing emerald-slate",
-    "enrichment": "existing faceless library interior",
-    "brief": "Mobile login, program landing, registration, and asatidz portal"
   }
 ]

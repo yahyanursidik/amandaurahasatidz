@@ -5,11 +5,12 @@ import { eventKioskDevices, events } from "../db/schema";
 import { createAuditLog } from "./auditService";
 import { ConflictError, ForbiddenError, NotFoundError, UnauthorizedError, ValidationError } from "../utils/errors";
 import { generateSecureToken, hashToken } from "../utils/token";
+import { getAttendanceCheckinUnitsService } from "./attendanceService";
+import { CHECKIN_EVENT_STATUSES } from "./attendanceModel";
 
 export const kioskCookieName = (slug: string) => `ada_kiosk_${slug}`;
 const PAIRING_MINUTES = 10;
 const DEVICE_DAYS = 7;
-const PUBLIC_STATUSES = ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING"];
 const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 function safeEqualHash(rawToken: string, expectedHash: string) {
@@ -64,7 +65,11 @@ export async function createKioskPairingService(eventId: string, label: string, 
   const [event] = await db.select({ id: events.id, slug: events.slug, status: events.status, archivedAt: events.archivedAt })
     .from(events).where(eq(events.id, eventId)).limit(1);
   if (!event || event.archivedAt) throw new NotFoundError("Event tidak ditemukan.");
-  if (!PUBLIC_STATUSES.includes(event.status)) throw new ValidationError("Terbitkan event sebelum mengaktifkan kiosk.");
+  if (!CHECKIN_EVENT_STATUSES.includes(event.status)) throw new ValidationError("Terbitkan event sebelum mengaktifkan kiosk.");
+  const schedule = await getAttendanceCheckinUnitsService(eventId);
+  if (!schedule.units.some((unit) => unit.openAt < unit.closeAt && unit.closeAt > new Date())) {
+    throw new ValidationError("Atur minimal satu hari atau sesi yang menerima QR di Jadwal sebelum mengaktifkan kiosk.");
+  }
   const token = generateSecureToken("kpair");
   const expiresAt = new Date(Date.now() + PAIRING_MINUTES * 60_000);
   const [device] = await db.insert(eventKioskDevices).values({

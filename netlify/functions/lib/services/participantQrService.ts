@@ -1,6 +1,6 @@
 import { getDbClient } from "../db/client";
 import { eventParticipants, ustadzProfiles, institutions, events } from "../db/schema";
-import { eq, and, ilike } from "drizzle-orm";
+import { eq, and, sql } from "drizzle-orm";
 import { signParticipantQrToken, verifyParticipantQrToken } from "../utils/token";
 import { NotFoundError, ValidationError, ForbiddenError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
@@ -90,7 +90,11 @@ export async function verifyQrTokenForCheckinService(
   const db = getDbClient();
 
   const normalizedInput = qrTokenOrCode.trim();
-  let participant = normalizedInput.startsWith("pqr_")
+  if (normalizedInput.startsWith("qr_tok_")) {
+    throw new ValidationError("Format QR lama sudah tidak berlaku. Muat ulang kartu peserta.");
+  }
+  const signedQr = normalizedInput.startsWith("pqr_");
+  let participant = signedQr
     ? []
     : await db
     .select({
@@ -109,12 +113,12 @@ export async function verifyQrTokenForCheckinService(
     .where(
       and(
         eq(eventParticipants.eventId, currentEventId),
-        ilike(eventParticipants.participantCode, normalizedInput),
+        sql`lower(${eventParticipants.participantCode}) = lower(${normalizedInput})`,
       ),
     )
     .limit(1);
 
-  if (normalizedInput.startsWith("pqr_")) {
+  if (signedQr) {
     const payload = verifyParticipantQrToken(normalizedInput);
     if (!payload) throw new ValidationError("Token QR peserta tidak valid atau telah dimodifikasi.");
     if (payload.eventId !== currentEventId) {
@@ -144,12 +148,10 @@ export async function verifyQrTokenForCheckinService(
     if (participant[0] && participant[0].qrTokenVersion !== payload.version) {
       throw new ValidationError("Token QR peserta sudah dirotasi dan tidak berlaku lagi.");
     }
-  } else if (normalizedInput.startsWith("qr_tok_")) {
-    throw new ValidationError("Format QR lama sudah tidak berlaku. Muat ulang kartu peserta.");
   }
 
   if (participant.length === 0) {
-    throw new NotFoundError(`Token QR atau Kode Peserta '${normalizedInput}' tidak dikenali.`);
+    throw new NotFoundError("QR atau kode peserta tidak dikenali pada event ini.");
   }
 
   const p = participant[0];
@@ -167,6 +169,7 @@ export async function verifyQrTokenForCheckinService(
 
   return {
     valid: true,
+    qrTokenVersion: signedQr ? p.qrTokenVersion : undefined,
     participant: {
       id: p.id,
       eventId: p.eventId,

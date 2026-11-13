@@ -35,6 +35,10 @@ import { ProfileEditor, type PortalProfile } from "@/components/portal/ProfileEd
 import { PortalGreeting } from "@/components/portal/PortalGreeting";
 import { choosePortalParticipationId, readPortalParticipationSelection, savePortalParticipationSelection } from "@/lib/portalParticipation";
 import { participantSourceLabel } from "@/lib/participantCatalog";
+import { LocationSelfCheckinPanel, type LocationCheckinResult } from "@/components/portal/LocationSelfCheckinPanel";
+import { parseLocationCheckinHash, type LocationCheckinTarget } from "@/lib/locationCheckin";
+import { attendanceLabels, checkinMethodLabels } from "@/lib/attendance";
+import { eventTimezoneLabel, formatEventDate, formatEventDateTime } from "@/lib/eventDateTime";
 
 type PortalTab =
   | "HOME"
@@ -68,6 +72,9 @@ type PortalAttendance = {
   checkinMethod?: string | null;
   sessionTitle?: string | null;
   sessionStartAt?: string | null;
+  dayTitle?: string | null;
+  dayNumber?: number | null;
+  dayDate?: string | null;
 };
 
 type PortalParticipation = {
@@ -88,6 +95,7 @@ type PortalParticipation = {
   eventName: string;
   eventSubtitle?: string | null;
   eventStatus: string;
+  timezone?: string;
   posterUrl?: string | null;
   posterAlt?: string | null;
   startDate: string;
@@ -331,19 +339,6 @@ const confirmationLabel: Record<string, string> = {
   REPLACED: "Diganti",
 };
 
-const attendanceLabel: Record<string, string> = {
-  PRESENT: "Hadir",
-  LATE: "Terlambat",
-  ABSENT: "Tidak hadir",
-  EXCUSED: "Berhalangan",
-};
-
-const checkinMethodLabel: Record<string, string> = {
-  QR: "Pindai QR",
-  MANUAL: "Kode peserta",
-  CODE: "Kode peserta",
-};
-
 const todayLocal = () => {
   const now = new Date();
   return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -353,6 +348,16 @@ export const ParticipantPortalPage: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const activeTab = tabByPath[location.pathname] || "HOME";
+  const [locationScan, setLocationScan] = useState<LocationCheckinTarget | null>(null);
+  const [invalidLocationScan, setInvalidLocationScan] = useState(false);
+  useEffect(() => {
+    if (activeTab !== "ATTENDANCE") { setLocationScan(null); setInvalidLocationScan(false); return; }
+    if (!location.hash) return;
+    const scan = parseLocationCheckinHash(location.hash);
+    setLocationScan(scan); setInvalidLocationScan(!scan);
+    // Remove the bearer from the address/history while retaining it in memory.
+    navigate(location.pathname, { replace: true, preventScrollReset: true });
+  }, [activeTab, location.hash, location.pathname, navigate]);
   const [overview, setOverview] = useState<PortalOverview | null>(null);
   const [announcements, setAnnouncements] = useState<PortalAnnouncement[]>([]);
   const [announcementError, setAnnouncementError] = useState("");
@@ -458,6 +463,25 @@ export const ParticipantPortalPage: React.FC = () => {
       null,
     [overview, selectedParticipantId],
   );
+  const checkinParticipations = useMemo(() => (overview?.participations || []).map((item) => ({
+    eventId: item.eventId, eventName: item.eventName,
+    eligible: item.approvalStatus === "APPROVED" && !["CANCELLED", "REPLACED"].includes(item.confirmationStatus) &&
+      (item.attendanceConfirmationRequired === false || item.confirmationStatus === "CONFIRMED") &&
+      ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING"].includes(item.eventStatus),
+  })), [overview]);
+  const selectLocationScan = (scan: LocationCheckinTarget | null) => {
+    setLocationScan(scan); setInvalidLocationScan(false);
+  };
+  const applyLocationCheckin = (eventId: string, result: LocationCheckinResult) => {
+    const participation = overview?.participations.find((item) => item.eventId === eventId);
+    if (participation) selectParticipation(participation.participantId);
+    setOverview((current) => current ? { ...current, participations: current.participations.map((item) => item.eventId !== eventId ? item : {
+      ...item, timezone: result.timezone, attendance: [{ id: result.attendanceRecordId, attendanceStatus: result.attendanceStatus,
+        checkinAt: result.checkinAt, checkinMethod: result.method, dayDate: result.attendanceUnit.date,
+        ...(result.attendanceUnit.type === "SESSION" ? { sessionTitle: result.attendanceUnit.title } : { dayTitle: result.attendanceUnit.title }),
+      }, ...item.attendance.filter((record) => record.id !== result.attendanceRecordId)],
+    }) } : current);
+  };
   const eventFinished = Boolean(selectedParticipation &&
     (selectedParticipation.endDate < todayLocal() || ["COMPLETED", "CANCELLED", "ARCHIVED"].includes(selectedParticipation.eventStatus)));
   const qrReady = selectedParticipation?.approvalStatus === "APPROVED" &&
@@ -751,6 +775,9 @@ export const ParticipantPortalPage: React.FC = () => {
       />
 
       <PortalGreeting fullName={overview.profile.fullName} activeTab={activeTab} />
+
+      {activeTab === "ATTENDANCE" && <LocationSelfCheckinPanel scan={locationScan} invalidScan={invalidLocationScan}
+        disabled={preview} onScan={selectLocationScan} onRecorded={applyLocationCheckin} participations={checkinParticipations} />}
 
       {announcementError && (activeTab === "HOME" || activeTab === "ANNOUNCEMENTS") && <div role="alert" className="mb-5 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
         <p><strong>Pengumuman belum dapat diperbarui.</strong> {announcementError}</p>
@@ -1332,14 +1359,16 @@ export const ParticipantPortalPage: React.FC = () => {
               >
                 <div>
                   <h2 className="font-black text-slate-950">
-                    {record.sessionTitle || "Presensi event"}
+                    {record.sessionTitle || record.dayTitle || (record.dayNumber ? `Kehadiran harian · Hari ${record.dayNumber}` : "Presensi event")}
                   </h2>
                   <p className="mt-1 text-sm text-slate-600">
-                    {formatDate(record.checkinAt, true)} · {record.checkinMethod ? checkinMethodLabel[record.checkinMethod] || record.checkinMethod : "Metode tidak dicatat"}
+                    {record.dayDate && `${formatEventDate(record.dayDate)} · `}
+                    {record.checkinAt ? `${formatEventDateTime(record.checkinAt, selectedParticipation.timezone || "Asia/Jakarta")} ${eventTimezoneLabel(selectedParticipation.timezone || "Asia/Jakarta")}` : "Jam tidak dicatat"}
+                    {record.checkinMethod && ` · ${checkinMethodLabels[record.checkinMethod] || record.checkinMethod}`}
                   </p>
                 </div>
                 <StatusBadge
-                  label={attendanceLabel[record.attendanceStatus] || record.attendanceStatus}
+                  label={attendanceLabels[record.attendanceStatus] || record.attendanceStatus}
                   variant={statusVariant(record.attendanceStatus)}
                 />
               </article>

@@ -6,7 +6,7 @@ const dayTwo = "00000000-0000-4000-8000-000000000103";
 const mock = vi.hoisted(() => ({
   event: {
     id: "00000000-0000-4000-8000-000000000101", status: "PUBLISHED",
-    startDate: "2026-11-07", endDate: "2026-11-09",
+    startDate: "2026-11-07", endDate: "2026-11-09", timezone: "Asia/Jakarta", attendanceMode: "DAILY_AND_SESSION",
     days: [
       { id: "00000000-0000-4000-8000-000000000102", dayNumber: 1, date: "2026-11-07", title: "Pembukaan", checkinOpenAt: null, checkinCloseAt: null },
       { id: "00000000-0000-4000-8000-000000000103", dayNumber: 2, date: "2026-11-09", title: "Penutupan", checkinOpenAt: null, checkinCloseAt: null },
@@ -19,11 +19,14 @@ const mock = vi.hoisted(() => ({
 vi.mock("../../netlify/functions/lib/repositories/eventRepository", () => ({
   findEventByIdRepository: async () => mock.event,
 }));
-vi.mock("../../netlify/functions/lib/db/client", () => ({
-  getDbClient: () => ({ update: () => ({ set: (values: unknown) => {
-    mock.update(values);
-    return { where: () => ({ returning: async () => [{ id: dayOne, ...values as object }] }) };
-  } }) }),
+vi.mock("../../netlify/functions/lib/db/transaction", () => ({
+  withTransaction: (fn: (tx: unknown) => unknown) => fn({
+    select: () => ({ from: () => ({ where: () => ({ limit: () => ({ for: async () => [mock.event] }) }) }) }),
+    update: () => ({ set: (values: unknown) => {
+      mock.update(values);
+      return { where: () => ({ returning: async () => [{ id: dayOne, ...values as object }] }) };
+    } }),
+  }),
 }));
 vi.mock("../../netlify/functions/lib/services/auditService", () => ({ createAuditLog: mock.audit }));
 

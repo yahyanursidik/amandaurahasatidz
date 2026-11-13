@@ -106,11 +106,14 @@ export const ADMIN_GUIDE_STAGES: GuideStage[] = [
     shortTitle: "Absensi QR",
     description: "Pilih unit yang benar, lalu catat kehadiran tiap orang.",
     steps: [
+      "Di Jadwal & sesi, tambahkan hanya tanggal kegiatan. Tandai sesi Wajib · scan QR, Wajib · catat manual, atau Opsional. Periksa jadwal sebelum memulai event.",
       "Di Kiosk QR, buat tautan aktivasi satu kali untuk perangkat di lokasi. Buka pada perangkat tersebut sebelum acara; aksesnya bisa dicabut.",
       "Pada perangkat kiosk, pilih hari atau sesi yang sedang dibuka lalu pindai QR pribadi setiap peserta. Kiosk tidak menampilkan daftar peserta atau menerima kode manual.",
-      "Jika QR tidak dapat dipakai, panitia yang login dapat memasukkan kode atau melakukan koreksi. Admin memantau matriks kehadiran harian dan sesi.",
+      "Untuk check-in mandiri, panitia membuka QR Lokasi. Asatidz masuk ke portal, pindai QR yang berganti otomatis, lalu tekan Catat kehadiran.",
+      "Jika QR tidak terbaca, gunakan Scanner Check-in panitia untuk mencari nama atau memasukkan kode. Untuk sesi manual atau koreksi, buka rapor peserta. Koreksi hanya bisa dilakukan sesuai izin dan wajib beralasan.",
     ],
     actions: [
+      { label: "Jadwal & sesi", to: "/schedule", eventScoped: true },
       { label: "Perangkat kiosk", to: "/kiosk", eventScoped: true },
       { label: "Rekap kehadiran", to: "/attendance", eventScoped: true },
     ],

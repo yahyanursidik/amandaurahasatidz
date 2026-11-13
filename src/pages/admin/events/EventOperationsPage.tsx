@@ -18,6 +18,7 @@ import { EventWorkspaceNav } from "@/components/admin/events/EventWorkspaceNav";
 import { EventCommunicationCenter } from "@/components/admin/events/EventCommunicationCenter";
 import { eventApi } from "@/lib/eventApi";
 import type { AuthIdentity } from "@/lib/refine/authProvider";
+import { attendanceLabels as attendanceStatusLabel } from "@/lib/attendance";
 
 type Mode = "attendance" | "communications" | "reports";
 type Props = { mode: Mode };
@@ -25,7 +26,7 @@ type Props = { mode: Mode };
 type AttendanceRecap = {
   attendanceMode?: string;
   totalParticipants: number;
-  requiredUnits?: Array<{ id: string; type: "DAY" | "SESSION"; title: string; date: string }>;
+  requiredUnits?: Array<{ id: string; type: "DAY" | "SESSION"; title: string; date: string; qrEnabled?: boolean }>;
   recapSummary: {
     fullAttendance: number;
     partialAttendance: number;
@@ -42,6 +43,7 @@ type AttendanceRecap = {
     totalUnitsAttended?: number;
     requiredUnits?: number;
     completionPercentage?: number;
+    eligible?: boolean;
     statusCategory: string;
     unitStatuses?: Array<{ unitId: string; type: "DAY" | "SESSION"; title: string; date: string; status: string }>;
   }>;
@@ -61,12 +63,6 @@ const reportTypes = [
   { value: "no-show", label: "Peserta tidak hadir" },
   { value: "returning-participants", label: "Peserta berulang" },
 ];
-const attendanceStatusLabel: Record<string, string> = {
-  HADIR_PENUH: "Hadir penuh", HADIR_SEBAGIAN: "Hadir sebagian", TERLAMBAT: "Terlambat",
-  IZIN: "Izin", TIDAK_HADIR: "Tidak hadir", BELUM_DIMULAI: "Belum dimulai",
-  PRESENT: "Hadir", LATE: "Terlambat", EXCUSED: "Izin", PERMITTED: "Diizinkan",
-  ABSENT: "Tidak hadir", NOT_RECORDED: "Belum tercatat",
-};
 
 export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
   const { data: identity } = useGetIdentity<AuthIdentity>();
@@ -195,12 +191,12 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
         <div className="space-y-5">
           <section className="grid grid-cols-2 border-y border-slate-200 bg-white sm:grid-cols-3 lg:grid-cols-6">
             {[
-              ["Peserta", attendance?.totalParticipants],
+              ["Wajib presensi", attendance?.totalParticipants],
               ["Hadir penuh", attendance?.recapSummary.fullAttendance],
               ["Hadir sebagian", attendance?.recapSummary.partialAttendance],
               ["Terlambat", attendance?.recapSummary.lateAttendance],
               ["Izin", attendance?.recapSummary.excused],
-              ["Belum hadir", attendance?.recapSummary.absent],
+              ["Tidak hadir", attendance?.recapSummary.absent],
             ].map(([label, value]) => (
               <div key={String(label)} className="border-b border-r border-slate-200 p-4">
                 <p className="text-2xl font-black tabular-nums text-slate-950">{loading ? "—" : value ?? "—"}</p>
@@ -208,6 +204,7 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
               </div>
             ))}
           </section>
+          <p className="text-sm text-slate-600">Angka ringkasan mengikuti peserta yang memenuhi syarat check-in. Gunakan rapor untuk catat manual atau koreksi sesuai izin.</p>
           <label className="relative block max-w-xl"><span className="sr-only">Cari peserta dalam rekap kehadiran</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-500" aria-hidden="true" /><input type="search" value={attendanceSearch} onChange={(event) => setAttendanceSearch(event.target.value)} placeholder="Cari nama, kode, atau lembaga" className="min-h-11 w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700" /></label>
           <div className="overflow-hidden border border-slate-200 bg-white">
             <div className="hidden grid-cols-[9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_8rem_9rem_7rem] gap-3 bg-slate-50 px-4 py-3 text-[10px] font-black uppercase tracking-wide text-slate-500 lg:grid">
@@ -220,7 +217,8 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
                     <span className="font-mono font-bold text-emerald-800">{participant.participantCode}</span>
                     <span className="font-black text-slate-900">{participant.ustadzName}</span>
                     <span className="text-slate-500">{participant.institutionName || "Individu"}</span>
-                    <span className="font-bold tabular-nums text-slate-700">{participant.totalUnitsAttended ?? participant.totalSessionsAttended}/{participant.requiredUnits ?? "—"}</span>
+                    <span className="font-bold tabular-nums text-slate-700">{participant.eligible === false ? `${participant.totalUnitsAttended ?? participant.totalSessionsAttended} historis`
+                      : `${participant.totalUnitsAttended ?? participant.totalSessionsAttended}/${participant.requiredUnits ?? "—"}`}</span>
                     <StatusBadge label={attendanceStatusLabel[participant.statusCategory] || participant.statusCategory.replaceAll("_", " ")} variant={participant.statusCategory === "HADIR_PENUH" ? "success" : participant.statusCategory === "TIDAK_HADIR" ? "danger" : participant.statusCategory === "BELUM_DIMULAI" ? "neutral" : "warning"} />
                     <Link to={`/admin/events/${id}/attendance/${participant.participantId}/report`} className="inline-flex min-h-[40px] items-center justify-center whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-3 font-bold text-emerald-900 hover:bg-emerald-100">Buka rapor</Link>
                   </li>
@@ -239,7 +237,7 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
                   <thead className="bg-slate-50 text-[10px] font-black uppercase tracking-wide text-slate-500">
                     <tr>
                       <th className="sticky left-0 z-10 min-w-56 border-r border-slate-200 bg-slate-50 px-4 py-3">Peserta</th>
-                      {attendance.requiredUnits.map((unit) => <th key={unit.id} className="min-w-40 border-r border-slate-200 px-3 py-3"><span className="block text-emerald-700">{unit.type === "DAY" ? "Harian" : "Sesi"} · {new Date(`${unit.date}T00:00:00`).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}</span><span className="mt-1 block normal-case tracking-normal text-slate-700">{unit.title}</span></th>)}
+                      {attendance.requiredUnits.map((unit) => <th key={unit.id} scope="col" className="min-w-40 border-r border-slate-200 px-3 py-3"><span className="block text-emerald-700">{unit.type === "DAY" ? "Harian" : unit.qrEnabled === false ? "Sesi manual" : "Sesi QR"} · {new Date(`${unit.date}T00:00:00`).toLocaleDateString("id-ID", { day: "numeric", month: "short" })}</span><span className="mt-1 block normal-case tracking-normal text-slate-700">{unit.title}</span></th>)}
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">

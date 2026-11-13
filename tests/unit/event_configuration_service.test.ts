@@ -19,6 +19,12 @@ vi.mock("../../netlify/functions/lib/repositories/participantRepository", () => 
   countApprovedParticipantsForEventRepository: mock.countTotal,
 }));
 vi.mock("../../netlify/functions/lib/services/auditService", () => ({ createAuditLog: mock.audit }));
+vi.mock("../../netlify/functions/lib/repositories/attendanceRepository", () => ({ eventHasAttendanceRecords: async () => false }));
+vi.mock("../../netlify/functions/lib/db/transaction", () => ({
+  withTransaction: (fn: (tx: unknown) => unknown) => fn({
+    select: () => ({ from: () => ({ where: () => ({ limit: () => ({ for: async () => [mock.event] }) }) }) }),
+  }),
+}));
 
 describe("edit konfigurasi event yang sudah terhubung", () => {
   beforeEach(() => {

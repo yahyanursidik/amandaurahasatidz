@@ -1,4 +1,5 @@
 import { ValidationError } from "../utils/errors";
+import { ATTENDANCE_INACTIVE_CONFIRMATIONS } from "./attendanceModel";
 
 type DeadlineEvent = {
   startDate?: string | null;
@@ -55,13 +56,19 @@ export function assertParticipantEligibleForCheckin(
   participant: { confirmationStatus: string; approvalStatus: string; participantCode?: string },
   event: DeadlineEvent
 ) {
-  if (["CANCELLED", "REPLACED"].includes(participant.confirmationStatus)) {
-    throw new ValidationError(`Presensi ditolak: peserta berstatus ${participant.confirmationStatus}.`);
+  const reason = participantCheckinBlockReason(participant, event);
+  if (reason) throw new ValidationError(`Presensi ditolak: ${reason}`);
+}
+
+export function participantCheckinBlockReason(
+  participant: { confirmationStatus: string; approvalStatus: string }, event: DeadlineEvent,
+): string | null {
+  if (ATTENDANCE_INACTIVE_CONFIRMATIONS.includes(participant.confirmationStatus)) {
+    return participant.confirmationStatus === "CANCELLED" ? "kepesertaan dibatalkan atau berhalangan." : "peserta telah diganti.";
   }
-  if (participant.approvalStatus !== "APPROVED") {
-    throw new ValidationError("Presensi ditolak: data peserta belum disetujui panitia.");
-  }
+  if (participant.approvalStatus !== "APPROVED") return "data peserta belum disetujui panitia.";
   if (event.attendanceConfirmationRequired !== false && participant.confirmationStatus !== "CONFIRMED") {
-    throw new ValidationError("Presensi ditolak: peserta belum mengonfirmasi kehadiran.");
+    return "peserta belum mengonfirmasi kehadiran.";
   }
+  return null;
 }

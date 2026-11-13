@@ -25,7 +25,7 @@ describe("panduan kerja admin", () => {
   });
 
   it("uses the event list as a safe fallback and deep-links only with a valid event ID", () => {
-    const kiosk = ADMIN_GUIDE_STAGES.find((stage) => stage.id === "attendance")!.actions[0];
+    const kiosk = ADMIN_GUIDE_STAGES.find((stage) => stage.id === "attendance")!.actions.find((action) => action.to === "/kiosk")!;
     expect(resolveGuideAction(kiosk, null)).toBe("/admin/events");
     expect(resolveGuideAction(kiosk, "not-an-event")).toBe("/admin/events");
     expect(resolveGuideAction(kiosk, EVENT_ID)).toBe(`/admin/events/${EVENT_ID}/kiosk`);

@@ -10,7 +10,6 @@ const committeeNavItems: SidebarNavItem[] = [
   { label: "Dashboard Panitia", shortLabel: "Beranda", href: "/committee", icon: <LayoutDashboard />, exact: true, mobilePrimary: true },
   { label: "Tugas & Akses Saya", shortLabel: "Tugas", href: "/committee/assignments", icon: <ClipboardList /> },
   { label: "Scanner Check-in", shortLabel: "Scanner", href: "/committee/check-in", icon: <ScanLine />, mobilePrimary: true },
-  { label: "Gate cepat", shortLabel: "Gate", href: "/gate", icon: <ScanLine /> },
   { label: "QR Lokasi", shortLabel: "QR Lokasi", href: "/committee/location-qr", icon: <QrCode /> },
   { label: "Daftar Kehadiran", shortLabel: "Hadir", href: "/committee/attendance", icon: <CheckSquare />, mobilePrimary: true },
   { label: "Data Peserta", shortLabel: "Peserta", href: "/committee/participants", icon: <Users />, mobilePrimary: true },
@@ -25,7 +24,7 @@ export const CommitteeLayout: React.FC<{ children: React.ReactNode }> = ({ child
     && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > now));
   const permissions = new Set(activeAssignments.flatMap((assignment) => ROLE_PERMISSIONS[assignment.roleCode as RoleCode] || []));
   const required: Record<string, PermissionCode> = {
-    "/committee/check-in": "attendance.record", "/gate": "attendance.record",
+    "/committee/check-in": "attendance.record",
     "/committee/location-qr": "attendance.record", "/committee/attendance": "attendance.read",
     "/committee/participants": "participants.read", "/committee/announcements": "announcements.read",
   };

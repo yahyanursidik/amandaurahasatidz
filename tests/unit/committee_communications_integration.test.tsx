@@ -52,7 +52,8 @@ describe("committee announcements shared editor integration", () => {
     expect(source).not.toMatch(/\/announcements(?:[\x60/])/);
     expect(source).toContain("if (!attendanceMode || !eventId) return;");
     expect(source).toContain("/attendance/recap");
-    expect(source).toContain("setPreview(import.meta.env.DEV)");
+    expect(source).toContain("setPreview(import.meta.env.DEV && !attendanceMode)");
+    expect(source).not.toContain("previewRecap");
     expect(source).toContain('id="committee-operation-event"');
     expect(source).toContain("setEventId(nextEvent)");
   });

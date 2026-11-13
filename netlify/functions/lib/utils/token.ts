@@ -128,9 +128,8 @@ export function verifyParticipantQrToken(
   secret = participantQrSecret(),
 ): ParticipantQrPayload | null {
   const normalized = rawToken.trim();
-  if (!normalized.startsWith("pqr_")) return null;
+  if (normalized.length > 512 || !/^pqr_[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(normalized)) return null;
   const [encodedPayload, receivedSignature] = normalized.slice(4).split(".");
-  if (!encodedPayload || !receivedSignature) return null;
   const expectedSignature = crypto
     .createHmac("sha256", secret)
     .update(encodedPayload)

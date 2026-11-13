@@ -13,7 +13,7 @@ import {
   upsertCommitteeAssignmentRepository,
 } from "../repositories/committeeRepository";
 import { findEventOptionsRepository } from "../repositories/eventRepository";
-import type { UserRoleAssignment } from "../middleware/rbac";
+import { evaluatePermission, type UserRoleAssignment } from "../middleware/rbac";
 import { hashPassword } from "../utils/password";
 import { ConflictError, NotFoundError, ValidationError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
@@ -157,33 +157,40 @@ export async function endCommitteeAssignmentService(assignmentId: string, eventI
 
 export async function getCommitteeContextService(userId: string, roleAssignments: UserRoleAssignment[] = []) {
   const now = Date.now();
-  const globalAssignment = roleAssignments.find((assignment) => assignment.roleCode === "COMMITTEE_ORGANIZER"
-    && !assignment.eventId && (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= now)
-    && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > now));
-  const globalAccess = Boolean(globalAssignment);
-  if (globalAccess) {
+  const active = roleAssignments.filter((assignment) => (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= now)
+    && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > now)
+    && !["USTADZ", "INSTITUTION_REPRESENTATIVE"].includes(assignment.roleCode));
+  const global = active.find((assignment) => ["SUPER_ADMIN", "COMMITTEE_ORGANIZER"].includes(assignment.roleCode) && !assignment.eventId);
+  const explicitAdmin = active.filter((assignment) => assignment.roleCode === "EVENT_ADMIN" && assignment.eventId);
+  const wildcard = explicitAdmin.find((assignment) => assignment.eventId === "*");
+  const actor = { userId, email: "", assignments: active };
+  const permissionsForEvent = (eventId: string) => [...new Set(active.flatMap((item) => ROLE_PERMISSIONS[item.roleCode] || []))]
+    .filter((action) => evaluatePermission(actor, { action, eventId }));
+  const fromEvent = (event: Awaited<ReturnType<typeof findEventOptionsRepository>>[number], assignment: UserRoleAssignment) => ({
+    id: `role-${event.id}`, eventId: event.id, eventName: event.name, eventCode: event.code, eventSlug: event.slug,
+    eventStatus: event.status, startDate: event.startDate, endDate: event.endDate, venueName: event.venueName,
+    invitationResponseDeadline: event.invitationResponseDeadline, attendanceConfirmationDeadline: event.attendanceConfirmationDeadline,
+    attendanceConfirmationRequired: event.attendanceConfirmationRequired, lateConfirmationPolicy: event.lateConfirmationPolicy,
+    committeeRole: assignment.roleCode, startsAt: assignment.startsAt ?? null, endsAt: assignment.endsAt ?? null,
+    effectivePermissions: permissionsForEvent(event.id),
+  });
+  if (global || wildcard) {
+    const assignment = global || wildcard!;
     const events = await findEventOptionsRepository();
-    return { globalAccess, assignments: events.map((event) => ({
-      id: `global-${event.id}`, eventId: event.id, eventName: event.name, eventCode: event.code,
-      eventSlug: event.slug,
-      eventStatus: event.status, startDate: event.startDate, endDate: event.endDate,
-      venueName: event.venueName, invitationResponseDeadline: event.invitationResponseDeadline,
-      attendanceConfirmationDeadline: event.attendanceConfirmationDeadline,
-      attendanceConfirmationRequired: event.attendanceConfirmationRequired,
-      lateConfirmationPolicy: event.lateConfirmationPolicy,
-      committeeRole: "COMMITTEE_ORGANIZER", startsAt: globalAssignment?.startsAt ?? null,
-      endsAt: globalAssignment?.endsAt ?? null,
-      effectivePermissions: ROLE_PERMISSIONS.COMMITTEE_ORGANIZER,
-    })) };
+    return { globalAccess: true, assignments: events.map((event) => fromEvent(event, assignment)) };
   }
   const assignments = await findCommitteeAssignmentsForUserRepository(userId);
+  const linked = assignments.map((assignment) => ({
+    ...assignment,
+    effectivePermissions: (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= now)
+      && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > now)
+      ? permissionsForEvent(assignment.eventId) : [],
+  }));
+  const explicitIds = [...new Set(explicitAdmin.map((assignment) => assignment.eventId!))]
+    .filter((id) => !linked.some((assignment) => assignment.eventId === id && assignment.effectivePermissions.length));
+  const adminEvents = explicitIds.length ? await findEventOptionsRepository(explicitIds) : [];
   return {
     globalAccess: false,
-    assignments: assignments.map((assignment) => ({
-      ...assignment,
-      effectivePermissions: (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= now)
-        && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > now)
-        ? ROLE_PERMISSIONS[assignment.committeeRole as RoleCode] || [] : [],
-    })),
+    assignments: [...linked, ...adminEvents.map((event) => fromEvent(event, explicitAdmin.find((assignment) => assignment.eventId === event.id)!))],
   };
 }

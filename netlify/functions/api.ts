@@ -15,12 +15,13 @@ import {
   requireGlobalPermission,
   requirePermission,
   requireReportAccess,
+  requireStaffAttendanceRead,
 } from "./lib/middleware/rbac";
 import { createAuditLog, getAuditLogsService } from "./lib/services/auditService";
 import { getDbClient } from "./lib/db/client";
 import { logInfo, logError } from "./lib/utils/logger";
 import { classifyDatabaseError } from "./lib/utils/databaseError";
-import { AppError, ValidationError, UnauthorizedError } from "./lib/utils/errors";
+import { AppError, ForbiddenError, ValidationError, UnauthorizedError } from "./lib/utils/errors";
 import { checkRateLimit } from "./lib/utils/rateLimiter";
 import { generateEmailOtp, verifyEmailOtp } from "./lib/services/otpService";
 import { serializeCookie, clearCookie, parseCookies } from "./lib/utils/cookie";
@@ -96,6 +97,7 @@ import {
   removeEventFromCatalogService,
   getPublicEventsService,
   getEventByIdService,
+  getEventAttendanceSetupService,
   getRegistrationEventService,
   getEventBySlugPublicService,
   getPublicGateEventService,
@@ -234,7 +236,7 @@ import {
 } from "./lib/services/portalService";
 import { updatePortalProfileService } from "./lib/services/portalProfileService";
 
-import { processCheckinSchema, publicKioskCheckinSchema, queryCheckinLogsSchema, searchCheckinParticipantSchema } from "./lib/validations/attendanceValidation";
+import { locationQrIssueSchema, processCheckinSchema, publicKioskCheckinSchema, queryCheckinLogsSchema, searchCheckinParticipantSchema, selfCheckinSchema } from "./lib/validations/attendanceValidation";
 import {
   kioskCookieName, assertKioskWriteOrigin, createKioskPairingService, isKioskCookieShape,
   isKioskPairingToken,
@@ -250,12 +252,8 @@ import {
   searchEventCheckinParticipantsService,
 } from "./lib/services/attendanceService";
 
-import {
-  getOrGenerateLocationQrTokenService,
-  rotateLocationQrTokenService,
-} from "./lib/services/dynamicQrService";
+import { getOrGenerateLocationQrTokenService } from "./lib/services/dynamicQrService";
 import { processSelfCheckinService } from "./lib/services/selfCheckinService";
-import { selfCheckinSchema } from "./lib/validations/attendanceValidation";
 
 import {
   manualMarkAttendanceSchema,
@@ -284,10 +282,17 @@ import {
 
 import { sql } from "drizzle-orm";
 
+const publicGateRoute = /^\/gate\/events\/([a-z0-9-]+)\/(pair|session|units|checkin|summary)$/i;
+const attendanceUuid = "[a-f0-9]{8}(?:-[a-f0-9]{4}){3}-[a-f0-9]{12}";
+const correctAttendanceRoute = new RegExp(`^/events/(${attendanceUuid})/attendance/(${attendanceUuid})/correct$`, "i");
+const locationQrRoute = new RegExp(`^/events/(${attendanceUuid})/(?:sessions/(${attendanceUuid})/)?location-qr(?:/(rotate))?$`, "i");
+const privateAttendanceHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
+
 export const handler: Handler = async (event, _context) => {
   const requestId = getOrGenerateRequestId(event.headers);
   const path = event.path.replace(/^\/\.netlify\/functions\/api/, "").replace(/^\/api\/v1/, "");
   const method = event.httpMethod.toUpperCase();
+  const publicGateMatch = path.match(publicGateRoute);
 
   logInfo(requestId, `Incoming Request: ${method} ${path}`);
 
@@ -608,7 +613,7 @@ export const handler: Handler = async (event, _context) => {
     }
 
     // Resolve User Session
-    const userSession = await getUserSession(
+    const userSession = publicGateMatch ? null : await getUserSession(
       event.headers.authorization || event.headers.Authorization,
       event.headers.cookie || event.headers.Cookie
     );
@@ -741,7 +746,9 @@ export const handler: Handler = async (event, _context) => {
     if (eventDetailMatch && method === "GET") {
       const eventId = eventDetailMatch[1];
       requirePermission(userSession, "events.read", eventId);
-      return buildSuccessResponse(await getEventByIdService(eventId), requestId);
+      const details = event.queryStringParameters?.view === "attendance-setup"
+        ? await getEventAttendanceSetupService(eventId) : await getEventByIdService(eventId);
+      return buildSuccessResponse(details, requestId);
     }
 
     if (eventDetailMatch && method === "PATCH") {
@@ -765,10 +772,12 @@ export const handler: Handler = async (event, _context) => {
     if (eventKioskPairingMatch && method === "POST") {
       const session = requireAuth(userSession);
       requirePermission(session, "events.update", eventKioskPairingMatch[1]);
+      requirePermission(session, "attendance.record", eventKioskPairingMatch[1]);
       const body = event.body ? JSON.parse(event.body) : {};
       const label = typeof body.label === "string" ? body.label.trim() : "";
       if (label.length < 2 || label.length > 60) throw new ValidationError("Nama perangkat harus 2–60 karakter.");
-      return buildSuccessResponse(await createKioskPairingService(eventKioskPairingMatch[1], label, session.userId, requestId), requestId, null, 201);
+      const response = buildSuccessResponse(await createKioskPairingService(eventKioskPairingMatch[1], label, session.userId, requestId), requestId, null, 201);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
     }
     const eventKioskRevokeMatch = path.match(/^\/events\/([a-f0-9-]+)\/kiosk\/([a-f0-9-]+)\/revoke$/i);
     if (eventKioskRevokeMatch && method === "POST") {
@@ -1728,11 +1737,10 @@ export const handler: Handler = async (event, _context) => {
 
     // A kiosk requires a short-lived, single-use admin pairing. The resulting
     // device credential is HttpOnly and revocable; only signed participant QR is accepted.
-    const publicGateMatch = path.match(/^\/gate\/events\/([a-z0-9-]+)\/(pair|session|units|checkin|summary)$/i);
     if (publicGateMatch) {
-      const gateSlug = publicGateMatch[1];
-      const gateAction = publicGateMatch[2];
-      const noStore = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
+      const gateSlug = publicGateMatch[1].toLowerCase();
+      const gateAction = publicGateMatch[2].toLowerCase();
+      const noStore = privateAttendanceHeaders;
       const clientIp = event.headers["client-ip"] || event.headers["x-nf-client-connection-ip"] || "unknown";
       const cookies = parseCookies(event.headers.cookie || event.headers.Cookie);
       const cookieName = kioskCookieName(gateSlug);
@@ -1776,7 +1784,9 @@ export const handler: Handler = async (event, _context) => {
         const input = validateRequestData(publicKioskCheckinSchema, event.body ? JSON.parse(event.body) : {});
         const result = await processOnSiteCheckinService(gateEvent.id, input.qrToken,
           "QR_SCAN", undefined, requestId, { sessionId: input.sessionId, dayId: input.dayId }, kiosk.id);
-        const response = buildSuccessResponse(result, requestId);
+        // A public display only needs acknowledgement; names stay in staff tools.
+        const response = buildSuccessResponse({ status: result.status, attendanceStatus: result.attendanceStatus,
+          checkinAt: result.checkinAt, attendanceUnit: result.attendanceUnit }, requestId);
         return { ...response, headers: { ...response.headers, ...noStore } };
       }
     }
@@ -1786,12 +1796,13 @@ export const handler: Handler = async (event, _context) => {
     if (gateSearchMatch && method === "GET") {
       requirePermission(userSession, "attendance.record", gateSearchMatch[1]);
       const input = validateRequestData(searchCheckinParticipantSchema, event.queryStringParameters || {});
-      return buildSuccessResponse(await searchEventCheckinParticipantsService(gateSearchMatch[1], input.q), requestId);
+      const response = buildSuccessResponse(await searchEventCheckinParticipantsService(gateSearchMatch[1], input.q), requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store" } };
     }
     const sessActiveMatch = path.match(/^\/events\/([a-f0-9-]+)\/sessions\/active$/i);
     if (sessActiveMatch && method === "GET") {
       const eventId = sessActiveMatch[1];
-      requirePermission(userSession, "attendance.read", eventId);
+      requireStaffAttendanceRead(userSession, eventId);
       const result = await getActiveSessionService(eventId);
       return buildSuccessResponse(result, requestId);
     }
@@ -1817,46 +1828,49 @@ export const handler: Handler = async (event, _context) => {
     const checkinLogsMatch = path.match(/^\/events\/([a-f0-9-]+)\/checkin\/logs$/i);
     if (checkinLogsMatch && method === "GET") {
       const eventId = checkinLogsMatch[1];
-      requirePermission(userSession, "attendance.read", eventId);
+      requireStaffAttendanceRead(userSession, eventId);
       const queryParams = validateRequestData(queryCheckinLogsSchema, event.queryStringParameters || {});
       const logs = await getRecentCheckinLogsService(eventId, queryParams.limit);
-      return buildSuccessResponse(logs, requestId);
+      const response = buildSuccessResponse(logs, requestId);
+      return { ...response, headers: { ...response.headers, ...privateAttendanceHeaders } };
     }
 
-    // Dynamic Location QR Endpoints (Committee & Self Check-in)
-    const locQrMatch = path.match(/^\/events\/([a-f0-9-]+)\/sessions\/([a-f0-9-]+)\/location-qr$/i);
-    if (locQrMatch && method === "GET") {
-      const eventId = locQrMatch[1];
-      const sessionId = locQrMatch[2];
-      requirePermission(userSession, "attendance.read", eventId);
-      const qrData = await getOrGenerateLocationQrTokenService(eventId, sessionId);
-      return buildSuccessResponse(qrData, requestId);
-    }
-
-    const locQrRotateMatch = path.match(/^\/events\/([a-f0-9-]+)\/sessions\/([a-f0-9-]+)\/location-qr\/rotate$/i);
-    if (locQrRotateMatch && method === "POST") {
-      const eventId = locQrRotateMatch[1];
-      const sessionId = locQrRotateMatch[2];
+    // Issuing or rotating a bearer token is a write, never a prefetchable GET.
+    const locQrMatch = path.match(locationQrRoute);
+    if (locQrMatch && (method === "POST" || method === "GET")) {
+      const [, eventId, legacySessionId, legacyRotate] = locQrMatch;
       const session = requireAuth(userSession);
       requirePermission(session, "attendance.record", eventId);
-      const rotated = await rotateLocationQrTokenService(eventId, sessionId, session.userId);
-      return buildSuccessResponse(rotated, requestId);
+      const noStore = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
+      if (method === "GET") {
+        const response = buildErrorResponse("METHOD_NOT_ALLOWED", "Buat QR Lokasi dari layar panitia dengan metode POST.", requestId, 405);
+        return { ...response, headers: { ...response.headers, ...noStore, Allow: "POST" } };
+      }
+      if (event.headers["sec-fetch-site"] === "cross-site") throw new ForbiddenError("QR Lokasi hanya dapat dibuat dari portal panitia.");
+      const input = validateRequestData(locationQrIssueSchema, legacySessionId
+        ? { sessionId: legacySessionId, rotate: Boolean(legacyRotate) }
+        : event.body ? JSON.parse(event.body) : {});
+      const limit = checkRateLimit(`location_qr_issue_${session.userId}_${eventId}`, 20, 60_000);
+      if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak permintaan QR Lokasi. Coba lagi sebentar.", requestId, 429);
+      const qr = await getOrGenerateLocationQrTokenService(eventId, input, session.userId, input.rotate, requestId);
+      const response = buildSuccessResponse(qr, requestId);
+      return { ...response, headers: { ...response.headers, ...noStore } };
     }
 
     if (path === "/portal/self-checkin" && method === "POST") {
       const session = requireAuth(userSession);
-      const body = event.body ? JSON.parse(event.body) : {};
-      const input = validateRequestData(selfCheckinSchema, body);
-      const ustadzId = await resolvePortalUstadzIdService(session.userId, session.email);
-      const result = await processSelfCheckinService(
-        ustadzId,
-        input.eventId,
-        input.sessionId,
-        input.rawLocationQrToken,
-        session.userId,
-        requestId
-      );
-      return buildSuccessResponse(result, requestId);
+      if (!session.assignments.some((assignment) => assignment.roleCode === "USTADZ" &&
+        (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= Date.now()) &&
+        (!assignment.endsAt || new Date(assignment.endsAt).getTime() > Date.now()))) {
+        throw new ForbiddenError("Masuk dengan akun Portal Asatidz untuk check-in mandiri.");
+      }
+      if (event.headers["sec-fetch-site"] === "cross-site") throw new ForbiddenError("Check-in mandiri hanya dapat dilakukan dari portal peserta.");
+      const limit = checkRateLimit(`portal_self_checkin_${session.userId}`, 8, 60_000);
+      if (!limit.allowed) return buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak percobaan check-in. Tunggu sebentar lalu pindai ulang.", requestId, 429);
+      const body = validateRequestData(selfCheckinSchema, event.body ? JSON.parse(event.body) : {});
+      const result = await processSelfCheckinService(body, session.userId, requestId);
+      const response = buildSuccessResponse(result, requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
     }
 
     // Attendance Management, Correction & Recap Endpoints
@@ -1871,7 +1885,7 @@ export const handler: Handler = async (event, _context) => {
       return buildSuccessResponse(result, requestId);
     }
 
-    const correctAttendanceMatch = path.match(/^\/events\/([a-f0-9-]+)\/attendance\/([a-f0-9-]+)\/correct$/i);
+    const correctAttendanceMatch = path.match(correctAttendanceRoute);
     if (correctAttendanceMatch && method === "POST") {
       const eventId = correctAttendanceMatch[1];
       const recordId = correctAttendanceMatch[2];
@@ -1879,16 +1893,17 @@ export const handler: Handler = async (event, _context) => {
       requirePermission(session, "attendance.correct", eventId);
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(correctAttendanceSchema, body);
-      const result = await correctAttendanceRecordService(recordId, validated, session.userId, requestId);
+      const result = await correctAttendanceRecordService(eventId, recordId, validated, session.userId, requestId);
       return buildSuccessResponse(result, requestId);
     }
 
     const recapMatch = path.match(/^\/events\/([a-f0-9-]+)\/attendance\/recap$/i);
     if (recapMatch && method === "GET") {
       const eventId = recapMatch[1];
-      requirePermission(userSession, "attendance.read", eventId);
+      requireStaffAttendanceRead(userSession, eventId);
       const recap = await getAttendanceSummaryRecapService(eventId);
-      return buildSuccessResponse(recap, requestId);
+      const response = buildSuccessResponse(recap, requestId);
+      return { ...response, headers: { ...response.headers, ...privateAttendanceHeaders } };
     }
 
     const participantAttendanceReportMatch = path.match(
@@ -1896,11 +1911,12 @@ export const handler: Handler = async (event, _context) => {
     );
     if (participantAttendanceReportMatch && method === "GET") {
       const eventId = participantAttendanceReportMatch[1];
-      requirePermission(userSession, "attendance.read", eventId);
-      return buildSuccessResponse(
+      requireStaffAttendanceRead(userSession, eventId);
+      const response = buildSuccessResponse(
         await getParticipantAttendanceReportService(eventId, participantAttendanceReportMatch[2]),
         requestId,
       );
+      return { ...response, headers: { ...response.headers, ...privateAttendanceHeaders } };
     }
 
     // Dashboard & Report Endpoints
@@ -1912,7 +1928,7 @@ export const handler: Handler = async (event, _context) => {
 
     if (path === "/dashboard/committee" && method === "GET") {
       const { eventId } = validateRequestData(committeeDashboardQuerySchema, event.queryStringParameters || {});
-      requirePermission(userSession, "attendance.read", eventId);
+      requireStaffAttendanceRead(userSession, eventId);
       const metrics = await getCommitteeDashboardMetricsService(eventId);
       return buildSuccessResponse(metrics, requestId);
     }
