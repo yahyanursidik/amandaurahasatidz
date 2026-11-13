@@ -2,10 +2,9 @@ import { and, eq } from "drizzle-orm";
 import { getDbClient } from "../db/client";
 import { eventParticipants, events, ustadzProfiles } from "../db/schema";
 import { NotFoundError, ValidationError } from "../utils/errors";
-import { cardPath, signCardForParticipant } from "./participantCardService";
 import { isAttendanceEventOpen } from "./attendanceModel";
-import { isAttendanceQrEligible } from "../../../../src/lib/registrationStatus";
-import { registrationStatusPath } from "./participantConfirmationLink";
+import { registrationReceiptPath } from "./participantConfirmationLink";
+import { getEventRegistrationWhatsAppNumber } from "./participantWhatsAppService";
 
 export async function getParticipantShareService(eventId: string, participantId: string) {
   const db = getDbClient();
@@ -13,13 +12,10 @@ export async function getParticipantShareService(eventId: string, participantId:
     id: eventParticipants.id,
     eventId: eventParticipants.eventId,
     participantCode: eventParticipants.participantCode,
-    qrTokenVersion: eventParticipants.qrTokenVersion,
     approvalStatus: eventParticipants.approvalStatus,
     confirmationStatus: eventParticipants.confirmationStatus,
     fullName: ustadzProfiles.fullName,
     email: ustadzProfiles.email,
-    phone: ustadzProfiles.phone,
-    whatsapp: ustadzProfiles.whatsapp,
     eventName: events.name,
     startDate: events.startDate,
     endDate: events.endDate,
@@ -41,8 +37,8 @@ export async function getParticipantShareService(eventId: string, participantId:
   }
 
   const eventOpen = isAttendanceEventOpen(participant);
-  const qrToken = eventOpen && isAttendanceQrEligible(participant) ? signCardForParticipant(participant) : null;
-  const registrationStatusUrl = registrationStatusPath(participant, participant.endDate);
+  const registrationStatusUrl = registrationReceiptPath(participant, participant.endDate);
+  const whatsapp = await getEventRegistrationWhatsAppNumber(eventId, participantId);
   // The browser resolves this same-origin path; no deployment URL or token enters list responses.
   return {
     participantId: participant.id,
@@ -50,8 +46,8 @@ export async function getParticipantShareService(eventId: string, participantId:
     participantCode: participant.participantCode,
     fullName: participant.fullName,
     email: participant.email,
-    phone: participant.phone,
-    whatsapp: participant.whatsapp,
+    phone: null,
+    whatsapp,
     eventName: participant.eventName,
     startDate: participant.startDate,
     endDate: participant.endDate,
@@ -61,8 +57,8 @@ export async function getParticipantShareService(eventId: string, participantId:
     attendanceConfirmationRequired: participant.attendanceConfirmationRequired,
     eventOpen,
     registrationStatusUrl,
-    qrToken,
-    cardUrl: qrToken ? cardPath(qrToken) : null,
-    confirmationUrl: participant.approvalStatus === "APPROVED" && participant.attendanceConfirmationRequired ? registrationStatusUrl : null,
+    qrToken: null,
+    cardUrl: null,
+    confirmationUrl: null,
   };
 }

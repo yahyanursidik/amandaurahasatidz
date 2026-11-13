@@ -11,16 +11,22 @@ export interface TemplateDefinition {
 }
 
 export const TEMPLATE_WHITELISTS: Record<string, TemplateDefinition> = {
+  REGISTRATION_STATUS_ACCESS: {
+    code: "REGISTRATION_STATUS_ACCESS",
+    subjectTemplate: "Tautan pribadi — {{eventName}}",
+    bodyTemplate: "Berikut tautan pribadi yang Ustadz minta untuk {{eventName}}:\n{{registrationStatusLink}}\n\nTautan ini berlaku {{expiresMinutes}} menit. Gunakan untuk mengonfirmasi kehadiran, menyatakan berhalangan, atau membuka QR presensi sesuai status pendaftaran. Jangan teruskan tautan ini. Jika Ustadz tidak memintanya, abaikan email ini.\n\nJazakumullahu khairan,\nPanitia Daurah Duat dan Pegiat Dakwah",
+    allowedVariables: ["ustadzName", "eventName", "registrationStatusLink", "expiresMinutes"],
+  },
   REGISTRATION_APPROVED: {
     code: "REGISTRATION_APPROVED",
     subjectTemplate: "Pendaftaran disetujui — {{eventName}}",
-    bodyTemplate: "Alhamdulillah, pendaftaran Ustadz untuk {{eventName}} telah disetujui. QR presensi pribadi tersedia di halaman status, tanpa perlu login.\n\nKode pendaftaran: {{participantCode}}\nBuka dan simpan QR presensi: {{registrationStatusLink}}\nRundown: {{rundownLink}}\n\nAkun Portal Asatidz: {{email}}\nMasuk atau buat sandi pribadi: {{portalLink}}\nJangan teruskan tautan pribadi ini kepada orang lain.\n\nJazakumullahu khairan,\nPanitia Daurah Duat dan Pegiat Dakwah",
+    bodyTemplate: "Alhamdulillah, pendaftaran Ustadz untuk {{eventName}} telah disetujui. Untuk membuka QR presensi, masuk ke Portal Asatidz atau minta tautan pribadi dari halaman status.\n\nKode pendaftaran: {{participantCode}}\nLihat status: {{registrationStatusLink}}\nRundown: {{rundownLink}}\n\nAkun Portal Asatidz: {{email}}\nMasuk atau buat sandi pribadi: {{portalLink}}\n\nJazakumullahu khairan,\nPanitia Daurah Duat dan Pegiat Dakwah",
     allowedVariables: ["ustadzName", "eventName", "participantCode", "registrationStatusLink", "cardLink", "email", "portalLink", "rundownLink"],
   },
   REGISTRATION_CONFIRMATION_REQUEST: {
     code: "REGISTRATION_CONFIRMATION_REQUEST",
     subjectTemplate: "Pendaftaran disetujui — mohon konfirmasi hadir untuk {{eventName}}",
-    bodyTemplate: "Alhamdulillah, pendaftaran Ustadz untuk {{eventName}} telah disetujui. Masih ada satu langkah: konfirmasi kehadiran, tanpa perlu login.\n\nKonfirmasi hadir: {{registrationStatusLink}}\nPilih “Insya Allah hadir” agar QR presensi dapat diterbitkan, atau “Berhalangan” jika tidak dapat hadir. Konfirmasi bukan presensi.\n\nKode pendaftaran: {{participantCode}}\nRundown: {{rundownLink}}\nJangan teruskan tautan pribadi ini kepada orang lain.\n\nJazakumullahu khairan,\nPanitia Daurah Duat dan Pegiat Dakwah",
+    bodyTemplate: "Alhamdulillah, pendaftaran Ustadz untuk {{eventName}} telah disetujui. Masih ada satu langkah: konfirmasi kehadiran.\n\nBuka halaman status: {{registrationStatusLink}}\nMasuk ke Portal Asatidz atau minta tautan pribadi ke email Ustadz. Pilih “Insya Allah hadir” agar QR presensi dapat diterbitkan, atau “Berhalangan” jika tidak dapat hadir. Konfirmasi bukan presensi.\n\nKode pendaftaran: {{participantCode}}\nRundown: {{rundownLink}}\n\nJazakumullahu khairan,\nPanitia Daurah Duat dan Pegiat Dakwah",
     allowedVariables: ["ustadzName", "eventName", "participantCode", "registrationStatusLink", "confirmationLink", "rundownLink", "portalLink"],
   },
   PARTICIPANT_ATTENDANCE_CONFIRMED: {
@@ -185,8 +191,9 @@ export function renderHtmlEmailTemplate(
   const invitationLink = String(variables.invitationLink || "");
   const portalLink = String(variables.portalLink || "");
   const primaryLink = statusLink || invitationLink || portalLink || undefined;
-  const primaryLabel = templateCode === "REGISTRATION_CONFIRMATION_REQUEST" ? "Konfirmasi kehadiran"
-    : ["REGISTRATION_AUTO_APPROVED", "REGISTRATION_APPROVED"].includes(templateCode) && statusLink ? "Buka QR presensi"
+  const primaryLabel = templateCode === "REGISTRATION_STATUS_ACCESS" ? "Buka akses pribadi"
+    : templateCode === "REGISTRATION_CONFIRMATION_REQUEST" ? "Lihat status & akses"
+    : ["REGISTRATION_AUTO_APPROVED", "REGISTRATION_APPROVED"].includes(templateCode) && statusLink ? "Lihat status pendaftaran"
       : statusLink ? "Lihat status pendaftaran" : invitationLink ? "Buka undangan pribadi" : "Buka Portal Asatidz";
   const htmlBody = templateCode !== "OTP_CODE"
     ? renderBrandedTextEmailHtml(textBody, "Daurah Duat dan Pegiat Dakwah", primaryLink, primaryLabel, undefined,

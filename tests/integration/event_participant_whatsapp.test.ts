@@ -7,7 +7,6 @@ import type { HandlerEvent, HandlerContext } from "@netlify/functions";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as schema from "../../netlify/functions/lib/db/schema";
 import { createSessionToken } from "../../netlify/functions/lib/services/authService";
-import { verifyParticipantConfirmationToken } from "../../netlify/functions/lib/utils/token";
 import { handler } from "../../netlify/functions/api";
 
 const isolated = vi.hoisted(() => ({ db: undefined as ReturnType<typeof drizzle<typeof schema>> | undefined }));
@@ -127,21 +126,21 @@ describe("event-scoped WhatsApp recipient API", () => {
     expect((await request(eventB, { user: globalAdmin })).data.recipients.map(({ id }: { id: string }) => id)).toEqual([b]);
   });
 
-  it("issues a status credential only to the current approved recipient with a direct WhatsApp number", async () => {
+  it("issues a receipt link only to the current approved recipient with a direct WhatsApp number", async () => {
     const ids = [b, archived, pending, fallback, noNumber, confirmed, cancelled, a];
     const checked = await request(eventA, { body: { participantIds: ids, confirmation: true } });
     expect(checked.status, JSON.stringify(checked.error)).toBe(200);
     expect(checked.data.recipients.filter((person: { confirmationAvailable: boolean }) => person.confirmationAvailable).map(({ id }: { id: string }) => id)).toEqual([a]);
-    expect(JSON.stringify(checked.data)).not.toContain("pcf_");
+    expect(JSON.stringify(checked.data)).not.toMatch(/pcf_|prc_/);
     const draft = await request(eventA, { body: { participantIds: ids, confirmation: true, statusLinkFor: a } });
     expect(draft.headers["Cache-Control"]).toBe("no-store");
     const links = draft.data.recipients.filter((person: { registrationStatusUrl?: string }) => person.registrationStatusUrl);
     expect(links).toHaveLength(1);
     const token = new URL(links[0].registrationStatusUrl, origin).hash.slice(1);
-    expect(verifyParticipantConfirmationToken(token)).toMatchObject({ participantId: a, eventId: eventA });
-    expect(JSON.stringify(draft.data)).not.toContain("pqr_");
+    expect(token).toMatch(/^prc_/);
+    expect(JSON.stringify(draft.data)).not.toMatch(/pqr_|pcf_/);
     for (const id of [b, fallback, pending, confirmed, cancelled]) {
-      expect(JSON.stringify((await request(eventA, { body: { participantIds: [id], confirmation: true, statusLinkFor: id } })).data)).not.toContain("pcf_");
+      expect(JSON.stringify((await request(eventA, { body: { participantIds: [id], confirmation: true, statusLinkFor: id } })).data)).not.toMatch(/pcf_|prc_/);
     }
   });
 
@@ -149,7 +148,7 @@ describe("event-scoped WhatsApp recipient API", () => {
     for (const [id, participantId] of [[noConfirm, noConfirmPerson], [ended, endedPerson], [block, blockedPerson]]) {
       const result = await request(id, { user: globalAdmin, body: { participantIds: [participantId], confirmation: true, statusLinkFor: participantId } });
       expect(result.data.recipients[0]).toMatchObject({ confirmationAvailable: false });
-      expect(JSON.stringify(result.data)).not.toContain("pcf_");
+      expect(JSON.stringify(result.data)).not.toMatch(/pcf_|prc_/);
     }
     expect((await request(eventA, { body: { participantIds: [a], confirmation: true, statusLinkFor: b } })).status).toBe(422);
     expect((await request(eventA, { body: { participantIds: [a, a] } })).status).toBe(422);
@@ -165,6 +164,23 @@ describe("event-scoped WhatsApp recipient API", () => {
       expect(result.data.recipients[0]).not.toHaveProperty("registrationStatusUrl");
     } finally {
       await db.update(schema.ustadzProfiles).set({ phone: null }).where(eq(schema.ustadzProfiles.id, person.ustadzId));
+    }
+  });
+
+  it("does not return either a proposed contact or a stale master number before reconciliation", async () => {
+    const [person] = await db.select().from(schema.eventParticipants).where(eq(schema.eventParticipants.id, a));
+    const [change] = await db.insert(schema.participantStatusHistories).values({ participantId: a,
+      statusType: "WHATSAPP_REVIEW", toStatus: "PENDING", reason: "6281234567999" }).returning();
+    try {
+      const unresolved = await request(eventA, { body: { participantIds: [a], confirmation: true, statusLinkFor: a } });
+      expect(unresolved.data.recipients[0]).toMatchObject({ number: null, needsContactReview: true, confirmationAvailable: false });
+      expect(JSON.stringify(unresolved.data)).not.toMatch(/6281234567999|6281234567890|prc_/);
+      await db.update(schema.ustadzProfiles).set({ whatsapp: "+62 812 3456 7999" }).where(eq(schema.ustadzProfiles.id, person.ustadzId));
+      expect((await request(eventA, { body: { participantIds: [a], confirmation: true, statusLinkFor: a } })).data.recipients[0])
+        .toMatchObject({ number: "6281234567999", confirmationAvailable: true, registrationStatusUrl: expect.stringContaining("prc_") });
+    } finally {
+      await db.delete(schema.participantStatusHistories).where(eq(schema.participantStatusHistories.id, change.id));
+      await db.update(schema.ustadzProfiles).set({ whatsapp: "081234567890" }).where(eq(schema.ustadzProfiles.id, person.ustadzId));
     }
   });
 });

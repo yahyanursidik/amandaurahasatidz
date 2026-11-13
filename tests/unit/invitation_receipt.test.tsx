@@ -17,8 +17,8 @@ describe("bukti konfirmasi undangan", () => {
       result: {
         message: "Konfirmasi tersimpan", emailQueued: 2,
         participants: [
-          { id: "person-a", participantCode: "P-AAA", registrationStatusUrl: "/confirm#pcf_one.signature" },
-          { id: "person-b", participantCode: "P-BBB", registrationStatusUrl: "/confirm#pcf_two.signature" },
+          { id: "person-a", participantCode: "P-AAA", registrationStatusUrl: "/confirm#prc_one.signature" },
+          { id: "person-b", participantCode: "P-BBB", registrationStatusUrl: "/confirm#prc_two.signature" },
         ],
         portalAccounts: [
           { participantId: "person-a", participantName: "Ustadz Ahmad", email: "ahmad@example.id",
@@ -36,7 +36,8 @@ describe("bukti konfirmasi undangan", () => {
     </MemoryRouter>);
     expect(html).toContain("Pilih peserta");
     expect(html).not.toMatch(/aria-label="QR presensi|pqr_/);
-    expect(html).toContain("https://contoh.id/confirm#pcf_one.signature");
+    expect(html).toContain("https://contoh.id/confirm#prc_one.signature");
+    expect(html).not.toContain("pcf_");
     expect(html).toContain("Simpan bukti pendaftaran");
     expect(html).toContain("BukuTamanPagiSabar123456");
     expect(html).toContain("Ustadz Hasan · P-BBB");

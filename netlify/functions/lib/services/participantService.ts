@@ -19,7 +19,8 @@ import { createAuditLog } from "./auditService";
 import { assertParticipantEligibleForCheckin } from "./deadlineService";
 import { hashPassword } from "../utils/password";
 import { isRegularRegistrationSource, quotaForSource } from "./eventQuota";
-import { queueApprovedParticipantCardEmail, queueParticipantConfirmationOutcomeEmail } from "./participantCardEmailService";
+import { queueApprovedParticipantCardEmail, queueParticipantConfirmationOutcomeEmail, flushRegistrationEmailDispatch,
+  type RegistrationEmailDispatch } from "./participantCardEmailService";
 import { logError } from "../utils/logger";
 import { z } from "zod";
 import { bulkApproveSchema } from "../validations/participantValidation";
@@ -170,7 +171,8 @@ export async function approveParticipantService(
   actorUserId?: string,
   requestId?: string,
   notes?: string,
-  expectedEventId?: string
+  expectedEventId?: string,
+  emailDispatch?: RegistrationEmailDispatch
 ) {
   const participant = await findParticipantByIdRepository(participantId);
   if (!participant) throw new NotFoundError(`Peserta ID ${participantId} tidak ditemukan.`);
@@ -222,7 +224,7 @@ export async function approveParticipantService(
       reason: notes || "Persetujuan kelayakan peserta daurah",
       requestId,
     }) : Promise.resolve(),
-    queueApprovedParticipantCardEmail(event, updated),
+    queueApprovedParticipantCardEmail(event, updated, emailDispatch),
   ]);
   if (auditResult.status === "rejected") logError(requestId || "participant-approval", "Audit persetujuan peserta gagal disimpan", auditResult.reason);
   if (emailResult.status === "rejected") logError(requestId || "participant-approval", "Antrean kartu QR setelah persetujuan gagal disimpan", emailResult.reason);
@@ -366,10 +368,11 @@ export async function bulkApproveParticipantsService(
   const results: { participantId: string; status: "SUCCESS" | "FAILED"; message: string }[] = [];
   let succeededCount = 0;
   let failedCount = 0;
+  const emailDispatch: RegistrationEmailDispatch = { jobIds: [] };
 
   for (const pid of participantIds) {
     try {
-      await approveParticipantService(pid, actorUserId, requestId, "Bulk approval oleh panitia", eventId);
+      await approveParticipantService(pid, actorUserId, requestId, "Bulk approval oleh panitia", eventId, emailDispatch);
       results.push({ participantId: pid, status: "SUCCESS", message: "Peserta berhasil diapprove" });
       succeededCount++;
     } catch (err: any) {
@@ -379,6 +382,7 @@ export async function bulkApproveParticipantsService(
   }
 
   const summary = { total: participantIds.length, succeeded: succeededCount, failed: failedCount };
+  await flushRegistrationEmailDispatch(emailDispatch, requestId || "bulk-approval-email");
   if (requestId) {
     await createAuditLog({
       actorUserId: actorUserId || null,

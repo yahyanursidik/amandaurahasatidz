@@ -2,10 +2,15 @@ import { getDbClient } from "../db/client";
 import { withTransaction } from "../db/transaction";
 import { lockRegistrationEvent, assertRegistrationCapacity } from "./registrationCapacity";
 import { eventParticipants, events, institutions, ustadzProfiles, ustadzInstitutionAffiliations, participantStatusHistories } from "../db/schema";
-import { and, eq, inArray, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 import { AppError, ValidationError, ForbiddenError, NotFoundError, ConflictError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
+import type { requireParticipantImportAccess } from "../middleware/rbac";
+import { queueApprovedParticipantCardEmail, queueRegistrationReceivedEmails, flushRegistrationEmailDispatch, type RegistrationEmailDispatch } from "./participantCardEmailService";
+import { logError } from "../utils/logger";
+
+type ParticipantImportAccess = ReturnType<typeof requireParticipantImportAccess>;
 
 export interface ImportRowItem {
   code?: string;
@@ -38,6 +43,7 @@ export interface ParticipantImportRowItem {
   participantCode?: string | null;
   isDelegationLead?: boolean;
   approvalStatus?: string;
+  expectedParticipant?: { id: string; updatedAt: string };
   notes?: string | null;
 }
 
@@ -61,8 +67,11 @@ export interface ParticipantImportDryRunResult {
       resolvedInstitutionName: string | null;
       finalParticipantCode: string;
       matchedUstadzId: string | null;
-      previousApprovedEvents: number;
+      previousApprovedEvents: number | null;
       existingParticipantId: string | null;
+      previousApprovalStatus: string | null;
+      previousConfirmationStatus: string | null;
+      currentParticipant: { id: string; updatedAt: string } | null;
       action: "CREATE" | "UPDATE";
     }
   >;
@@ -150,29 +159,43 @@ function buildParticipantCode(eventId: string, rowIndex: number, usedCodes: Set<
   return code;
 }
 
-function normalizeParticipantApprovalStatus(status?: string | null): "PENDING_REVIEW" | "APPROVED" | "WAITLISTED" {
-  const normalized = status?.trim().toUpperCase();
-  if (normalized === "APPROVED" || normalized === "WAITLISTED") return normalized;
-  return "PENDING_REVIEW";
+const requestedParticipantApproval = (row: ParticipantImportRowItem) => row.approvalStatus?.trim().toUpperCase() || "";
+
+function assertRequestedParticipantImportPermissions(rows: ParticipantImportRowItem[], access: ParticipantImportAccess) {
+  if (!access?.actorUserId) throw new ForbiddenError("Impor peserta hanya tersedia untuk petugas berwenang pada event ini.");
+  if (rows.some((row) => requestedParticipantApproval(row) === "APPROVED") && !access.canApprove) {
+    throw new ForbiddenError("Kolom APPROVED memerlukan izin menyetujui peserta. Kosongkan kolom atau minta admin event untuk menyetujui.");
+  }
+  if (rows.some((row) => requestedParticipantApproval(row) === "WAITLISTED") && !access.canWaitlist) {
+    throw new ForbiddenError("Kolom WAITLISTED memerlukan izin memindahkan peserta ke daftar tunggu.");
+  }
 }
 
 export async function processEventParticipantImportDryRunService(
   eventId: string,
   rows: ParticipantImportRowItem[],
+  access: ParticipantImportAccess,
 ): Promise<ParticipantImportDryRunResult> {
   if (!rows || rows.length === 0) {
     throw new ValidationError("Data peserta kosong. Harap unggah CSV yang berisi data peserta.");
   }
+  assertRequestedParticipantImportPermissions(rows, access);
 
   const db = getDbClient();
-  const eventFound = await db.select({ id: events.id }).from(events).where(eq(events.id, eventId)).limit(1);
-  if (!eventFound[0]) throw new NotFoundError("Event tidak ditemukan.");
+  const [eventFound] = await db.select({ status: events.status, archivedAt: events.archivedAt }).from(events).where(eq(events.id, eventId)).limit(1);
+  if (!eventFound) throw new NotFoundError("Event tidak ditemukan.");
+  if (eventFound.archivedAt || ["ARCHIVED", "COMPLETED", "CANCELLED"].includes(eventFound.status)) {
+    throw new ForbiddenError("Impor tidak tersedia untuk event yang selesai, dibatalkan, atau diarsipkan.");
+  }
   const existingParticipants = await db
     .select({
       ustadzId: eventParticipants.ustadzId,
       id: eventParticipants.id,
       approvalStatus: eventParticipants.approvalStatus,
       confirmationStatus: eventParticipants.confirmationStatus,
+      notes: eventParticipants.notes,
+      institutionId: eventParticipants.institutionId,
+      updatedAt: eventParticipants.updatedAt,
       participantCode: eventParticipants.participantCode,
       registrationSource: eventParticipants.registrationSource,
       normalizedName: ustadzProfiles.normalizedName,
@@ -189,19 +212,20 @@ export async function processEventParticipantImportDryRunService(
     .where(eq(eventParticipants.eventId, eventId));
   const institutionRows = await db
     .select({ id: institutions.id, code: institutions.code, name: institutions.name })
-    .from(institutions);
+    .from(institutions).where(and(eq(institutions.status, "ACTIVE"), isNull(institutions.deletedAt)));
   const contactEmails = rows.map((row) => normalizeEmail(row.email || "")).filter((value): value is string => Boolean(value));
   const contactPhones = rows.flatMap((row) => [normalizePhone(row.phone || ""), normalizePhone(row.whatsapp || "")]).filter((value): value is string => Boolean(value));
   const matchingProfiles = contactEmails.length || contactPhones.length
     ? await db
-        .select({ id: ustadzProfiles.id, normalizedName: ustadzProfiles.normalizedName, email: ustadzProfiles.email, phone: ustadzProfiles.phone, whatsapp: ustadzProfiles.whatsapp })
+        .select({ id: ustadzProfiles.id, normalizedName: ustadzProfiles.normalizedName, email: ustadzProfiles.email, phone: ustadzProfiles.phone, whatsapp: ustadzProfiles.whatsapp,
+          status: ustadzProfiles.profileStatus, deletedAt: ustadzProfiles.deletedAt, mergedIntoId: ustadzProfiles.mergedIntoId })
         .from(ustadzProfiles)
         .where(or(
           ...(contactEmails.length ? [inArray(sql<string>`lower(${ustadzProfiles.email})`, contactEmails)] : []),
           ...(contactPhones.length ? [inArray(normalizedDbPhone(ustadzProfiles.phone), contactPhones), inArray(normalizedDbPhone(ustadzProfiles.whatsapp), contactPhones)] : []),
         ))
     : [];
-  const previousApprovals = matchingProfiles.length
+  const previousApprovals = access.canReadCrossEventHistory && matchingProfiles.length
     ? await db.select({ ustadzId: eventParticipants.ustadzId, eventId: eventParticipants.eventId })
         .from(eventParticipants).where(and(inArray(eventParticipants.ustadzId, matchingProfiles.map((profile) => profile.id)),
           eq(eventParticipants.approvalStatus, "APPROVED")))
@@ -226,12 +250,14 @@ export async function processEventParticipantImportDryRunService(
     const normalizedName = normalizeName(row.fullName || "");
     const normalizedEmail = normalizeEmail(row.email || "");
     const normalizedPhone = normalizePhone(row.phone || "");
-    const normalizedWhatsapp = normalizePhone(row.whatsapp || row.phone || "");
+    const normalizedWhatsapp = normalizePhone(row.whatsapp);
     const identityKeys = participantIdentityKeys(row);
     const candidateProfiles = matchingProfiles.filter((profile) =>
       participantIdentityKeys(profile).some((key) => identityKeys.includes(key)));
     const match = resolveMatchingProfile(candidateProfiles, row);
     const existingInEvent = match.profile ? existingParticipants.find((item) => item.ustadzId === match.profile?.id) : null;
+    const requestedApproval = requestedParticipantApproval(row);
+    const nextApproval = requestedApproval || existingInEvent?.approvalStatus || "PENDING_REVIEW";
     const finalParticipantCode = existingInEvent?.participantCode || buildParticipantCode(eventId, index + 1, usedCodes, row.participantCode);
     let hasError = false;
 
@@ -256,8 +282,7 @@ export async function processEventParticipantImportDryRunService(
       hasError = true;
     }
     if (
-      row.approvalStatus &&
-      !["PENDING_REVIEW", "APPROVED", "WAITLISTED", ""].includes(row.approvalStatus.trim().toUpperCase())
+      requestedApproval && !["PENDING_REVIEW", "APPROVED", "WAITLISTED"].includes(requestedApproval)
     ) {
       errorReport.push({ line, field: "approvalStatus", error: "Status persetujuan harus PENDING_REVIEW, APPROVED, atau WAITLISTED." });
       hasError = true;
@@ -288,6 +313,10 @@ export async function processEventParticipantImportDryRunService(
       errorReport.push({ line, field: "contact", error: "Kontak sudah terkait profil asatidz lain atau lebih dari satu profil. Periksa data induk sebelum impor." });
       hasError = true;
     }
+    if (match.profile && (match.profile.status !== "ACTIVE" || match.profile.deletedAt || match.profile.mergedIntoId)) {
+      errorReport.push({ line, field: "contact", error: "Profil asatidz tidak aktif. Tinjau data induk sebelum impor." });
+      hasError = true;
+    }
     if (match.profile && normalizedEmail && match.profile.email && normalizeEmail(match.profile.email) !== normalizedEmail) {
       errorReport.push({ line, field: "email", error: "Nama dan nomor cocok tetapi email profil lama berbeda. Tinjau profil sebelum mengubah email." });
       hasError = true;
@@ -296,8 +325,14 @@ export async function processEventParticipantImportDryRunService(
       errorReport.push({ line, field: "participantCode", error: `Peserta sudah punya kode ${existingInEvent.participantCode}. Kosongkan kode CSV atau gunakan kode lama agar riwayat kehadiran tetap terhubung.` });
       hasError = true;
     }
-    if (existingInEvent && ["CANCELLED", "REPLACED"].includes(existingInEvent.confirmationStatus)) {
-      errorReport.push({ line, field: "confirmationStatus", error: "Pendaftaran sebelumnya telah dibatalkan/diganti. Hubungi panitia untuk peninjauan sebelum mengaktifkannya kembali." });
+    if (existingInEvent && (!["INVITED", "CONFIRMED"].includes(existingInEvent.confirmationStatus) ||
+      !["PENDING_REVIEW", "WAITLISTED", "APPROVED"].includes(existingInEvent.approvalStatus))) {
+      errorReport.push({ line, field: "approvalStatus", error: "Pendaftaran sebelumnya sudah tidak aktif. Tinjau dari halaman Peserta." });
+      hasError = true;
+    }
+    if (existingInEvent && ((existingInEvent.approvalStatus === "APPROVED" && nextApproval !== "APPROVED") ||
+      (existingInEvent.approvalStatus === "WAITLISTED" && nextApproval === "PENDING_REVIEW"))) {
+      errorReport.push({ line, field: "approvalStatus", error: "Impor tidak dapat membatalkan keputusan lama. Gunakan Kelola status untuk meninjau peserta ini." });
       hasError = true;
     }
 
@@ -310,8 +345,8 @@ export async function processEventParticipantImportDryRunService(
       errorReport.push({ line, field: "institution", error: "Kode dan nama lembaga tidak menunjuk lembaga yang sama." });
       hasError = true;
     }
-    if (row.isDelegationLead && !resolvedInstitution) {
-      errorReport.push({ line, field: "isDelegationLead", error: "Kepala rombongan harus memiliki lembaga yang valid." });
+    if (row.isDelegationLead && !existingInEvent) {
+      errorReport.push({ line, field: "isDelegationLead", error: "CSV tidak membuat akses kepala rombongan. Gunakan undangan lembaga, atau kosongkan kolom ini." });
       hasError = true;
     }
     if ((institutionCode || institutionName) && !resolvedInstitution) {
@@ -322,8 +357,18 @@ export async function processEventParticipantImportDryRunService(
       });
       hasError = true;
     }
+    if (existingInEvent && resolvedInstitution && existingInEvent.institutionId !== resolvedInstitution.id) {
+      errorReport.push({ line, field: "institution", error: "Impor tidak mengganti lembaga peserta yang sudah terdaftar. Periksa data di halaman Peserta." });
+      hasError = true;
+    }
 
-    if (!hasError && existingInEvent && existingInEvent.approvalStatus === normalizeParticipantApprovalStatus(row.approvalStatus) && existingInEvent.confirmationStatus === "CONFIRMED") {
+    const willChangeExisting = existingInEvent && (existingInEvent.approvalStatus !== nextApproval ||
+      Boolean(row.notes?.trim() && row.notes.trim() !== existingInEvent.notes));
+    if (!hasError && willChangeExisting && !access.canUpdate) {
+      errorReport.push({ line, field: "approvalStatus", error: "Akun ini tidak memiliki izin mengubah peserta yang sudah terdaftar." });
+      hasError = true;
+    }
+    if (!hasError && existingInEvent && !willChangeExisting) {
       alreadyImportedCount += 1;
     } else if (!hasError) {
       validRows.push({
@@ -334,14 +379,17 @@ export async function processEventParticipantImportDryRunService(
         normalizedWhatsapp,
         normalizedName,
         resolvedInstitutionId: resolvedInstitution?.id || null,
-        resolvedInstitutionName: resolvedInstitution?.name || null,
+        resolvedInstitutionName: resolvedInstitution?.name || existingInEvent?.institutionName || null,
         finalParticipantCode,
         matchedUstadzId: match.profile?.id || null,
         existingParticipantId: existingInEvent?.id || null,
+        previousApprovalStatus: existingInEvent?.approvalStatus || null,
+        previousConfirmationStatus: existingInEvent?.confirmationStatus || null,
+        currentParticipant: existingInEvent ? { id: existingInEvent.id, updatedAt: existingInEvent.updatedAt.toISOString() } : null,
         action: existingInEvent ? "UPDATE" : "CREATE",
-        previousApprovedEvents: match.profile
-          ? countPreviouslyApprovedEvents(previousApprovals, match.profile.id, eventId) : 0,
-        approvalStatus: normalizeParticipantApprovalStatus(row.approvalStatus),
+        previousApprovedEvents: match.profile && access.canReadCrossEventHistory
+          ? countPreviouslyApprovedEvents(previousApprovals, match.profile.id, eventId) : null,
+        approvalStatus: nextApproval,
       });
     }
   });
@@ -362,14 +410,15 @@ export async function processEventParticipantImportDryRunService(
 export async function commitEventParticipantImportService(
   eventId: string,
   input: { rows: ParticipantImportRowItem[]; approved: boolean },
-  actorUserId?: string,
+  access: ParticipantImportAccess,
   requestId = "req-participant-import",
 ) {
   if (input.approved !== true) {
     throw new ForbiddenError("Impor peserta ditolak karena belum ada persetujuan eksplisit dari admin.");
   }
 
-  const dryRun = await processEventParticipantImportDryRunService(eventId, input.rows);
+  const dryRun = await processEventParticipantImportDryRunService(eventId, input.rows, access);
+  const actorUserId = access.actorUserId;
   if (dryRun.invalidCount > 0 || dryRun.duplicateCount > 0) {
     throw new ValidationError("Masih ada baris invalid atau duplikat. Perbaiki file lalu preview ulang.", {
       errorReport: dryRun.errorReport,
@@ -381,11 +430,13 @@ export async function commitEventParticipantImportService(
   const participantCodes: string[] = [];
   let reusedProfileCount = 0;
   let updatedCount = 0;
+  const notifications = { queued: 0, unavailable: 0, failed: 0 };
+  const emailDispatch: RegistrationEmailDispatch = { jobIds: [] };
   const failureReport: { line: number; participantCode: string; error: string }[] = [];
 
   for (const row of rowsToImport) {
     try {
-      const participantCode = await withTransaction(async (tx) => {
+      const saved = await withTransaction(async (tx) => {
       const lockedEvent = await lockRegistrationEvent(tx, eventId);
       const phones = [...new Set([row.normalizedPhone, row.normalizedWhatsapp].filter((value): value is string => Boolean(value)))];
        const profiles = await tx
@@ -401,6 +452,12 @@ export async function commitEventParticipantImportService(
         throw new ConflictError(`Kontak pada baris ${row.line} sudah terkait profil asatidz lain. Periksa data induk lalu preview ulang.`);
       }
       let profile = profiles[0];
+      if (profile && (profile.profileStatus !== "ACTIVE" || profile.deletedAt || profile.mergedIntoId)) {
+        throw new ConflictError("Profil asatidz tidak aktif. Tinjau data induk sebelum impor.");
+      }
+      if (profile?.email && row.normalizedEmail && normalizeEmail(profile.email) !== row.normalizedEmail) {
+        throw new ConflictError("Email profil berbeda dari CSV. Tinjau profil asatidz dan preview ulang.");
+      }
 
       if (!profile) {
         profile = (
@@ -417,28 +474,13 @@ export async function commitEventParticipantImportService(
             })
             .returning()
         )[0];
-      } else if (
-        (row.normalizedEmail && !profile.email) ||
-        (row.normalizedPhone && !profile.phone) ||
-        (row.normalizedWhatsapp && !profile.whatsapp) ||
-        (row.address?.trim() && !profile.address)
-      ) {
-        profile = (
-          await tx
-            .update(ustadzProfiles)
-            .set({
-              email: profile.email || row.normalizedEmail,
-              phone: profile.phone || row.normalizedPhone,
-              whatsapp: profile.whatsapp || row.normalizedWhatsapp,
-              address: profile.address || row.address?.trim(),
-              updatedAt: new Date(),
-            })
-            .where(eq(ustadzProfiles.id, profile.id))
-            .returning()
-        )[0];
       }
 
-      if (row.resolvedInstitutionId) {
+      // Reusing a profile is not permission to change its master contact data or affiliations.
+      if (row.resolvedInstitutionId && !row.existingParticipantId) {
+        const [institution] = await tx.select({ id: institutions.id }).from(institutions)
+          .where(and(eq(institutions.id, row.resolvedInstitutionId), eq(institutions.status, "ACTIVE"), isNull(institutions.deletedAt))).limit(1);
+        if (!institution) throw new ConflictError("Lembaga pada baris ini tidak lagi aktif. Preview ulang CSV.");
         const affiliation = await tx
           .select({ id: ustadzInstitutionAffiliations.id })
           .from(ustadzInstitutionAffiliations)
@@ -449,7 +491,7 @@ export async function commitEventParticipantImportService(
             ),
           )
           .limit(1);
-        if (!affiliation[0]) {
+        if (!row.matchedUstadzId && !affiliation[0]) {
           await tx.insert(ustadzInstitutionAffiliations).values({
             ustadzId: profile.id,
             institutionId: row.resolvedInstitutionId,
@@ -459,31 +501,34 @@ export async function commitEventParticipantImportService(
         }
       }
 
-       const existingParticipant = row.existingParticipantId
-         ? (await tx.select().from(eventParticipants)
-             .where(and(eq(eventParticipants.id, row.existingParticipantId), eq(eventParticipants.eventId, eventId), eq(eventParticipants.ustadzId, profile.id)))
-             .limit(1))[0]
-         : null;
-       if (row.existingParticipantId && !existingParticipant) throw new ConflictError("Pendaftaran sebelumnya berubah. Preview ulang CSV agar riwayat presensi tidak terputus.");
-       if (existingParticipant && ["CANCELLED", "REPLACED"].includes(existingParticipant.confirmationStatus)) {
-         throw new ConflictError("Pendaftaran sudah dibatalkan/diganti. Panitia harus meninjau perubahan secara manual.");
+       const [existingParticipant] = await tx.select().from(eventParticipants)
+         .where(and(eq(eventParticipants.eventId, eventId), eq(eventParticipants.ustadzId, profile.id))).limit(1).for("update");
+       if ((existingParticipant?.id || null) !== row.existingParticipantId ||
+           (existingParticipant?.approvalStatus || null) !== row.previousApprovalStatus) {
+         throw new ConflictError("Pendaftaran sebelumnya berubah. Preview ulang CSV agar keputusan terbaru tetap terjaga.");
        }
-       const nextApproval = normalizeParticipantApprovalStatus(row.approvalStatus);
-       if (nextApproval === "APPROVED" && existingParticipant?.approvalStatus !== "APPROVED") {
+       if (existingParticipant && (!["INVITED", "CONFIRMED"].includes(existingParticipant.confirmationStatus) || !access.canUpdate)) {
+         throw new ConflictError("Pendaftaran ini tidak dapat diperbarui lewat impor. Tinjau melalui Kelola status.");
+       }
+       if (existingParticipant && (row.expectedParticipant?.id !== existingParticipant.id ||
+           row.expectedParticipant.updatedAt !== existingParticipant.updatedAt.toISOString())) {
+         throw new ConflictError("Peserta lama belum dipreview atau telah berubah. Preview ulang CSV sebelum memperbarui.");
+       }
+       const nextApproval = row.approvalStatus || "PENDING_REVIEW";
+       const newlyApproved = nextApproval === "APPROVED" && existingParticipant?.approvalStatus !== "APPROVED";
+       const now = new Date();
+       if (newlyApproved) {
          await assertRegistrationCapacity(tx, lockedEvent, existingParticipant?.registrationSource || "DIRECT_ADMIN_UPLOAD", 1);
        }
        const created = existingParticipant ? (
          await tx.update(eventParticipants).set({
            approvalStatus: nextApproval,
-           confirmationStatus: "CONFIRMED",
-           ...(existingParticipant.approvalStatus !== nextApproval || existingParticipant.confirmationStatus !== "CONFIRMED"
+           ...(newlyApproved
              ? { qrTokenVersion: sql`${eventParticipants.qrTokenVersion} + 1`, qrIssuedAt: null } : {}),
-           confirmedAt: existingParticipant.confirmedAt || new Date(),
-           approvedAt: nextApproval === "APPROVED" ? existingParticipant.approvedAt || new Date() : existingParticipant.approvedAt,
-           approvedBy: nextApproval === "APPROVED" ? actorUserId || existingParticipant.approvedBy : existingParticipant.approvedBy,
+           ...(newlyApproved ? { approvedAt: now, approvedBy: actorUserId } : {}),
            notes: row.notes?.trim() || existingParticipant.notes,
-           updatedAt: new Date(),
-         }).where(eq(eventParticipants.id, existingParticipant.id)).returning({ participantCode: eventParticipants.participantCode })
+           updatedAt: now,
+         }).where(eq(eventParticipants.id, existingParticipant.id)).returning()
        )[0] : (
          await tx.insert(eventParticipants).values({
              eventId,
@@ -491,37 +536,43 @@ export async function commitEventParticipantImportService(
             institutionId: row.resolvedInstitutionId,
             registrationSource: "DIRECT_ADMIN_UPLOAD",
             participantCode: row.finalParticipantCode,
-            isDelegationLead: Boolean(row.isDelegationLead),
-            confirmationStatus: "CONFIRMED",
-             approvalStatus: nextApproval,
-            confirmedAt: new Date(),
-            approvedAt: normalizeParticipantApprovalStatus(row.approvalStatus) === "APPROVED" ? new Date() : null,
-            approvedBy: normalizeParticipantApprovalStatus(row.approvalStatus) === "APPROVED" ? actorUserId || null : null,
+            // A CSV does not create an invitation or confer delegation access.
+            isDelegationLead: false,
+            confirmationStatus: "INVITED",
+            approvalStatus: nextApproval,
+            approvedAt: newlyApproved ? now : null,
+            approvedBy: newlyApproved ? actorUserId : null,
             notes: row.notes?.trim() || "Import peserta via dashboard admin event.",
-           }).returning({ participantCode: eventParticipants.participantCode })
+           }).returning()
        )[0];
-       if (existingParticipant && existingParticipant.approvalStatus !== nextApproval) {
-         await tx.insert(participantStatusHistories).values({ participantId: existingParticipant.id,
-           statusType: "APPROVAL_STATUS", fromStatus: existingParticipant.approvalStatus, toStatus: nextApproval,
-           reason: row.notes?.trim() || "Status disesuaikan melalui impor peserta event.", changedBy: actorUserId || null });
-       }
-       if (existingParticipant && existingParticipant.confirmationStatus !== "CONFIRMED") {
-         await tx.insert(participantStatusHistories).values({ participantId: existingParticipant.id,
-           statusType: "CONFIRMATION_STATUS", fromStatus: existingParticipant.confirmationStatus, toStatus: "CONFIRMED",
-           reason: "Kehadiran dikonfirmasi melalui impor peserta event; presensi sesi tetap dicatat saat check-in.",
-           changedBy: actorUserId || null });
+       if (existingParticipant ? existingParticipant.approvalStatus !== nextApproval : nextApproval !== "PENDING_REVIEW") {
+         await tx.insert(participantStatusHistories).values({ participantId: created.id,
+           statusType: "APPROVAL_STATUS", fromStatus: existingParticipant?.approvalStatus || null, toStatus: nextApproval,
+           reason: row.notes?.trim() || "Status disesuaikan melalui impor peserta event.", changedBy: actorUserId });
        }
 
-        return created.participantCode;
+        return { participant: created, event: lockedEvent, profile, newlyApproved, isNew: !existingParticipant };
       });
-      participantCodes.push(participantCode);
+      participantCodes.push(saved.participant.participantCode);
       if (row.matchedUstadzId) reusedProfileCount += 1;
       if (row.existingParticipantId) updatedCount += 1;
+      if (saved.newlyApproved || saved.isNew) {
+        try {
+          const queued = saved.newlyApproved ? await queueApprovedParticipantCardEmail(saved.event, saved.participant, emailDispatch)
+            : saved.profile.email ? await queueRegistrationReceivedEmails(saved.event, [{ participantId: saved.participant.id,
+              ustadzName: saved.profile.fullName, email: saved.profile.email, participantCode: saved.participant.participantCode }], emailDispatch) : 0;
+          if (queued > 0) notifications.queued += queued;
+          else notifications.unavailable += 1;
+        } catch (error) {
+          notifications.failed += 1;
+          logError(requestId, "Antrean email impor peserta gagal disimpan", error);
+        }
+      }
     } catch (error) {
       failureReport.push({
         line: row.line,
         participantCode: row.finalParticipantCode,
-        error: error instanceof ConflictError || error instanceof ValidationError
+        error: error instanceof AppError
           ? error.message
           : "Baris gagal disimpan. Periksa data peserta dan coba lagi.",
       });
@@ -529,14 +580,15 @@ export async function commitEventParticipantImportService(
   }
 
   const importedCount = participantCodes.length;
+  await flushRegistrationEmailDispatch(emailDispatch, requestId);
 
   await createAuditLog({
     actorUserId: actorUserId || null,
     action: "EVENT_PARTICIPANTS_IMPORTED",
-    resourceType: "EVENT_PARTICIPANT",
-    resourceId: `event_${eventId}_participant_import`,
+    resourceType: "EVENT",
+    resourceId: eventId,
     eventId,
-    afterData: { importedCount, updatedCount, skippedCount: dryRun.alreadyImportedCount, failedCount: failureReport.length, reusedProfileCount, participantCodes },
+    afterData: { importedCount, updatedCount, skippedCount: dryRun.alreadyImportedCount, failedCount: failureReport.length, reusedProfileCount, participantCodes, notifications },
     reason: `Impor peserta event: ${importedCount} berhasil, ${dryRun.alreadyImportedCount} sudah ada, ${failureReport.length} gagal.`,
     requestId,
   });
@@ -553,6 +605,7 @@ export async function commitEventParticipantImportService(
     participantCodes,
     reusedProfileCount,
     updatedCount,
+    notifications,
   };
 }
 

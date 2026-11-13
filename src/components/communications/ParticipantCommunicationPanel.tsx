@@ -17,7 +17,7 @@ import {
 import {
   buildParticipantEmailUrl,
   buildParticipantMessage,
-  buildWhatsAppUrl,
+  buildParticipantWhatsAppUrl,
   CommunicationSenderRole,
   CommunicationTemplateId,
   getParticipantWhatsAppNumber,
@@ -107,9 +107,11 @@ export const ParticipantCommunicationPanel: React.FC<ParticipantCommunicationPan
   };
 
   const openWhatsApp = () => {
-    const url = buildWhatsAppUrl(participant.whatsapp || participant.phone || "", message);
+    const url = buildParticipantWhatsAppUrl(participant, message);
     if (!url) {
-      setActionError("Nomor WhatsApp belum tersedia atau formatnya belum valid. Perbarui data peserta terlebih dahulu.");
+      setActionError(participant.pendingWhatsapp
+        ? "Ada pengajuan nomor baru. Tinjau dan simpan WhatsApp pada profil sebelum membuka pesan. Email tetap dapat digunakan."
+        : "Nomor WhatsApp belum tersedia atau formatnya belum valid. Perbarui data peserta terlebih dahulu.");
       return;
     }
     window.open(url, "_blank", "noopener,noreferrer");
@@ -245,7 +247,7 @@ export const ParticipantCommunicationPanel: React.FC<ParticipantCommunicationPan
               <dl className="mt-3 space-y-3 text-sm">
                 <div>
                   <dt className="flex items-center gap-2 font-bold text-slate-700"><Phone className="h-4 w-4" /> WhatsApp</dt>
-                  <dd className="mt-1 break-all text-slate-600">{participant.whatsapp || participant.phone || "Belum diisi"}</dd>
+                  <dd className="mt-1 break-all text-slate-600">{participant.pendingWhatsapp ? "Menunggu tinjauan kontak" : participant.whatsapp || participant.phone || "Belum diisi"}</dd>
                 </div>
                 <div>
                   <dt className="flex items-center gap-2 font-bold text-slate-700"><Mail className="h-4 w-4" /> Email</dt>
@@ -257,6 +259,10 @@ export const ParticipantCommunicationPanel: React.FC<ParticipantCommunicationPan
                 </div>
               </dl>
             </div>
+
+            {participant.pendingWhatsapp && <p role="status" className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm leading-5 text-amber-950">
+              Nomor saat mendaftar: <span className="break-all font-bold">+{participant.pendingWhatsapp}</span>. Tinjau dan simpan WhatsApp pada profil dahulu. Email tetap dapat digunakan.
+            </p>}
 
             {!hasAnyContact && (
               <div className="border-l-4 border-amber-500 bg-amber-50 p-3 text-sm leading-5 text-amber-950">
@@ -290,7 +296,7 @@ export const ParticipantCommunicationPanel: React.FC<ParticipantCommunicationPan
               type="button"
               onClick={openWhatsApp}
               disabled={!whatsappNumber}
-              title={!whatsappNumber ? "Nomor WhatsApp peserta belum valid" : undefined}
+              title={participant.pendingWhatsapp ? "Tinjau pengajuan nomor WhatsApp pada profil dahulu" : !whatsappNumber ? "Nomor WhatsApp peserta belum valid" : undefined}
               className="inline-flex min-h-[44px] items-center justify-center gap-2 whitespace-nowrap rounded-lg bg-emerald-700 px-4 text-sm font-bold text-white transition-colors hover:bg-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 active:bg-emerald-900 disabled:cursor-not-allowed disabled:opacity-50"
             >
               <ExternalLink className="h-4 w-4" />

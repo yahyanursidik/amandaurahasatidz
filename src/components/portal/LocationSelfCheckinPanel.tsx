@@ -45,6 +45,8 @@ export function LocationSelfCheckinPanel({ scan, invalidScan, disabled, onScan, 
     } catch (cause) {
       if (cause instanceof EventApiError && cause.status === 409 && cause.message.includes("sudah memiliki catatan")) {
         setError("Kehadiran untuk hari atau sesi ini sudah tercatat. Lihat riwayat di bawah.");
+      } else if (cause instanceof EventApiError && cause.status === 422 && /qr lokasi/i.test(cause.message)) {
+        setError("QR Lokasi tidak berlaku lagi. Setelah masuk, pindai QR terbaru di layar panitia.");
       } else setError(cause instanceof Error ? cause.message : "Kehadiran belum tercatat. Pindai QR terbaru atau hubungi panitia.");
       onScan(null);
     } finally { setBusy(false); }
@@ -54,7 +56,7 @@ export function LocationSelfCheckinPanel({ scan, invalidScan, disabled, onScan, 
     <h2 id="location-self-checkin-title">Check-in mandiri</h2>
     {result ? <div role="status" className="attendance-feedback" data-tone="success"><CheckCircle2 className="mr-2 inline h-5 w-5" aria-hidden="true" />
       {attendanceLabels[result.attendanceStatus] || "Kehadiran"} tercatat · {result.attendanceUnit.title} · {formatEventDateTime(result.checkinAt, result.timezone)} {eventTimezoneLabel(result.timezone)}
-    </div> : <p>Pindai QR yang ditampilkan panitia untuk mencatat kehadiran Anda pada hari atau sesi tersebut.</p>}
+    </div> : <p>Masuk ke portal sebelum memindai QR Lokasi. Jika QR yang dipindai saat belum masuk sudah habis, pindai ulang dari layar panitia.</p>}
     {(error || camera.cameraError || invalidScan && !scan) && <div role="alert" className="attendance-feedback" data-tone="error">
       {error || camera.cameraError || "Tautan QR Lokasi tidak lengkap. Pindai QR terbaru pada layar panitia."}
     </div>}

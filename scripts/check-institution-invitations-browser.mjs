@@ -33,6 +33,7 @@ let invitations = [{ id, invitationType: 'INSTITUTION', institutionId, instituti
   registrationMode: 'DELEGATION', quota: 3, allowGroup: true, registeredCount: 0, status: 'SENT', sentAt: null, respondedAt: null, responseDeadline: event.invitationResponseDeadline }];
 const browserParticipants = [
   { id: 'a0000000-0000-4000-8000-000000000001', ustadzId: ustadz.id, ustadzName: 'Ustadz Reguler',
+    pendingWhatsapp: '62812345678901',
     participantCode: 'P-REG', institutionId, institutionName: institution.name, invitationId: null,
     registrationSource: 'DIRECT_PUBLIC', approvalStatus: 'APPROVED', confirmationStatus: 'CONFIRMED', registeredAt: '2026-01-01T08:00:00Z' },
   { id: 'a0000000-0000-4000-8000-000000000002', ustadzId: ustadz.id, ustadzName: 'Ustadz Delegasi',
@@ -103,6 +104,7 @@ const fixture = {
       }
       else if (route === `/events/${eventId}` || route === `/events/${eventId}/registration-settings`) data = event;
       else if (route === `/events/${eventId}/invitations` && method === 'GET') data = invitations;
+      else if (route.startsWith(`/events/${eventId}/invitations/`) && route.endsWith('/access-code') && method === 'GET') data = { accessCode: 'ABCD-2345' };
       else if (route.startsWith(`/events/${eventId}/invitations/`) && method === 'PATCH') {
         const index = invitations.findIndex((invitation) => invitation.id === route.split('/').at(-1));
         if (index < 0) throw new Error('Missing fixture invitation');
@@ -113,16 +115,20 @@ const fixture = {
         const invitation = { ...body, id: crypto.randomUUID(), institutionName: personal ? null : institution.name,
           ustadzName: personal ? ustadz.fullName : null, ustadzEmail: personal ? ustadz.email : null,
           ustadzWhatsapp: personal ? ustadz.whatsapp : null, status: 'DRAFT', sentAt: null, respondedAt: null };
-        invitations.push(invitation); data = { invitation, publicUrl: personal ? '/invitation/individual/personal' : '/invitation/institution/created' };
+        invitations.push(invitation); data = { invitation, publicUrl: personal ? '/invitation/individual/personal' : '/invitation/institution/created', ...(personal ? {} : { accessCode: 'ABCD-2345' }) };
       } else if (/^\/invitations\/public\/institution\/\w+\/policy$/.test(route)) {
         const token = route.split('/').at(-2);
         data = token === 'managed' ? invitations[0] : { ...invitations[0], quota: 3, allowGroup: true };
       } else if (/^\/invitations\/public\/institution\/\w+$/.test(route)) {
         const token = route.split('/').at(-1);
-        data = { invitation: token === 'managed' ? invitations[0] : { ...invitations[0], quota: 3, allowGroup: true }, institution, event };
+        data = { invitation: token === 'managed' ? invitations[0] : { ...invitations[0], quota: 3, allowGroup: true }, institution: { ...institution, verificationRequired: true }, event };
+      } else if (/^\/invitations\/public\/institution\/\w+\/code\/verify$/.test(route) && method === 'POST') {
+        if (body.code !== 'ABCD-2345') { response.statusCode = 422; data = null; }
+        else data = { verificationToken: 'verified-institution-session', expiresAt: '2099-02-01T00:00:00Z' };
       } else if (/^\/invitations\/public\/institution\/\w+\/response$/.test(route) && method === 'POST') {
+        assert.equal(body.verificationToken, 'verified-institution-session', 'a valid code session is required for submission');
         data = { message: 'Konfirmasi tersimpan', emailQueued: body.delegates.length,
-          participants: body.delegates.map((person, index) => ({ id: `person-${index}`, participantCode: `P-TEST-${index}`, registrationStatusUrl: `/confirm#pcf_fixture${index}.signature`, whatsapp: person.whatsapp })),
+          participants: body.delegates.map((person, index) => ({ id: `person-${index}`, participantCode: `P-TEST-${index}`, approvalStatus: 'PENDING_REVIEW', confirmationStatus: 'INVITED', registrationStatusUrl: `/confirm#prc_fixture${index}.signature`, whatsapp: null })),
           portalAccounts: body.delegates.map((person, index) => ({ participantId: `person-${index}`, participantName: person.fullName, email: person.email, passwordSetupRequired: true, loginUrl: '/login/ustadz' })) };
       } else if (route === '/invitations/public/individual/personal' && method === 'GET') {
         data = { invitation: { invitationNumber: 'PR-01', quota: 1, allowGroup: false, status: 'OPENED', responseDeadline: event.invitationResponseDeadline },
@@ -131,7 +137,7 @@ const fixture = {
         data = { invitationNumber: 'PR-01', quota: 1, allowGroup: false, status: 'OPENED', responseDeadline: event.invitationResponseDeadline };
       } else if (route === '/invitations/public/individual/personal/response' && method === 'POST') {
         data = { message: 'Konfirmasi tersimpan', emailQueued: 1,
-          participants: [{ id: 'personal-person', participantCode: 'P-PERSONAL', registrationStatusUrl: '/confirm#pcf_personal.signature', whatsapp: body.delegates[0].whatsapp }],
+          participants: [{ id: 'personal-person', participantCode: 'P-PERSONAL', approvalStatus: 'PENDING_REVIEW', confirmationStatus: 'INVITED', registrationStatusUrl: '/confirm#prc_personal.signature', whatsapp: null }],
           portalAccounts: [{ participantId: 'personal-person', participantName: ustadz.fullName, email: body.delegates[0].email, passwordSetupRequired: true, loginUrl: '/login/ustadz' }] };
       } else { failures.push(`Unexpected fixture ${method} ${route}`); response.statusCode = 404; data = null; }
       response.setHeader('Content-Type', 'application/json'); response.end(JSON.stringify({ data, error: data === null ? { message: 'Unexpected test route' } : null }));
@@ -190,9 +196,21 @@ try {
     const result = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true });
     const target = path.join(artifactRoot, `institution-invitation-${name}.png`); await writeFile(target, Buffer.from(result.data, 'base64')); screenshots.push(target);
   };
+  const verifyInstitution = async () => {
+    await until(`document.querySelector('#institution-access-code')`, 'institution code verification appears');
+    const responses = requests.filter((item) => item.route.endsWith('/response')).length;
+    assert.equal(await evaluate(`!!document.querySelector('.public-receipt')`), false);
+    await fill('#institution-access-code', 'ABCD-2345');
+    await click('Verifikasi kode');
+    await until(`!document.querySelector('#institution-access-code')`, 'verified institution code gate clears');
+    assert.equal(requests.filter((item) => item.route.endsWith('/response')).length, responses, 'verification itself never registers a participant');
+  };
   await send('Runtime.enable'); await send('Page.enable');
   await navigate('mode=admin');
   await until(`document.querySelector('article h2')?.textContent===${JSON.stringify(institution.name)}`, 'admin invitation list', 300);
+  await click('Lihat kode unik');
+  await until(`document.body.textContent.includes('ABCD-2345')`, 'existing invitation code is visible without rotating the link');
+  assert.equal(requests.filter((item) => item.method === 'POST').length, 0, 'viewing code does not rotate or recreate the invitation');
   await clickLink('Edit undangan');
   await until(`document.querySelector('form[aria-label="Edit undangan lembaga"]')`, 'edit form');
   await checkWidths('dedicated editor'); await screenshot('editor-desktop');
@@ -213,7 +231,8 @@ try {
   await click('Buat tautan undangan');
   await until(`document.querySelector('h2')?.textContent.includes('tersimpan')`, 'new invitation saved');
   assert.equal(requests.filter((item) => item.method === 'POST').length, 1, 'one create request');
-  assert.equal(await evaluate(`document.body.textContent.includes('Kode unik lembaga')`), false, 'no unused code verification UI');
+  assert.equal(await evaluate(`document.body.textContent.includes('Kode unik lembaga')`), true, 'admin receives the institution code beside the link');
+  await checkWidths('created code and share'); await screenshot('created-code');
 
   // Reproduce the reported limit explicitly, through the real admin editor and
   // public page backed by the same invitation (not the event's default quota).
@@ -227,6 +246,7 @@ try {
   await until(`document.querySelector('[role="status"]')?.textContent.includes('berhasil diperbarui')`, 'quota two saved');
   assert.equal(requests.filter((item) => item.method === 'PATCH').at(-1).body.quota, 2);
   await navigate('token=managed');
+  await verifyInstitution();
   await until(`document.querySelector('form[aria-label="Formulir konfirmasi undangan"]')`, 'public quota two form');
   assert.equal(await evaluate(`document.body.textContent.includes('Maksimal 2 orang termasuk peserta utama')`), true, 'saved invitation quota is shown publicly');
   assert.equal(await evaluate(`document.querySelectorAll('[data-delegate]').length`), 1, 'unchecked group keeps only the main participant');
@@ -251,11 +271,13 @@ try {
   await click('Simpan perubahan');
   await until(`document.querySelector('[role="status"]')?.textContent.includes('berhasil diperbarui')`, 'single participant policy saved');
   await navigate('token=managed');
+  await verifyInstitution();
   await until(`document.querySelector('form[aria-label="Formulir konfirmasi undangan"]')`, 'single-delegate form');
   assert.equal(await evaluate(`document.body.textContent.includes('Saya membawa rombongan')`), false, 'admin group policy reaches public form');
   assert.equal(await evaluate(`document.body.textContent.includes('Nama lembaga/komunitas')`), false, 'institution is not requested twice');
   await checkWidths('single-delegate'); await screenshot('public-single');
   await navigate('token=group');
+  await verifyInstitution();
   await until(`document.querySelector('input[aria-controls="invitation-delegates"]')`, 'group toggle');
   await evaluate(`document.querySelector('input[aria-controls="invitation-delegates"]').click()`);
   await click('Tambah peserta'); await click('Tambah peserta');
@@ -278,11 +300,14 @@ try {
   await screenshot('public-mobile');
   await click('Kirim konfirmasi');
   await until(`document.querySelector('.public-receipt')`, 'registration receipt');
+  assert.equal(await evaluate(`new URL(document.querySelector('.public-receipt a[href*="/confirm#"]')?.href || location.href).hash.startsWith('#prc_')`), true, 'public form shares a read-only receipt, not a decision bearer');
+  assert.equal(await evaluate(`document.querySelector('.public-receipt')?.innerHTML.includes('pcf_')`), false);
   const accepted = requests.find((item) => item.route.endsWith('/group/response'));
   assert.equal(accepted.body.delegates.length, 1); assert.equal(accepted.body.delegates[0].isLead, true);
   assert.equal('institutionName' in accepted.body, false, 'linked master identity is not resubmitted');
   assert.equal(accepted.body.delegates[0].phone, null, 'empty optional phone is not sent as invalid empty string');
   await navigate('token=decline');
+  await verifyInstitution();
   await until(`document.querySelector('input[value="DECLINED"]')`, 'decline response');
   await evaluate(`document.querySelector('input[value="DECLINED"]').click()`);
   assert.equal(await evaluate(`document.querySelectorAll('[data-delegate]').length`), 0);
@@ -381,6 +406,7 @@ try {
   await screenshot('personal-public-mobile');
   await click('Kirim konfirmasi');
   await until(`document.querySelector('.public-receipt')`, 'personal registration receipt');
+  assert.equal(await evaluate(`new URL(document.querySelector('.public-receipt a[href*="/confirm#"]')?.href || location.href).hash.startsWith('#prc_')`), true, 'individual receipt does not grant a decision capability');
   assert.equal(await evaluate(`!!document.querySelector('.public-receipt [aria-label^="QR presensi"]')`), false);
   await screenshot('personal-receipt');
   const personalResponse = requests.find((item) => item.route === '/invitations/public/individual/personal/response');
@@ -389,6 +415,7 @@ try {
   commandParticipant = null;
   await navigate('mode=participant');
   await until(`document.querySelectorAll('.event-participants-table tbody tr').length===3`, 'participant route list');
+  assert.equal(await evaluate(`document.querySelector('.event-participants-table tbody tr')?.textContent.includes('Nomor saat mendaftar: +62812345678901')`), true, 'pending contact proposal can be reviewed by an operator');
   assert.equal(await evaluate(`document.body.textContent.includes('Pendaftaran publik') && document.body.textContent.includes('Undangan lembaga') && document.body.textContent.includes('Undangan pribadi')`), true);
   assert.equal(await evaluate(`document.body.textContent.includes('Persetujuan massal peserta')`), false, 'hide inactive bulk approval controls');
   assert.equal(await evaluate(`document.querySelector('.event-participants-table tbody tr:nth-child(2) a[href*="invitationId="]')?.getAttribute('href').includes('invitationId=${id}')`), true, 'delegation links to its exact invitation');
@@ -417,6 +444,7 @@ try {
   assert.equal(requests.filter((item) => item.method === 'PATCH').at(-1).body.registrationMode, 'INDIVIDUAL_SELF');
   assert.equal(invitations[0].status, 'OPENED'); assert.equal(invitations[0].quota, 15);
   await navigate('token=managed');
+  await verifyInstitution();
   await until(`document.querySelector('form[aria-label="Formulir konfirmasi undangan"]')`, 'converted public form');
   assert.equal(await evaluate(`document.body.textContent.includes('pendaftaran mandiri')`), true);
   assert.equal(await evaluate(`document.body.textContent.includes('Saya membawa rombongan')`), false);

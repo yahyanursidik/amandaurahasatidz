@@ -20,6 +20,10 @@ export function registrationStage(state: RegistrationState) {
 
 export const isAttendanceQrEligible = (state: RegistrationState) => registrationStage(state) === "READY";
 
+/** A waiting lead can still prepare a roster; a withdrawn or rejected lead cannot access it. */
+export const isActiveDelegationRegistration = (state: RegistrationState) =>
+  !["INACTIVE", "DECLINED"].includes(registrationStage(state));
+
 export const registrationStageCopy: Record<ReturnType<typeof registrationStage>, { label: string; next: string }> = {
   PENDING_REVIEW: { label: "Menunggu persetujuan panitia", next: "Pendaftaran sudah tersimpan. QR presensi belum diterbitkan. Buka kembali status setelah mendapat kabar dari panitia." },
   REVIEWING_CONFIRMATION: { label: "Konfirmasi tersimpan, menunggu peninjauan", next: "Panitia masih meninjau pendaftaran. QR presensi belum diterbitkan." },

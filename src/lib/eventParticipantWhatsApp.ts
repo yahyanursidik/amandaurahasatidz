@@ -32,6 +32,7 @@ export type WhatsAppWizardRecipient = {
   confirmationStatus?: string;
   confirmationAvailable?: boolean;
   sharedNumber?: boolean;
+  needsContactReview?: boolean;
   registrationStatusUrl?: string | null;
 };
 export type EventWhatsAppContext = {

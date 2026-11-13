@@ -6,6 +6,7 @@ export type ParticipantContact = {
   email?: string | null;
   phone?: string | null;
   whatsapp?: string | null;
+  pendingWhatsapp?: string | null;
   address?: string | null;
   participantCode?: string | null;
   institutionName?: string | null;
@@ -140,7 +141,14 @@ export function normalizeWhatsAppNumber(value?: string | null): string | null {
 }
 
 export function getParticipantWhatsAppNumber(participant: ParticipantContact) {
+  if (participant.pendingWhatsapp) return null;
   return normalizeWhatsAppNumber(participant.whatsapp || participant.phone);
+}
+
+/** Honor event contact review at composition time, including any telephone fallback. */
+export function buildParticipantWhatsAppUrl(participant: ParticipantContact, message: string) {
+  const number = getParticipantWhatsAppNumber(participant);
+  return number ? buildWhatsAppUrl(number, message) : null;
 }
 
 export function getMissingParticipantContactFields(participant: ParticipantContact) {

@@ -72,6 +72,7 @@ export interface SendEmailResult {
   messageId?: string;
   error?: string;
   retryable?: boolean;
+  deliveryUncertain?: boolean;
 }
 
 export async function sendEmailViaSMTP(options: SendEmailOptions): Promise<SendEmailResult> {
@@ -101,12 +102,13 @@ export async function sendEmailViaSMTP(options: SendEmailOptions): Promise<SendE
       html: options.htmlBody,
     });
 
-    logInfo(reqId, `Email terkirim ke ${options.to} | MessageId: ${info.messageId}`);
+    logInfo(reqId, "Penyedia SMTP menerima email.");
     return { success: true, messageId: info.messageId };
 
   } catch (err: any) {
-    logError(reqId, `Gagal mengirim email ke ${options.to}`, err);
-    return { success: false, error: err.message || "SMTP send failed" };
+    logError(reqId, "SMTP gagal menyelesaikan pengiriman.");
+    const rejected = typeof err.responseCode === "number" && err.responseCode >= 400;
+    return { success: false, deliveryUncertain: !rejected, error: "SMTP gagal menyelesaikan pengiriman." };
   }
 }
 

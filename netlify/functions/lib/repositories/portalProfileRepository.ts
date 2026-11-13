@@ -1,6 +1,7 @@
 import { and, eq, getTableColumns, isNull, sql } from "drizzle-orm";
 import { getDbClient } from "../db/client";
 import { ustadzProfiles, users } from "../db/schema";
+import { resolveWhatsAppProposalsForProfileSql } from "../services/participantContactReview";
 
 // Session email and cached profile IDs are deliberately not ownership authorities.
 export function portalProfileOwnership(userId: string) {
@@ -31,6 +32,9 @@ export async function updateOwnPortalProfileRepository(
   const assignments = Object.entries(values).filter(([, value]) => value !== undefined).map(([key, value]) =>
     sql`${sql.identifier(columns[key as keyof typeof columns].name)} = ${value}`);
   const jsonFields = Object.entries(columns).flatMap(([key, column]) => [sql`${key}::text`, sql`p.${sql.identifier(column.name)}`]);
+  const contactReview = changes.whatsapp !== undefined ? sql`, resolved_whatsapp AS (
+    ${resolveWhatsAppProposalsForProfileSql(sql`updated_profile`, userId)}
+  )` : sql``;
   // One PostgreSQL statement is atomic on Neon HTTP (no interactive transaction fallback).
   // Linking a safe legacy fallback makes future contact-email edits independent of login email.
   const result = await db.execute(sql`
@@ -45,7 +49,7 @@ export async function updateOwnPortalProfileRepository(
       UPDATE ${users} SET name = p.full_name, updated_at = now()
       FROM updated_profile p WHERE ${users.id} = ${userId}::uuid
       RETURNING ${users.id}
-    )
+    )${contactReview}
     SELECT jsonb_build_object(${sql.join(jsonFields, sql`, `)}) AS profile
     FROM updated_profile p JOIN updated_user u ON u.id = p.user_id
   `);

@@ -86,12 +86,13 @@ export async function sendEmailViaMailketing(options: SendEmailOptions): Promise
     });
     const body = await response.json().catch(() => null) as { success?: boolean; message?: string; data?: { message_id?: string; id?: string } } | null;
     if (!response.ok || body?.success !== true) {
-      return { success: false, retryable: response.status === 429 || response.status >= 500,
+      return { success: false, retryable: response.status === 429,
+        deliveryUncertain: response.status >= 500 || (response.ok && body?.success !== false),
         error: response.ok ? "Mailketing belum menerima email. Periksa konfigurasi pengirim dan format pesan." : mailketingSendError(response.status) };
     }
     return { success: true, messageId: body?.data?.message_id || body?.data?.id };
   } catch (error) {
-    return { success: false, retryable: true, error: error instanceof Error && error.name === "AbortError" ? "Mailketing tidak merespons dalam 12 detik." : "Koneksi ke Mailketing gagal." };
+    return { success: false, deliveryUncertain: true, error: error instanceof Error && error.name === "AbortError" ? "Mailketing tidak merespons dalam 12 detik." : "Koneksi ke Mailketing gagal." };
   } finally {
     clearTimeout(timeout);
   }

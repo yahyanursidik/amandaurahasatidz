@@ -10,11 +10,10 @@ import { createAuditLog } from "./auditService";
 import { resolveRegistrationInstitution } from "./registrationInstitutionService";
 import { queueRegistrationReceivedEmails } from "./participantCardEmailService";
 import { logError } from "../utils/logger";
-import { hashPassword } from "../utils/password";
-import { canIssueImmediatePassword, generateMemorableTemporaryPassword } from "../utils/memorablePassword";
 import { lockRegistrationEvent, assertRegistrationCapacity } from "./registrationCapacity";
 import { initialParticipantReviewState } from "./registrationReviewState";
-import { registrationStatusPath } from "./participantConfirmationLink";
+import { registrationReceiptPath } from "./participantConfirmationLink";
+import { recordWhatsAppProposal } from "./participantContactReview";
 
 type PublicRegistrationInput = {
   fullName: string;
@@ -109,6 +108,9 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
       const profiles = profileRows.filter((item) => item.email === person.email);
       if (profiles.length > 1) throw new ConflictError(`Email ${person.email} terhubung ke beberapa profil. Hubungi panitia.`);
       const profile = profiles[0];
+      if (profile && (profile.profileStatus !== "ACTIVE" || profile.deletedAt || profile.mergedIntoId)) {
+        throw new ConflictError("Profil pendaftar tidak aktif. Hubungi panitia agar data dapat diperiksa.");
+      }
       if (profile && normalizeName(profile.fullName) !== normalizeName(person.fullName)) {
         throw new ConflictError(`Nama untuk ${person.email} tidak cocok dengan profil yang sudah ada. Hubungi panitia.`);
       }
@@ -136,11 +138,9 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
     const registered = [];
     for (const [index, entry] of existing.entries()) {
       const { person } = entry;
-      // Never issue or reset a password for an identity that existed before this public submission.
-      const temporaryPassword = canIssueImmediatePassword(Boolean(entry.user), Boolean(entry.profile))
-        ? generateMemorableTemporaryPassword() : null;
+      // Public submissions do not prove ownership, even for a new email address.
       const user = entry.user || (await tx.insert(users).values({ email: person.email, name: person.fullName,
-        ...(temporaryPassword ? { passwordHash: hashPassword(temporaryPassword) } : {}), status: "ACTIVE" }).returning())[0];
+        status: "ACTIVE" }).returning())[0];
       let profile = entry.profile;
       if (!profile) {
         profile = (await tx.insert(ustadzProfiles).values({
@@ -173,10 +173,11 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
         publicGroupId, isDelegationLead: Boolean(publicGroupId && index === 0), participantCode,
         ...initialParticipantReviewState(currentEvent.attendanceConfirmationRequired),
       }).returning())[0];
+      if (entry.profile) await recordWhatsAppProposal(tx, participant.id, person.whatsapp, entry.profile.whatsapp);
       registered.push({ participantId: participant.id, fullName: person.fullName, email: person.email, whatsapp: person.whatsapp,
-        participantCode, registrationStatusUrl: registrationStatusPath(participant, currentEvent.endDate),
+        participantCode, registrationStatusUrl: registrationReceiptPath(participant, currentEvent.endDate),
         approvalStatus: participant.approvalStatus, confirmationStatus: participant.confirmationStatus, passwordSetupRequired: !user.passwordHash,
-        temporaryPassword, temporaryPasswordIssued: Boolean(temporaryPassword) });
+        temporaryPassword: null, temporaryPasswordIssued: false });
     }
     return {
       participantCode: registered[0].participantCode,
@@ -211,7 +212,7 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
     participants: result.participants.map(({ fullName, email, whatsapp, participantCode, approvalStatus, confirmationStatus, registrationStatusUrl, passwordSetupRequired, temporaryPassword, temporaryPasswordIssued }) => ({
       fullName, email, whatsapp, participantCode, approvalStatus, confirmationStatus, registrationStatusUrl,
       passwordSetupRequired, temporaryPassword, temporaryPasswordIssued,
-      confirmationUrl: event.attendanceConfirmationRequired ? registrationStatusUrl : null,
+      confirmationUrl: null,
     })),
     emailQueued,
   };

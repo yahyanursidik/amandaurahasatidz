@@ -1,6 +1,6 @@
 import { buildParticipantEmailUrl, buildWhatsAppUrl, normalizeWhatsAppNumber } from "./participantCommunication";
 import { registrationStage, registrationStageCopy } from "./registrationStatus";
-import { registrationStatusHref } from "./registrationStatusLink";
+import { registrationReceiptHref } from "./registrationStatusLink";
 
 export type ParticipantShareDetails = {
   participantId: string;
@@ -25,21 +25,14 @@ export type ParticipantShareDetails = {
 };
 
 export function participantCardShareUrl(details: ParticipantShareDetails, origin: string) {
-  if (details.eventOpen === false || registrationStage(details) !== "READY"
-    || !details.qrToken?.startsWith("pqr_") || !details.cardUrl) return null;
-  try {
-    const url = new URL(details.cardUrl, origin);
-    if (url.origin !== new URL(origin).origin || url.pathname !== "/card"
-      || url.searchParams.get("token") !== details.qrToken) return null;
-    return url.toString();
-  } catch {
-    return null;
-  }
+  // Legacy browser payloads are not authority to distribute attendance credentials.
+  void details; void origin;
+  return null;
 }
 
 function participantRegistrationStatusUrl(details: ParticipantShareDetails, origin: string) {
   if (["INACTIVE", "DECLINED"].includes(registrationStage(details))) return null;
-  return registrationStatusHref(details.registrationStatusUrl || details.confirmationUrl, origin);
+  return registrationReceiptHref(details.registrationStatusUrl, origin);
 }
 
 export function buildParticipantRegistrationMessage(details: ParticipantShareDetails, origin: string) {
@@ -60,8 +53,8 @@ export function buildParticipantRegistrationMessage(details: ParticipantShareDet
     ...(details.venueName ? [`Lokasi: ${details.venueName}`] : []),
     "",
     copy.next,
-    ...(statusUrl ? ["Lihat status pendaftaran (tanpa login):", statusUrl] : []),
-    ...(cardUrl ? ["Simpan QR presensi:", cardUrl] : []),
+    ...(statusUrl ? ["Lihat bukti dan status pendaftaran:", statusUrl,
+      "Konfirmasi atau QR tersedia melalui Portal Asatidz atau tautan yang diminta ke email peserta."] : []),
     ...(statusUrl || cardUrl ? ["Jangan teruskan tautan pribadi ini kepada orang lain."] : []),
     "",
     "Jazakumullahu khairan.",
@@ -75,7 +68,7 @@ export function buildParticipantRegistrationShareLinks(details: ParticipantShare
   const message = buildParticipantRegistrationMessage(details, origin);
   return {
     message,
-    whatsappUrl: buildWhatsAppUrl(normalizeWhatsAppNumber(details.whatsapp) || normalizeWhatsAppNumber(details.phone) || "", message),
+    whatsappUrl: normalizeWhatsAppNumber(details.whatsapp) ? buildWhatsAppUrl(normalizeWhatsAppNumber(details.whatsapp)!, message) : null,
     // Restrict legacy addresses before constructing mailto to prevent injected headers.
     emailUrl: details.email && !/[?#&%\s]/.test(details.email)
       ? buildParticipantEmailUrl(details.email, `Kode pendaftaran ${details.eventName} — ${details.participantCode}`.replace(/[\uD800-\uDFFF]/g, ""), message) : null,

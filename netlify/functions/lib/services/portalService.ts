@@ -1,4 +1,4 @@
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
 import { getDbClient } from "../db/client";
 import {
   attendanceRecords,
@@ -17,6 +17,8 @@ import { replacePortalDelegationMemberTxRepository } from "../repositories/parti
 import { findOwnPortalProfileRepository, portalProfileOwnership } from "../repositories/portalProfileRepository";
 import { portalProfileResponse } from "./portalProfileService";
 import { updateParticipantStatusService } from "./participantService";
+import { buildRequiredAttendanceUnits, eventCalendarDate, isAttendanceEventOpen, type AttendanceMode } from "./attendanceModel";
+import { isActiveDelegationRegistration } from "../../../../src/lib/registrationStatus";
 
 function ownParticipantCondition(userId: string, ustadzId: string) {
   return and(eq(eventParticipants.ustadzId, ustadzId), sql`${eventParticipants.ustadzId} IN
@@ -77,6 +79,8 @@ export async function getPortalOverviewService(userId: string, email: string) {
         eventName: events.name,
         eventSubtitle: events.subtitle,
         eventStatus: events.status,
+        archivedAt: events.archivedAt,
+        attendanceMode: events.attendanceMode,
         timezone: events.timezone,
         posterUrl: events.posterUrl,
         posterAlt: events.posterAlt,
@@ -99,7 +103,7 @@ export async function getPortalOverviewService(userId: string, email: string) {
 
   const participantIds = participationRows.map((item) => item.participantId);
   const eventIds = participationRows.map((item) => item.eventId);
-  const [attendanceRows, sessionRows] = await Promise.all([
+  const [attendanceRows, sessionRows, dayRows] = await Promise.all([
     participantIds.length
       ? db
           .select({
@@ -139,12 +143,17 @@ export async function getPortalOverviewService(userId: string, email: string) {
             room: eventSessions.room,
             attendanceRequired: eventSessions.attendanceRequired,
             checkinRequired: eventSessions.checkinRequired,
+            checkinOpenAt: eventSessions.checkinOpenAt,
+            checkinCloseAt: eventSessions.checkinCloseAt,
           })
           .from(eventSessions)
           .innerJoin(eventDays, eq(eventSessions.eventDayId, eventDays.id))
           .where(inArray(eventDays.eventId, eventIds))
           .orderBy(asc(eventSessions.startAt))
       : Promise.resolve([]),
+    eventIds.length ? db.select({ id: eventDays.id, eventId: eventDays.eventId, dayNumber: eventDays.dayNumber,
+      date: eventDays.date, checkinOpenAt: eventDays.checkinOpenAt, checkinCloseAt: eventDays.checkinCloseAt,
+    }).from(eventDays).where(inArray(eventDays.eventId, eventIds)) : Promise.resolve([]),
   ]);
 
   const profile = profileRows[0];
@@ -158,13 +167,18 @@ export async function getPortalOverviewService(userId: string, email: string) {
       affiliations: affiliationRows,
       primaryInstitution: primaryAffiliation,
     },
-    participations: participationRows.map((participation) => ({
-      ...participation,
-      sessions: sessionRows.filter((session) => session.eventId === participation.eventId),
-      attendance: attendanceRows.filter(
-        (attendance) => attendance.participantId === participation.participantId,
-      ),
-    })),
+    participations: participationRows.map(({ attendanceMode, ...participation }) => {
+      const sessions = sessionRows.filter((session) => session.eventId === participation.eventId);
+      const attendanceQrWindows = buildRequiredAttendanceUnits(attendanceMode as AttendanceMode,
+        dayRows.filter((day) => day.eventId === participation.eventId), sessions.map((session) => ({
+          ...session, eventDayId: session.dayId,
+        })), participation.timezone)
+        .filter((unit) => unit.qrEnabled && eventCalendarDate(unit.endsAt, participation.timezone) > participation.endDate)
+        .map((unit) => ({ openAt: unit.openAt, closeAt: unit.endsAt }));
+      return { ...participation, attendanceQrWindows, sessions,
+        attendance: attendanceRows.filter((record) => record.participantId === participation.participantId),
+      };
+    }),
   };
 }
 
@@ -221,7 +235,11 @@ export async function getPortalDelegationService(
       institutionId: eventParticipants.institutionId,
       isDelegationLead: eventParticipants.isDelegationLead,
       confirmationStatus: eventParticipants.confirmationStatus,
+      approvalStatus: eventParticipants.approvalStatus,
       eventName: events.name,
+      status: events.status, archivedAt: events.archivedAt, endDate: events.endDate, timezone: events.timezone,
+      eventResponseDeadline: events.invitationResponseDeadline, responseDeadline: invitations.responseDeadline,
+      invitationStatus: invitations.status, invitationMode: invitations.registrationMode,
       institutionName: institutions.name,
       quota: invitations.quota,
     })
@@ -238,9 +256,12 @@ export async function getPortalDelegationService(
     .limit(1);
   const actor = actorRows[0];
   if (!actor) throw new NotFoundError("Kepesertaan kepala rombongan tidak ditemukan.");
-  if (!actor.isDelegationLead || !actor.invitationId || !actor.institutionId) {
-    throw new ForbiddenError("Akun ini bukan kepala rombongan untuk delegasi yang dipilih.");
+  if (!actor.isDelegationLead || !actor.invitationId || !actor.institutionId || !isActiveDelegationRegistration(actor) ||
+    !isAttendanceEventOpen(actor) || actor.invitationStatus === "REVOKED" || actor.invitationMode === "INDIVIDUAL_SELF") {
+    throw new ForbiddenError("Akses rombongan hanya tersedia bagi kepala rombongan dengan pendaftaran dan event aktif.");
   }
+  const deadline = actor.responseDeadline || actor.eventResponseDeadline;
+  const canManage = !deadline || deadline >= new Date();
 
   const members = await db
     .select({
@@ -250,7 +271,6 @@ export async function getPortalDelegationService(
       email: ustadzProfiles.email,
       phone: ustadzProfiles.phone,
       whatsapp: ustadzProfiles.whatsapp,
-      address: ustadzProfiles.address,
       isDelegationLead: eventParticipants.isDelegationLead,
       confirmationStatus: eventParticipants.confirmationStatus,
       approvalStatus: eventParticipants.approvalStatus,
@@ -263,7 +283,8 @@ export async function getPortalDelegationService(
         eq(eventParticipants.eventId, actor.eventId),
         eq(eventParticipants.institutionId, actor.institutionId),
         eq(eventParticipants.invitationId, actor.invitationId),
-        inArray(eventParticipants.confirmationStatus, ["INVITED", "CONFIRMED", "APPROVED"]),
+        notInArray(eventParticipants.confirmationStatus, ["CANCELLED", "REPLACED"]),
+        notInArray(eventParticipants.approvalStatus, ["CANCELLED", "DECLINED", "REJECTED"]),
       ),
     )
     .orderBy(desc(eventParticipants.isDelegationLead), asc(ustadzProfiles.fullName));
@@ -283,10 +304,11 @@ export async function getPortalDelegationService(
     institutionId: actor.institutionId,
     institutionName: actor.institutionName,
     quota: actor.quota || members.length,
+    canManage,
     members: members.map((member) => ({
       ...member,
       hasCheckedIn: checkedInIds.has(member.participantId),
-      canReplace: !member.isDelegationLead && !checkedInIds.has(member.participantId),
+      canReplace: canManage && !member.isDelegationLead && !checkedInIds.has(member.participantId),
     })),
   };
 }
@@ -299,10 +321,14 @@ export async function getPortalPublicGroupService(userId: string, email: string,
     publicGroupId: eventParticipants.publicGroupId,
     isDelegationLead: eventParticipants.isDelegationLead,
     eventName: events.name,
+    approvalStatus: eventParticipants.approvalStatus, confirmationStatus: eventParticipants.confirmationStatus,
+    status: events.status, archivedAt: events.archivedAt, endDate: events.endDate, timezone: events.timezone,
   }).from(eventParticipants)
     .innerJoin(events, eq(eventParticipants.eventId, events.id))
     .where(and(eq(eventParticipants.id, actorParticipantId), ownParticipantCondition(userId, ustadzId))).limit(1))[0];
-  if (!actor?.publicGroupId || !actor.isDelegationLead) throw new ForbiddenError("Hanya kepala rombongan yang dapat melihat anggota rombongan ini.");
+  if (!actor?.publicGroupId || !actor.isDelegationLead || !isActiveDelegationRegistration(actor) || !isAttendanceEventOpen(actor)) {
+    throw new ForbiddenError("Akses rombongan hanya tersedia bagi kepala rombongan dengan pendaftaran dan event aktif.");
+  }
   const members = await db.select({
     participantId: eventParticipants.id,
     participantCode: eventParticipants.participantCode,
@@ -315,7 +341,9 @@ export async function getPortalPublicGroupService(userId: string, email: string,
     registeredAt: eventParticipants.createdAt,
   }).from(eventParticipants)
     .innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
-    .where(and(eq(eventParticipants.eventId, actor.eventId), eq(eventParticipants.publicGroupId, actor.publicGroupId)))
+    .where(and(eq(eventParticipants.eventId, actor.eventId), eq(eventParticipants.publicGroupId, actor.publicGroupId),
+      notInArray(eventParticipants.confirmationStatus, ["CANCELLED", "REPLACED"]),
+      notInArray(eventParticipants.approvalStatus, ["CANCELLED", "DECLINED", "REJECTED"])))
     .orderBy(desc(eventParticipants.isDelegationLead), asc(ustadzProfiles.fullName));
   const attendance = members.length ? await db.select({ participantId: attendanceRecords.participantId }).from(attendanceRecords)
     .where(inArray(attendanceRecords.participantId, members.map((member) => member.participantId))) : [];

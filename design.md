@@ -34,6 +34,7 @@ Modern-minimal, tenang, jelas, dan hormat. Kalimat operasional yang langsung men
 - Navigasi menunjukkan konteks jalur masuk saat ini; jangan mencampur pilihan ketiga portal di satu halaman login.
 - Setiap program memakai poster sendiri bila disediakan, atau gambar interior perpustakaan bawaan tanpa figur.
 - Jalur reguler dan undangan harus diberi label berbeda. Jangan menjanjikan kursi sampai persetujuan admin/panitia.
+- Tautan bukti bersifat baca-saja. Konfirmasi, pengunduran diri, dan QR hanya lewat Portal Asatidz atau tautan akses pribadi 30 menit yang dikirim server ke email peserta. Jangan menaruh akses keputusan atau sandi dalam formulir publik, draf WhatsApp, atau penyimpanan browser.
 - Satu akun asatidz dapat memiliki beberapa kepesertaan di program yang berbeda; dalam satu program hanya satu kepesertaan aktif per profil.
 - Tanggal dan waktu event mengikuti zona event (WIB/WITA/WIT), bukan zona komputer admin. Ringkasan tidak menyembunyikan tindakan penting di balik dekorasi.
 

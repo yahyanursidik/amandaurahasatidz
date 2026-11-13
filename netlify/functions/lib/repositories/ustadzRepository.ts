@@ -14,6 +14,8 @@ import {
 } from "../db/schema";
 import { eq, ilike, and, or, isNull, isNotNull, count, countDistinct, desc, inArray, sql, getTableColumns } from "drizzle-orm";
 import { normalizeName, normalizeEmail, normalizePhone } from "../utils/normalization";
+import { resolveWhatsAppProposalsForProfileSql } from "../services/participantContactReview";
+import { participantCheckinBlockReason } from "../services/deadlineService";
 import {
   AttendanceMode,
   buildRequiredAttendanceUnits,
@@ -248,6 +250,7 @@ export async function findUstadzByIdRepository(id: string) {
       eventStartDate: events.startDate,
       eventEndDate: events.endDate,
       attendanceMode: events.attendanceMode,
+      attendanceConfirmationRequired: events.attendanceConfirmationRequired,
       timezone: events.timezone,
     })
     .from(eventParticipants)
@@ -274,6 +277,8 @@ export async function findUstadzByIdRepository(id: string) {
           startAt: eventSessions.startAt,
           endAt: eventSessions.endAt,
           attendanceRequired: eventSessions.attendanceRequired,
+          checkinRequired: eventSessions.checkinRequired,
+          checkinOpenAt: eventSessions.checkinOpenAt,
           checkinCloseAt: eventSessions.checkinCloseAt,
         }).from(eventSessions).innerJoin(eventDays, eq(eventSessions.eventDayId, eventDays.id)).where(inArray(eventDays.eventId, eventIds)),
         db.select({ participantId: participantStatusHistories.participantId, statusType: participantStatusHistories.statusType,
@@ -309,7 +314,7 @@ export async function findUstadzByIdRepository(id: string) {
         item.timezone,
       );
       const participantAttendance = attendanceRows.filter((row) => row.participantId === item.participantId);
-      const summary = summarizeParticipantAttendance(units, participantAttendance);
+      const summary = summarizeParticipantAttendance(units, participantAttendance, undefined, !participantCheckinBlockReason(item, item));
       return {
         ...item,
         statusReason: statusRows.find((history) => history.participantId === item.participantId &&
@@ -330,14 +335,27 @@ export async function createUstadzRepository(data: typeof ustadzProfiles.$inferI
   return created[0];
 }
 
-export async function updateUstadzRepository(id: string, data: Partial<typeof ustadzProfiles.$inferInsert>) {
+export async function updateUstadzRepository(id: string, data: Partial<typeof ustadzProfiles.$inferInsert>,
+  context?: { actorUserId: string; expectedUpdatedAt: Date }) {
   const db = getDbClient();
-  const updated = await db
-    .update(ustadzProfiles)
-    .set({ ...data, updatedAt: new Date() })
-    .where(and(eq(ustadzProfiles.id, id), isNull(ustadzProfiles.deletedAt)))
-    .returning();
-  return updated[0] || null;
+  const columns = getTableColumns(ustadzProfiles);
+  const assignments = Object.entries({ ...data, updatedAt: new Date().toISOString() })
+    .filter(([, value]) => value !== undefined).map(([key, value]) =>
+      sql`${sql.identifier(columns[key as keyof typeof columns].name)} = ${value}`);
+  const jsonFields = Object.entries(columns).flatMap(([key, column]) => [sql`${key}::text`, sql`p.${sql.identifier(column.name)}`]);
+  const contactReview = data.whatsapp !== undefined ? sql`, resolved_whatsapp AS (
+    ${resolveWhatsAppProposalsForProfileSql(sql`updated_profile`, context?.actorUserId || null)}
+  )` : sql``;
+  const result = await db.execute(sql`WITH updated_profile AS (
+    UPDATE ${ustadzProfiles} SET ${sql.join(assignments, sql`, `)}
+    WHERE ${and(eq(ustadzProfiles.id, id), isNull(ustadzProfiles.deletedAt), isNull(ustadzProfiles.mergedIntoId),
+      context ? sql`date_trunc('milliseconds', ${ustadzProfiles.updatedAt}) = ${context.expectedUpdatedAt.toISOString()}::timestamptz` : undefined)}
+    RETURNING *
+  )${contactReview}
+  SELECT jsonb_build_object(${sql.join(jsonFields, sql`, `)}) AS profile FROM updated_profile p`);
+  const saved = (result.rows[0] as { profile: typeof ustadzProfiles.$inferSelect } | undefined)?.profile;
+  return saved ? { ...saved, createdAt: new Date(saved.createdAt), updatedAt: new Date(saved.updatedAt),
+    deletedAt: saved.deletedAt ? new Date(saved.deletedAt) : null } : null;
 }
 
 export async function setUstadzArchivedRepository(id: string, archived: boolean) {

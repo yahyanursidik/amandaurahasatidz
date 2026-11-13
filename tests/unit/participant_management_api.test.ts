@@ -35,6 +35,7 @@ const shareSource = Object.freeze({
   fullName: input.fullName, email: input.email, phone: "6281234567890", whatsapp: "6281234567890",
   eventName: "Daurah Asatidz", startDate: "2026-10-10", endDate: "2026-10-12", venueName: "Aula",
   approvalStatus: "PENDING_REVIEW", confirmationStatus: "INVITED", qrToken: null, cardUrl: null,
+  confirmationUrl: null, registrationStatusUrl: "/confirm#prc_receipt.signature",
 });
 const network = vi.fn(() => { throw new Error("Unexpected network call in API unit test"); });
 
@@ -98,7 +99,7 @@ describe("participant management API authorization (actual handler and RBAC)", (
   });
 
   it.each([
-    ["POST", manualPath, "EVENT_ADMIN"], ["GET", sharePath, "CHECKIN_OFFICER"],
+    ["POST", manualPath, "EVENT_ADMIN"], ["GET", sharePath, "EVENT_ADMIN"],
   ] as const)("returns 403 for wrong event scope on %s %s", async (method, path, role) => {
     mocks.session.mockResolvedValue(session(role, otherEventId));
     const response = await request(method, path, method === "POST" ? input : undefined);
@@ -232,8 +233,8 @@ describe("POST /events/:id/participants/manual", () => {
 });
 
 describe("GET /events/:id/participants/:pid/share", () => {
-  it.each(["EVENT_ADMIN", "CHECKIN_OFFICER", "COMMITTEE_LEAD"] as const)(
-    "permits participants.read for %s, returning 200 no-store without mutation", async (role) => {
+  it.each(["EVENT_ADMIN", "COMMITTEE_ADMIN", "COMMITTEE_LEAD", "REGISTRATION_OFFICER", "COMMITTEE_ORGANIZER", "SUPER_ADMIN"] as const)(
+    "requires participants.manage_portal_access for %s, returning only a shareable receipt", async (role) => {
       mocks.session.mockResolvedValue(session(role));
       const before = JSON.stringify(shareSource);
       const response = await request("GET", sharePath);
@@ -247,7 +248,18 @@ describe("GET /events/:id/participants/:pid/share", () => {
       expect(Object.isFrozen(shareSource)).toBe(true);
       expect(JSON.stringify(shareSource)).toBe(before);
       expect(response.json.data).toMatchObject({ approvalStatus: "PENDING_REVIEW", confirmationStatus: "INVITED",
-        participantCode: shareSource.participantCode, qrToken: null, cardUrl: null });
+        participantCode: shareSource.participantCode, qrToken: null, cardUrl: null, confirmationUrl: null,
+        registrationStatusUrl: "/confirm#prc_receipt.signature" });
+      expect(JSON.stringify(response.json)).not.toMatch(/pcf_|pqr_/);
+    },
+  );
+
+  it.each(["CHECKIN_OFFICER", "REPORT_VIEWER", "EVENT_VIEWER", "INFORMATION_OFFICER", "INSTITUTION_REPRESENTATIVE", "USTADZ"] as const)(
+    "rejects access sharing by read-only or participant role %s", async (role) => {
+      mocks.session.mockResolvedValue(session(role));
+      const response = await request("GET", sharePath);
+      expect(response.statusCode).toBe(403);
+      expectNoParticipantServices();
     },
   );
 });

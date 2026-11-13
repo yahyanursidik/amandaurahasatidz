@@ -34,7 +34,7 @@ const fixture = { name: 'daurah-kiosk-fixture', configureServer(server) {
       const date = '2026-11-13', checkinAt = '2026-11-13T01:00:00Z';
       const unit = {id:'DAY:'+dayId,type:'DAY',dayId,sessionId:null,title:'Hari pertama',date,isOpen:true,openAt:date+'T00:00:00Z',closeAt:date+'T23:59:59Z'};
       const schedule = {units:[unit], timezone:'Asia/Makassar', attendanceMode:'DAILY_ONLY', manualUnitCount:0, eventAllowsCheckin:true};
-      window.__paired = false; window.__posts = []; window.__selfPosts = []; window.__issued = [];
+      window.__paired = false; window.__posts = []; window.__selfPosts = []; window.__issued = []; window.__expireNextScan = false;
       if (location.search.includes('fixture=committee')) sessionStorage.setItem('fixture-role','CHECKIN_OFFICER');
       if (location.search.includes('fixture=anonymous')) sessionStorage.removeItem('fixture-role');
       const imageForQr = (svg) => new Promise((resolve,reject) => { const img=new Image(); img.onload=()=>resolve(img); img.onerror=reject;
@@ -77,7 +77,9 @@ const fixture = { name: 'daurah-kiosk-fixture', configureServer(server) {
             eventStatus:'ONGOING',startDate:date,endDate:date,timezone:'Asia/Makassar',registeredAt:checkinAt,registrationSource:'PUBLIC_REGISTRATION',
             participantCode:'PAR-UJI-1',approvalStatus:'APPROVED',confirmationStatus:'CONFIRMED',sessions:[],attendance:[]}]});
         if (pathname.endsWith('/portal/announcements')) return reply([]);
-        if (pathname.endsWith('/portal/self-checkin')) { window.__selfPosts.push(JSON.parse(options.body)); return reply({
+        if (pathname.endsWith('/portal/self-checkin')) { window.__selfPosts.push(JSON.parse(options.body));
+          if(window.__expireNextScan){window.__expireNextScan=false;return reply(null,422,'QR lokasi sudah kedaluwarsa atau tidak sesuai. Pindai QR terbaru di lokasi.');}
+          return reply({
           status:'SUCCESS',attendanceStatus:'PRESENT',attendanceRecordId:'mock-record',attendanceUnit:unit,
           checkinAt,participantCode:'PAR-UJI-1',method:'SELF_SCAN',timezone:'Asia/Makassar',
         }); }
@@ -185,6 +187,13 @@ try {
   await waitFor(`location.pathname === '/portal/attendance' && document.body.textContent.includes('QR Lokasi terbaca')`, 'QR was not carried through login');
   assert.equal(await evaluate(`location.hash`), '', 'bearer was removed from address');
   assert.deepEqual(await evaluate(`window.__selfPosts`), [], 'scanning does not automatically write');
+  await evaluate(`window.__expireNextScan=true`);
+  await click('Catat kehadiran');
+  await waitFor(`document.body.textContent.includes('Setelah masuk, pindai QR terbaru')`, 'expired scan should ask for a fresh QR after login');
+  assert.equal(await evaluate(`!![...document.querySelectorAll('button')].find(button=>button.textContent.includes('Catat kehadiran'))`), false);
+  await input('.attendance-panel input[type="password"]', decoded);
+  await click('Periksa tautan');
+  await waitFor(`document.body.textContent.includes('QR Lokasi terbaca')`, 'fresh scan was not accepted after expiry');
   await click('Catat kehadiran');
   await waitFor(`document.body.textContent.includes('Hadir tercatat · Hari pertama')`, 'participant never saw the check-in result');
   assert.deepEqual(await evaluate(`window.__selfPosts[0]`), { eventId, dayId, rawLocationQrToken: locationToken });
@@ -194,13 +203,13 @@ try {
   await click('Pindai QR Lokasi');
   await waitFor(`document.body.textContent.includes('QR Lokasi terbaca')`, 'software camera fallback failed to decode the actual QR');
   assert.equal(await evaluate(`window.__cameraStream.getTracks().every(track=>track.readyState==='ended')`), true);
-  assert.equal(await evaluate(`window.__selfPosts.length`), 1);
+  assert.equal(await evaluate(`window.__selfPosts.length`), 2);
   for (const width of [320, 375, 414, 768]) {
     await send('Emulation.setDeviceMetricsOverride', { width, height: 850, deviceScaleFactor: 1, mobile: width < 768 });
     assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`), true, `portal overflow at ${width}px`);
   }
   assert.deepEqual(failures, [], 'no browser runtime errors');
-  console.log(JSON.stringify({ result: 'PASS', flows: ['kiosk pairing and revocation', 'rendered QR, login and self check-in', 'camera fallback'], widths: [320, 375, 414, 768, 1280, 1920], screenshots }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', flows: ['kiosk pairing and revocation', 'rendered QR, login and self check-in', 'expired QR after login requires a fresh scan', 'camera fallback'], widths: [320, 375, 414, 768, 1280, 1920], screenshots }, null, 2));
 } finally {
   socket?.close(); browser?.kill(); await server.close();
   if (!path.resolve(profile).startsWith(`${path.resolve(os.tmpdir())}${path.sep}`)) throw new Error('Unsafe temporary profile path');

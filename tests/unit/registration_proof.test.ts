@@ -11,7 +11,7 @@ describe("bukti pendaftaran pada tab yang sama", () => {
       setItem: (key: string, value: string) => { values.set(key, value); },
     } });
     const proof = { event: { name: "Daurah" }, result: { participants: [
-      { registrationStatusUrl: "/confirm#pcf_example.signature", participantCode: "P-ABC123" },
+      { registrationStatusUrl: "/confirm#prc_example.signature", participantCode: "P-ABC123" },
     ] } };
     saveRegistrationProof("registration:regular:daurah", proof);
     expect(readRegistrationProof("registration:regular:daurah")).toEqual(proof);
@@ -28,7 +28,7 @@ describe("bukti pendaftaran pada tab yang sama", () => {
     } });
     const proof = { event: { name: "Daurah" }, result: { participants: [
       { qrToken: "pqr_example.signature", cardUrl: "/card?token=pqr_example.signature", participantCode: "P-ABC123",
-        registrationStatusUrl: "/confirm#pcf_example.signature",
+        registrationStatusUrl: "/confirm#prc_example.signature",
         email: "ahmad@example.id", temporaryPassword: "BukuTamanPagiSabar123456", temporaryPasswordIssued: true },
     ] } };
     saveRegistrationProof("registration:regular:daurah", proof);
@@ -36,9 +36,13 @@ describe("bukti pendaftaran pada tab yang sama", () => {
     expect(values.get("registration:regular:daurah")).not.toContain("pqr_");
     values.set("registration:regular:daurah", JSON.stringify(proof));
     expect(readRegistrationProof("registration:regular:daurah")?.result.participants?.[0]).toMatchObject({
-      participantCode: "P-ABC123", temporaryPasswordIssued: true, registrationStatusUrl: "/confirm#pcf_example.signature",
+      participantCode: "P-ABC123", temporaryPasswordIssued: true, registrationStatusUrl: "/confirm#prc_example.signature",
     });
     expect(readRegistrationProof("registration:regular:daurah")?.result.participants?.[0]).not.toHaveProperty("qrToken");
+    values.set("registration:regular:daurah", JSON.stringify({ event: proof.event, result: { participants: [
+      { participantCode: "P-OLD", registrationStatusUrl: "/confirm#pcf_old.signature" },
+    ] } }));
+    expect(readRegistrationProof("registration:regular:daurah")?.result.participants?.[0]).not.toHaveProperty("registrationStatusUrl");
   });
 
   it("menjaga sandi akun rombongan undangan tetap sekali tampil", () => {

@@ -9,7 +9,8 @@ import { normalizeWhatsAppNumber } from "../../../../src/lib/participantCommunic
 import type { EventWhatsAppContext, WhatsAppWizardRecipient } from "../../../../src/lib/eventParticipantWhatsApp";
 import { registrationStage } from "../../../../src/lib/registrationStatus";
 import { isAttendanceEventOpen } from "./attendanceModel";
-import { registrationStatusPath } from "./participantConfirmationLink";
+import { registrationReceiptPath } from "./participantConfirmationLink";
+import { submittedWhatsAppForParticipant } from "./participantContactReview";
 
 function eventContacts(eventId: string) {
   const query = getDbClient().select({
@@ -18,6 +19,7 @@ function eventContacts(eventId: string) {
     institutionName: institutions.name,
     whatsapp: ustadzProfiles.whatsapp,
     phone: ustadzProfiles.phone,
+    submittedWhatsapp: submittedWhatsAppForParticipant,
     participantCode: eventParticipants.participantCode,
     registrationSource: eventParticipants.registrationSource,
     approvalStatus: eventParticipants.approvalStatus,
@@ -56,16 +58,33 @@ async function sharedNumbersByParticipant(eventId: string, eligible: WhatsAppWiz
   return new Set(eligible.filter((person) => person.number && owners.get(person.number) !== person.id).map(({ id }) => id));
 }
 
-function recipient({ whatsapp, phone, ...person }: ContactRow): WhatsAppWizardRecipient {
+function recipient({ whatsapp, phone, submittedWhatsapp, ...person }: ContactRow): WhatsAppWizardRecipient {
   const preferred = normalizeWhatsAppNumber(whatsapp);
-  const number = preferred || normalizeWhatsAppNumber(phone);
-  return { ...person, number, numberSource: preferred ? "WhatsApp" : number ? "Telepon cadangan" : null };
+  const fallback = normalizeWhatsAppNumber(phone);
+  const proposed = normalizeWhatsAppNumber(submittedWhatsapp);
+  const needsContactReview = Boolean(proposed && proposed !== preferred);
+  const number = needsContactReview ? null : preferred || fallback;
+  // Old import/form paths could copy phone into whatsapp. Do not treat identical stored fields
+  // as proof that there was a separate WhatsApp selection.
+  return { ...person, number, ...(needsContactReview ? { needsContactReview } : {}),
+    numberSource: number && preferred && preferred !== fallback ? "WhatsApp" : number ? "Telepon cadangan" : null };
 }
 
 async function readEvent(eventId: string) {
   const event = await findRegistrationEventRepository(eventId);
   if (!event) throw new NotFoundError("Event tidak ditemukan.");
   return event;
+}
+
+/** Shared by Bagikan akses and batch composition; never substitute a phone fallback. */
+export async function getEventRegistrationWhatsAppNumber(eventId: string, participantId: string) {
+  const { query, scope } = eventContacts(eventId);
+  const [row] = await query.where(and(scope, eq(eventParticipants.id, participantId))).limit(1);
+  if (!row) return null;
+  const person = recipient(row);
+  if (person.numberSource !== "WhatsApp") return null;
+  const shared = await sharedNumbersByParticipant(eventId, [person]);
+  return shared.has(participantId) ? null : person.number;
 }
 
 export async function listEventWhatsAppRecipientsService(eventId: string, filter: ParticipantWhatsAppQuery) {
@@ -88,7 +107,12 @@ export async function listEventWhatsAppRecipientsService(eventId: string, filter
     search ? or(ilike(ustadzProfiles.fullName, search), ilike(eventParticipants.participantCode, search), ilike(institutions.name, search),
       ilike(ustadzProfiles.whatsapp, search), ilike(ustadzProfiles.phone, search), ilike(ustadzProfiles.email, search)) : undefined,
   )).orderBy(asc(ustadzProfiles.fullName), asc(eventParticipants.id)).limit(filter.pageSize + 1).offset((filter.page - 1) * filter.pageSize);
-  return { recipients: rows.slice(0, filter.pageSize).map(recipient), hasNext: rows.length > filter.pageSize };
+  const recipients = rows.slice(0, filter.pageSize).map(recipient);
+  if (filter.status === "AWAITING_CONFIRMATION") {
+    const shared = await sharedNumbersByParticipant(eventId, recipients.filter((person) => person.numberSource === "WhatsApp"));
+    return { recipients: recipients.map((person) => shared.has(person.id) ? { ...person, sharedNumber: true } : person), hasNext: rows.length > filter.pageSize };
+  }
+  return { recipients, hasNext: rows.length > filter.pageSize };
 }
 
 export async function resolveEventWhatsAppRecipientsService(eventId: string, ids: string[], confirmation: boolean, statusLinkFor?: string) {
@@ -110,7 +134,7 @@ export async function resolveEventWhatsAppRecipientsService(eventId: string, ids
     const confirmationAvailable = confirmationIds.has(id);
     return [{ ...person, ...(confirmation ? { confirmationAvailable, sharedNumber: shared.has(id) } : {}),
       ...(confirmationAvailable && statusLinkFor === id
-        ? { registrationStatusUrl: registrationStatusPath({ id, eventId: event.id }, event.endDate) } : {}) }];
+        ? { registrationStatusUrl: registrationReceiptPath({ id, eventId: event.id }, event.endDate) } : {}) }];
   });
   const context: EventWhatsAppContext = {
     id: event.id, name: event.name, slug: event.slug, startDate: event.startDate, endDate: event.endDate,

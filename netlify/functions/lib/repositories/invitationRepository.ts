@@ -17,8 +17,8 @@ import { eq, and, desc, sql, isNull, ne, inArray, notInArray, ilike, asc, or } f
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { withTransaction } from "../db/transaction";
 import { resolveRegistrationInstitution } from "../services/registrationInstitutionService";
-import { hashPassword } from "../utils/password";
-import { canIssueImmediatePassword, generateMemorableTemporaryPassword } from "../utils/memorablePassword";
+import { recordWhatsAppProposal } from "../services/participantContactReview";
+import { verifyInstitutionAccessVerification } from "../services/institutionAccessCodeService";
 import { ConflictError, ForbiddenError, NotFoundError } from "../utils/errors";
 import { lockRegistrationEvent, assertRegistrationCapacity } from "../services/registrationCapacity";
 import { initialParticipantReviewState } from "../services/registrationReviewState";
@@ -136,7 +136,7 @@ export async function saveInstitutionDelegationRepository(
       isLead?: boolean;
     }>;
   },
-  context: { eventId: string; tokenHash: string },
+  context: { eventId: string; tokenHash: string; verificationToken?: string },
 ) {
   return await withTransaction(async (tx) => {
     const event = await lockRegistrationEvent(tx, context.eventId);
@@ -147,6 +147,9 @@ export async function saveInstitutionDelegationRepository(
       .limit(1).for("update");
     const invitation = invitationRows[0];
     if (!invitation || invitation.eventId !== context.eventId) throw new NotFoundError("Undangan tidak ditemukan pada event ini.");
+    if (invitation.invitationType === "INSTITUTION" && !verifyInstitutionAccessVerification(context.verificationToken || "", invitation.id)) {
+      throw new ForbiddenError("Verifikasi kode unik lembaga sebelum mengirim formulir.");
+    }
     const selfRegistration = invitation.invitationType === "INSTITUTION" && invitation.registrationMode === "INDIVIDUAL_SELF";
     if (["ACCEPTED", "DECLINED", "REVOKED"].includes(invitation.status)) {
       throw new ConflictError("Undangan sudah dijawab atau dicabut. Muat ulang formulir.");
@@ -196,7 +199,7 @@ export async function saveInstitutionDelegationRepository(
         const normalizedName = normalizeName(delegate.fullName);
         const normalizedEmail = normalizeEmail(delegate.email);
         const normalizedPhone = normalizePhone(delegate.phone);
-        const normalizedWhatsapp = normalizePhone(delegate.whatsapp || delegate.phone);
+        const normalizedWhatsapp = normalizePhone(delegate.whatsapp);
         // Only an individual invitation targets a known profile. A public delegate
         // cannot choose another profile by sending a UUID or by sharing a name.
         let ustadzId = invitation.invitationType === "INDIVIDUAL" ? invitation.ustadzId : null;
@@ -247,7 +250,6 @@ export async function saveInstitutionDelegationRepository(
             .where(eq(ustadzProfiles.id, ustadzId));
         }
 
-        let issuedPassword: string | null = null;
         let passwordSetupRequired = true;
         if (normalizedEmail) {
           const currentProfile = (
@@ -268,14 +270,12 @@ export async function saveInstitutionDelegationRepository(
             }
           }
           if (!portalUser) {
-            // The invitation bearer can receive a password only for an entirely new identity.
-            issuedPassword = canIssueImmediatePassword(false, !createdNewProfile)
-              ? generateMemorableTemporaryPassword() : null;
+            // A shared invitation is not proof of ownership of an email account.
             portalUser = (
               await tx
                 .insert(users)
                 .values({ email: normalizedEmail, name: delegate.fullName.trim(),
-                  ...(issuedPassword ? { passwordHash: hashPassword(issuedPassword) } : {}), status: "ACTIVE" })
+                  status: "ACTIVE" })
                 .returning()
             )[0];
           }
@@ -350,7 +350,8 @@ export async function saveInstitutionDelegationRepository(
           .returning();
         if (!createdParticipant[0]) throw new ConflictError(`${delegate.fullName} baru saja didaftarkan. Hubungi panitia.`);
         participantRows.push(createdParticipant[0]);
-        portalCredentials.push({ participantId: createdParticipant[0].id, temporaryPassword: issuedPassword, passwordSetupRequired });
+        if (!createdNewProfile) await recordWhatsAppProposal(tx, createdParticipant[0].id, normalizedWhatsapp, existingProfile.whatsapp);
+        portalCredentials.push({ participantId: createdParticipant[0].id, temporaryPassword: null, passwordSetupRequired });
       }
     }
 

@@ -5,8 +5,8 @@ import { PublicRegistrationReceipt } from "../../src/components/public/PublicReg
 import { buildRegistrationAttendanceMessage, publicRundownPath, registrationAttendanceWhatsAppUrl, type ReceiptParticipant } from "../../src/lib/publicRegistrationReceipt";
 
 const participants: (ReceiptParticipant & { qrToken: string; cardUrl: string })[] = [
-  { fullName: "Ustadz Ahmad", email: "ahmad@example.test", participantCode: "PAR-001", qrToken: "pqr_first.secret", cardUrl: "/card?token=pqr_first.secret", registrationStatusUrl: "/confirm#pcf_first.signature", passwordSetupRequired: true },
-  { fullName: "Ustadz Hasan", email: "hasan@example.test", participantCode: "PAR-002", qrToken: "pqr_second.secret", cardUrl: "/card?token=pqr_second.secret", registrationStatusUrl: "/confirm#pcf_second.signature", passwordSetupRequired: false },
+  { fullName: "Ustadz Ahmad", email: "ahmad@example.test", participantCode: "PAR-001", qrToken: "pqr_first.secret", cardUrl: "/card?token=pqr_first.secret", registrationStatusUrl: "/confirm#prc_first.signature", passwordSetupRequired: true },
+  { fullName: "Ustadz Hasan", email: "hasan@example.test", participantCode: "PAR-002", qrToken: "pqr_second.secret", cardUrl: "/card?token=pqr_second.secret", registrationStatusUrl: "/confirm#prc_second.signature", passwordSetupRequired: false },
 ];
 
 afterEach(() => vi.unstubAllGlobals());
@@ -70,13 +70,12 @@ describe("bukti pendaftaran publik", () => {
     expect(html).toContain("Pesan ini tidak mengubah status pendaftaran");
   });
 
-  it("menyediakan tautan keputusan pribadi, terpisah dari QR yang dapat dibagikan", () => {
+  it("menolak tautan keputusan lama dan mengarahkan ke portal", () => {
     vi.stubGlobal("window", { location: { origin: "https://contoh.test" } });
     const withConfirmation = { ...participants[0], registrationStatusUrl: null, confirmationUrl: "/confirm#pcf_private.signature" };
     const html = renderToStaticMarkup(<MemoryRouter><PublicRegistrationReceipt event={{ name: "Daurah Asatidz", slug: "daurah-asatidz" }} participants={[withConfirmation]} emailQueued={1} /></MemoryRouter>);
-    expect(html).toContain('href="https://contoh.test/confirm#pcf_private.signature"');
-    expect(html).toContain("tanpa login");
-    expect(html).not.toContain("pqr_");
+    expect(html).toContain("Cek status di Portal Asatidz");
+    expect(html).not.toMatch(/pcf_|pqr_/);
   });
 
   it("membagikan tautan konfirmasi rombongan hanya ke nomor peserta yang dipilih", () => {
@@ -87,7 +86,8 @@ describe("bukti pendaftaran publik", () => {
     expect(html).toContain("Salin tautan");
     expect(html).toContain("Kirim ke WhatsApp peserta");
     expect(html).toContain("https://wa.me/6281234567890?text=");
-    expect(html).toContain(encodeURIComponent("https://contoh.test/confirm#pcf_first.signature"));
+    expect(html).toContain(encodeURIComponent("https://contoh.test/confirm#prc_first.signature"));
+    expect(html).not.toContain("pcf_");
     expect(html).not.toContain(encodeURIComponent("https://contoh.test/card?token=pqr_first.secret"));
     expect(html).not.toContain(encodeURIComponent("https://contoh.test/confirm#pcf_second.signature"));
     expect(html).not.toContain(encodeURIComponent("https://contoh.test/card?token=pqr_second.secret"));

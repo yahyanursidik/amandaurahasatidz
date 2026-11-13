@@ -12,9 +12,11 @@ export function readRegistrationProof<TEvent, TResult extends { participants?: A
       proof.result.participants.some((person) => typeof person?.participantCode !== "string" || !person.participantCode)) return null;
     // Receipts are snapshots, not authoritative attendance passes. Old tabs may
     // still hold a QR token or a card link created before moderation.
-    for (const person of proof.result.participants as Array<{ qrToken?: unknown; cardUrl?: unknown } & Pick<ParticipantCardDetails, "participantCode">>) {
+    for (const person of proof.result.participants as Array<{ qrToken?: unknown; cardUrl?: unknown; registrationStatusUrl?: string; confirmationUrl?: string } & Pick<ParticipantCardDetails, "participantCode">>) {
       delete person.qrToken;
       delete person.cardUrl;
+      if (person.registrationStatusUrl?.includes("pcf_")) delete person.registrationStatusUrl;
+      if (person.confirmationUrl?.includes("pcf_")) delete person.confirmationUrl;
     }
     return proof;
   } catch { return null; }
@@ -23,6 +25,7 @@ export function readRegistrationProof<TEvent, TResult extends { participants?: A
 export function saveRegistrationProof<TEvent, TResult>(key: string, proof: Proof<TEvent, TResult>): void {
   // A one-time credential may appear in the immediate API response, but never in browser storage.
   try { window.sessionStorage.setItem(key, JSON.stringify(proof, (field, value) =>
-    ["temporaryPassword", "qrToken", "cardUrl"].includes(field) ? undefined : value)); }
+    ["temporaryPassword", "qrToken", "cardUrl"].includes(field) ||
+      (typeof value === "string" && /(?:#|%23)pcf_/.test(value)) ? undefined : value)); }
   catch { /* The on-screen receipt and email link remain available if storage is disabled. */ }
 }

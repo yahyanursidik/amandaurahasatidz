@@ -19,4 +19,5 @@ export const enqueueEmailSchema = z.object({
 
 export const retryEmailJobSchema = z.object({
   jobId: z.string().uuid("ID Email Job tidak valid"),
+  acknowledgeUncertain: z.boolean().default(false),
 });

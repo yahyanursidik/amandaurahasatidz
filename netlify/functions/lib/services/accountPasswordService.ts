@@ -1,11 +1,11 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { getDbClient } from "../db/client";
 import { roles, userRoleAssignments, users } from "../db/schema";
 import { RoleCode } from "../../../../src/config/permissions";
 import { AppError, UnauthorizedError } from "../utils/errors";
 import { hashPassword } from "../utils/password";
-import { enqueueEmailJob } from "./emailQueueService";
+import { sendImmediateTransactionalTemplate } from "./emailTransport";
 import { createAuditLog } from "./auditService";
 
 type PortalCode = "admin" | "committee" | "ustadz";
@@ -122,12 +122,16 @@ export async function requestPasswordSetupService(
   };
   const challengeToken = encode(payload);
   const code = codeForChallenge(challengeToken);
-  await enqueueEmailJob({
-    templateCode: "OTP_CODE",
-    recipientEmail: account.email,
-    variables: { otpCode: code, expiresMinutes: 10 },
-    idempotencyKey: `password_setup_${account.id}_${payload.issuedAt}`,
-  });
+  // This is a user-requested, short-lived code: do not queue or store its contents.
+  try {
+    const result = await sendImmediateTransactionalTemplate({
+      templateCode: "OTP_CODE", recipientEmail: account.email, recipientName: account.name,
+      variables: { otpCode: code, expiresMinutes: 10 }, requestId,
+    });
+    if (!result.success) throw new Error("Provider did not accept the message.");
+  } catch {
+    throw new AppError("Email kode aktivasi belum dapat dikirim. Coba lagi beberapa saat atau hubungi panitia.", 503, "ACTIVATION_EMAIL_UNAVAILABLE");
+  }
   await createAuditLog({
     actorUserId: account.id,
     action: "PASSWORD_SETUP_REQUESTED",
@@ -175,10 +179,13 @@ export async function completePasswordSetupService(
     throw new UnauthorizedError("Kode aktivasi sudah tidak berlaku. Minta kode baru.");
   }
   const db = getDbClient();
-  await db
+  const changed = await db
     .update(users)
     .set({ passwordHash: hashPassword(input.newPassword), updatedAt: new Date() })
-    .where(and(eq(users.id, account.id), eq(users.email, email)));
+    .where(and(eq(users.id, account.id), eq(users.email, email), eq(users.status, "ACTIVE"),
+      account.passwordHash == null ? isNull(users.passwordHash) : eq(users.passwordHash, account.passwordHash)))
+    .returning({ id: users.id });
+  if (!changed.length) throw new UnauthorizedError("Kode aktivasi sudah tidak berlaku. Minta kode baru.");
   await createAuditLog({
     actorUserId: account.id,
     action: "PASSWORD_SETUP_COMPLETED",

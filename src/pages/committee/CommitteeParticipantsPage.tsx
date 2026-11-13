@@ -64,6 +64,7 @@ type CommitteeParticipant = {
   ustadzEmail: string | null;
   ustadzPhone: string | null;
   ustadzWhatsapp: string | null;
+  pendingWhatsapp?: string | null;
   ustadzAddress: string | null;
   participantCode: string;
   publicGroupId?: string | null;
@@ -402,6 +403,7 @@ export const CommitteeParticipantsPage: React.FC = () => {
     email: participant.ustadzEmail,
     phone: participant.ustadzPhone,
     whatsapp: participant.ustadzWhatsapp,
+    pendingWhatsapp: participant.pendingWhatsapp,
     address: participant.ustadzAddress,
     participantCode: participant.participantCode,
     institutionName: participant.institutionName,

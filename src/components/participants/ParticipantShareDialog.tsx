@@ -89,8 +89,8 @@ export function ParticipantShareDialog({ eventId, participantId, participantName
               : registrationStageCopy[registrationStage(details)].label}</p>
           </div>
           {links.statusUrl && <div className="rounded-lg border border-emerald-200 bg-white p-4">
-            <p className="font-black text-emerald-950">Tautan status pribadi</p>
-            <p className="mt-1 text-sm text-slate-700">Kirim hanya kepada {details.fullName}. Peserta bisa membuka status dan, saat tersedia, mengonfirmasi hadir tanpa login.</p>
+            <p className="font-black text-emerald-950">Tautan bukti pendaftaran</p>
+            <p className="mt-1 text-sm text-slate-700">Peserta dapat melihat status. Untuk konfirmasi dan QR, masuk ke portal atau minta tautan pribadi ke email peserta. Nomor bersama, cadangan, atau perubahan nomor yang belum diperiksa tidak disiapkan untuk WhatsApp.</p>
             <a href={links.statusUrl} target="_blank" rel="noopener noreferrer" className="mt-3 inline-flex min-h-11 items-center rounded-lg bg-emerald-800 px-4 py-2 font-bold text-white">Buka tautan status</a>
           </div>}
           {links.cardUrl && <p className="rounded-lg border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">Draf pesan juga menyertakan tautan QR presensi yang sudah aktif.</p>}

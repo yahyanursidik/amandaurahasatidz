@@ -72,6 +72,7 @@ export const invitationUstadzQuerySchema = z.object({
 });
 
 export const submitResponseSchema = z.object({
+  verificationToken: z.string().max(1024).optional(),
   captchaToken: z.string().optional(),
   institutionName: z.string().trim().max(180).refine((value) => value.length === 0 || value.length >= 3,
     "Nama lembaga/komunitas minimal 3 karakter jika diisi").optional().nullable(),

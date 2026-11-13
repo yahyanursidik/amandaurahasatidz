@@ -97,7 +97,7 @@ describe("Seed Data Engine, Development Reset Script & Import Pipeline Unit Test
           ],
           approved: false,
         },
-        "user-admin-123",
+        { actorUserId: "user-admin-123", canApprove: true, canWaitlist: true, canUpdate: true, canReadCrossEventHistory: true },
       )
     ).rejects.toThrow("belum ada persetujuan eksplisit");
   });

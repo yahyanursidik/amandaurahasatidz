@@ -23,6 +23,7 @@ const profiles = Array.from({ length: 3 }, (_, index) => ({
 const eventA = '10000000-0000-4000-8000-000000000001';
 const eventB = '10000000-0000-4000-8000-000000000002';
 const routes = [], requests = [];
+let eventAhmadNumber = '6281234567801';
 const people = [
   { id: '20000000-0000-4000-8000-000000000001', fullName: 'Ustadz Event Ahmad', participantCode: 'P-A', number: '6281234567801', numberSource: 'WhatsApp', institutionName: 'Lembaga Uji', registrationSource: 'DIRECT_PUBLIC', approvalStatus: 'APPROVED', confirmationStatus: 'INVITED' },
   { id: '20000000-0000-4000-8000-000000000002', fullName: 'Ustadz Event Hasan', participantCode: 'P-B', number: '6281234567802', numberSource: 'WhatsApp', institutionName: null, registrationSource: 'DIRECT_PUBLIC', approvalStatus: 'APPROVED', confirmationStatus: 'INVITED' },
@@ -50,6 +51,8 @@ const fixture = {
           import {EventParticipantWhatsAppPage} from '/src/pages/admin/events/EventParticipantWhatsAppPage.tsx';
           const authProvider={check:async()=>({authenticated:true}),getIdentity:async()=>(${JSON.stringify(identity)}),logout:async()=>({success:true}),login:async()=>({success:true}),onError:async()=>({})};
           window.addEventListener('click',event=>{if(event.target.closest('a[href^="https://wa.me/"]'))event.preventDefault()},true);
+          window.__drafts=[];
+          window.open=()=>({closed:false,opener:null,document:{createElement:()=>({}),head:{appendChild:()=>{}}},location:{replace:url=>window.__drafts.push(url)},close:()=>{}});
           const route=(path,Component)=>React.createElement(Route,{path,element:React.createElement(Component)});
           createRoot(document.getElementById('root')).render(React.createElement(BrowserRouter,{future:{v7_startTransition:true,v7_relativeSplatPath:true}},React.createElement(Refine,{authProvider,options:{disableTelemetry:true}},React.createElement(Routes,null,
             route('/admin/ustadz/whatsapp', UstadzWhatsAppWizardPage),
@@ -80,8 +83,8 @@ const fixture = {
           requests.push({ id, method: 'POST', body });
           return respond({ event: eventFor(id), recipients: id !== eventA ? [] : body.participantIds.flatMap((participantId) => {
             const person = people.find((item) => item.id === participantId);
-            return person ? [{ ...person, confirmationAvailable: Boolean(body.confirmation && person.number),
-              ...(body.statusLinkFor === participantId ? { registrationStatusUrl: `/confirm#pcf_${person.participantCode}.signature` } : {}) }] : [];
+            return person ? [{ ...person, ...(person.id === people[0].id ? { number: eventAhmadNumber } : {}), confirmationAvailable: Boolean(body.confirmation && person.number),
+              ...(body.statusLinkFor === participantId ? { registrationStatusUrl: `/confirm#prc_${person.participantCode}.signature` } : {}) }] : [];
           }) });
         }
       }
@@ -194,7 +197,7 @@ try {
   assert.match(await evaluate(`document.querySelector('.wa-batch__preview pre').textContent`), /\/events\/daurah-uji-satu#jadwal-kegiatan/);
   await checkWidths();
   await select('#wa-batch-template', 'EVENT_CONFIRMATION');
-  assert.match(await evaluate(`document.querySelector('.wa-batch__preview pre').textContent`), /\[tautan pribadi peserta\]/);
+  assert.match(await evaluate(`document.querySelector('.wa-batch__preview pre').textContent`), /\[tautan bukti pendaftaran\]/);
   await click('Pilih penerima');
   await until(`document.querySelectorAll('.wa-batch__recipient').length===2`, 'event recipient page one');
   assert.deepEqual(requests[0].query, { search: 'Ustadz', source: 'REGULAR', status: 'AWAITING_CONFIRMATION', page: '1', pageSize: '50' });
@@ -205,15 +208,23 @@ try {
   await click('Pilih halaman');
   await until(`document.querySelector('.wa-batch__alert')?.textContent.includes('nomor yang sudah dipilih')`, 'duplicate number excluded');
   await click('Mulai 2 penerima');
-  await until(`document.querySelector('.wa-batch__send-actions a')?.href.includes('pcf_P-A')`, 'first private draft');
+  await until(`!!${button('Buka WhatsApp')}`, 'first recipient ready');
   assert.equal(await evaluate(`${button('Sudah kirim & lanjut')}.disabled`), true);
-  assert.match(await evaluate(`document.querySelector('.wa-batch__send-actions a').href`), /^https:\/\/wa\.me\/6281234567801/);
-  assert.equal(await evaluate(`JSON.stringify(localStorage).includes('pcf_P-A')`), false, 'private links are not persisted');
+  assert.ok(requests.every((item) => !item.body?.statusLinkFor), 'no receipt link until explicit click');
+  eventAhmadNumber = '6281234567811';
+  await click('Buka WhatsApp');
+  await until(`document.querySelector('.wa-batch__alert')?.textContent.includes('Nomor WhatsApp berubah')`, 'changed number requires recheck');
+  assert.equal(await evaluate(`window.__drafts.length`), 0, 'stale contact did not open a draft');
+  await click('Buka WhatsApp');
+  await until(`window.__drafts[0]?.includes('prc_P-A')`, 'first safe receipt draft');
+  assert.match(await evaluate(`window.__drafts[0]`), /^https:\/\/wa\.me\/6281234567811/);
+  assert.equal(await evaluate(`JSON.stringify(localStorage).includes('prc_P-A')`), false, 'receipt links are not persisted');
   assert.equal(await evaluate(`JSON.stringify(localStorage).includes('6281234567801')`), false, 'phone numbers are not persisted');
-  await evaluate(`document.querySelector('.wa-batch__send-actions a').click()`);
   await click('Sudah kirim & lanjut');
-  await until(`document.querySelector('.wa-batch__send-actions a')?.href.includes('pcf_P-B')`, 'second private draft');
-  assert.equal(await evaluate(`document.querySelector('.wa-batch__send-actions a').href.includes('pcf_P-A')`), false);
+  await until(`!!${button('Buka WhatsApp')}`, 'second recipient ready');
+  await click('Buka WhatsApp');
+  await until(`window.__drafts[1]?.includes('prc_P-B')`, 'second safe receipt draft');
+  assert.equal(await evaluate(`window.__drafts[1].includes('prc_P-A')`), false);
   assert.ok(requests.some((item) => item.body?.participantIds.length === 1 && item.body.statusLinkFor === people[1].id));
   await checkWidths();
   await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 844, deviceScaleFactor: 1, mobile: true });
@@ -223,7 +234,7 @@ try {
   await navigate(`/admin/events/${eventB}/registrations/whatsapp`);
   await until(`document.querySelector('.wa-batch__preview pre')?.textContent.includes('Daurah Uji Dua')`, 'event two has a separate session');
   await navigate(`/admin/events/${eventA}/registrations/whatsapp`);
-  await until(`document.querySelector('.wa-batch__send-actions a')?.href.includes('pcf_P-B')`, 'event one resumes its own queue');
+  await until(`document.querySelector('.wa-batch__current h3')?.textContent==='Ustadz Event Hasan'`, 'event one resumes its own queue');
   await click('Lewati');
   await until(`document.querySelector('.wa-batch__progress p')?.textContent.includes('1 ditandai terkirim · 1 dilewati')`, 'event queue complete');
   assert.equal(routes.filter(([, route]) => route === '/api/v1/ustadz').length, directoryReads, 'event workflow never loads the global directory');

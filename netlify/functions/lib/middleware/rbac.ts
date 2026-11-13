@@ -129,6 +129,19 @@ export function requireStaffAttendanceRead(userSession: UserContext | null, even
     !["USTADZ", "INSTITUTION_REPRESENTATIVE"].includes(assignment.roleCode)) }, "attendance.read", eventId);
 }
 
+/** Bulk imports are staff-only; authorization never comes from a participant or institution assignment. */
+export function requireParticipantImportAccess(userSession: UserContext | null, eventId: string) {
+  const session = requireAuth(userSession);
+  const staffSession = { ...session, assignments: session.assignments.filter((assignment) =>
+    !["USTADZ", "INSTITUTION_REPRESENTATIVE"].includes(assignment.roleCode) && !assignment.institutionId) };
+  requirePermission(staffSession, "participants.create", eventId);
+  const can = (action: PermissionCode) => evaluatePermission(staffSession, { action, eventId });
+  const globalReportScope = { ...staffSession, assignments: staffSession.assignments.filter((assignment) =>
+    !assignment.eventId && ["SUPER_ADMIN", "REPORT_VIEWER", "COMMITTEE_ORGANIZER"].includes(assignment.roleCode)) };
+  return { actorUserId: session.userId, canApprove: can("participants.approve"), canWaitlist: can("participants.waitlist"),
+    canUpdate: can("participants.update"), canReadCrossEventHistory: evaluatePermission(globalReportScope, { action: "reports.read" }) };
+}
+
 /** Unscoped system-wide reads must never be authorized by an event role. */
 export function requireGlobalPermission(userSession: UserContext | null, action: PermissionCode): void {
   const session = requireAuth(userSession);
@@ -145,16 +158,16 @@ export function requireReportAccess(userSession: UserContext | null, action: "re
   if (eventId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(eventId)) {
     throw new ValidationError("ID event laporan tidak valid.");
   }
-  const globalReportReader = session.assignments.some((assignment) =>
-    ["SUPER_ADMIN", "REPORT_VIEWER"].includes(assignment.roleCode) && !assignment.eventId
-    && (!assignment.startsAt || new Date(assignment.startsAt).getTime() <= Date.now())
-    && (!assignment.endsAt || new Date(assignment.endsAt).getTime() > Date.now()));
-  if (globalReportReader) {
-    requireGlobalPermission(session, action);
-    return;
-  }
+  const globalReportScope = { ...session, assignments: session.assignments.filter((assignment) =>
+    ["SUPER_ADMIN", "REPORT_VIEWER"].includes(assignment.roleCode) && !assignment.eventId && !assignment.institutionId) };
+  if (evaluatePermission(globalReportScope, { action })) return;
   if (!eventId) throw new ValidationError("Pilih event untuk melihat laporan.");
-  if (reportType === "demographics" || reportType === "returning-participants" && readableEventIds(session) !== null) {
+  if (reportType === "returning-participants") {
+    const organizerScope = { ...session, assignments: session.assignments.filter((assignment) =>
+      assignment.roleCode === "COMMITTEE_ORGANIZER" && !assignment.eventId && !assignment.institutionId) };
+    if (evaluatePermission(organizerScope, { action })) return;
+  }
+  if (reportType === "demographics" || reportType === "returning-participants") {
     throw new ForbiddenError("Laporan lintas event hanya tersedia untuk admin pusat.");
   }
   requirePermission(session, action, eventId);

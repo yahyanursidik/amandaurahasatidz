@@ -30,7 +30,7 @@ export const whatsappBatchTemplates: Array<{ id: WhatsAppBatchTemplate; label: s
 
 export const eventWhatsAppBatchTemplates: typeof whatsappBatchTemplates = [
   { id: "EVENT_REMINDER", label: "Pengingat daurah", description: "Informasi jadwal dan lokasi; tidak mengubah status peserta." },
-  { id: "EVENT_CONFIRMATION", label: "Minta konfirmasi hadir", description: "Untuk peserta disetujui yang belum konfirmasi, dengan tautan pribadi." },
+  { id: "EVENT_CONFIRMATION", label: "Minta konfirmasi hadir", description: "Untuk peserta disetujui yang belum konfirmasi, dengan tautan bukti pendaftaran." },
   { id: "EVENT_SCHEDULE_CHANGE", label: "Pembaruan jadwal", description: "Arahkan peserta ke rundown terbaru." },
   { id: "EVENT_FOLLOWUP", label: "Tindak lanjut", description: "Hubungi peserta setelah acara tanpa menganggap semua hadir." },
   ...whatsappBatchTemplates.filter(({ id }) => id !== "PROFILE_GREETING"),
@@ -41,7 +41,7 @@ export function whatsappBatchTemplateMessage(template: WhatsAppBatchTemplate, ev
     (event ? "dari panitia {{event}}." : "dari Daurah Duat dan Pegiat Dakwah.");
   const closing = "\n\nJazakumullahu khairan.\nWassalamu’alaikum warahmatullahi wabarakatuh.";
   if (template === "EVENT_REMINDER") return `${opening}\n\nKami mengingatkan jadwal daurah: {{tanggal}}. Lokasi: {{lokasi}}. Silakan lihat rundown dan pantau status pendaftaran di Portal Asatidz.\n{{rundown}}${closing}`;
-  if (template === "EVENT_CONFIRMATION") return `${opening}\n\nPendaftaran antum telah disetujui. Mohon buka tautan pribadi ini untuk memilih hadir atau berhalangan; tidak perlu login. QR presensi akan tersedia setelah syarat kehadiran terpenuhi.\n{{tautan_status}}\n\nJangan teruskan tautan pribadi ini kepada orang lain.${closing}`;
+  if (template === "EVENT_CONFIRMATION") return `${opening}\n\nPendaftaran antum telah disetujui. Buka bukti pendaftaran untuk masuk Portal Asatidz atau meminta tautan pribadi melalui email. Setelah itu, pilih hadir atau berhalangan. QR presensi tersedia setelah syarat kehadiran terpenuhi.\n{{tautan_status}}${closing}`;
   if (template === "EVENT_SCHEDULE_CHANGE") return `${opening}\n\nAda pembaruan informasi kegiatan. Mohon periksa rundown terbaru pada tautan ini:\n{{rundown}}${closing}`;
   if (template === "EVENT_FOLLOWUP") return `${opening}\n\nTerima kasih telah mendaftar pada kegiatan kami. Jika antum memiliki masukan atau pertanyaan tentang materi dan tindak lanjut, silakan balas pesan ini.${closing}`;
   if (template === "PROFILE_GREETING") return `${opening}\n\nSemoga antum senantiasa sehat. Kami ingin menjaga silaturahmi dan berbagi informasi daurah mendatang. Silakan kabari jika data kontak antum perlu diperbarui.${closing}`;
@@ -64,10 +64,10 @@ export function validateWhatsAppBatchMessage(message: string, scope: MessageScop
     if (withoutKnown.includes("{{") || withoutKnown.includes("}}")) return "Periksa penulisan variabel pesan.";
   }
   if (scope.eventId) {
-    if (/(?:pcf_|pqr_|inv_(?:inst|ind|self)_|\/confirm[#?]|\/card\?token=)/i.test(clean)) {
-      return "Jangan tempel tautan pribadi ke pesan massal. Gunakan template konfirmasi untuk tautan per peserta.";
+    if (/(?:pcf_|prc_|pqr_|inv_(?:inst|ind|self)_|\/confirm[#?]|\/card\?token=)/i.test(clean)) {
+      return "Jangan tempel tautan pribadi ke pesan massal. Gunakan template konfirmasi untuk tautan bukti per peserta.";
     }
-    if (scope.template === "EVENT_CONFIRMATION" && !tokens.includes("{{tautan_status}}")) return "Sertakan {{tautan_status}} agar setiap peserta mendapat tautan konfirmasi pribadi.";
+    if (scope.template === "EVENT_CONFIRMATION" && !tokens.includes("{{tautan_status}}")) return "Sertakan {{tautan_status}} agar setiap peserta mendapat tautan bukti pendaftaran.";
   }
   return null;
 }
@@ -137,6 +137,10 @@ export function readWhatsAppBatch(storage: Pick<Storage, "getItem">, ownerId: st
       batch.recipientIds.some((id) => typeof id !== "string" || !["PENDING", "OPENED", "MARKED_SENT", "SKIPPED"].includes(batch.statusById[id])) ||
       typeof batch.message !== "string" || validateWhatsAppBatchMessage(batch.message, batch) ||
       typeof batch.createdAt !== "string" || typeof batch.updatedAt !== "string") return null;
+    if (eventId && batch.template === "EVENT_CONFIRMATION" && batch.message.includes("tidak perlu login. QR presensi")) {
+      // Preserve the queue and its progress; replace the retired pre-hardening template copy.
+      return { ...batch, message: whatsappBatchTemplateMessage("EVENT_CONFIRMATION", true) };
+    }
     return batch;
   } catch { return null; }
 }

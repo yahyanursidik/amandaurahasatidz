@@ -19,6 +19,7 @@ type Confirmation = {
   timezone: string; venueName: string | null; publicContactWhatsapp: string | null;
   attendanceConfirmationRequired: boolean; attendanceConfirmationDeadline: string | null;
   lateConfirmationPolicy: string; canConfirm: boolean; canDecline: boolean; qrToken: string | null;
+  privateAccess?: boolean; canRequestPrivateLink?: boolean;
   cancellationKind?: "WITHDRAWN" | "DECLINED" | null;
 };
 
@@ -36,11 +37,13 @@ function ParticipantStatus({ token }: { token: string }) {
   const [error, setError] = useState("");
   const [declineReview, setDeclineReview] = useState(false);
   const [reload, setReload] = useState(0);
+  const [accessEmail, setAccessEmail] = useState("");
+  const [accessSent, setAccessSent] = useState("");
 
   useEffect(() => {
     const controller = new AbortController();
     setDetails(null); setError(""); setLoading(true); setDeclineReview(false);
-    if (!token.startsWith("pcf_")) { setError("Tautan pribadi tidak lengkap. Buka tautan yang diberikan setelah mendaftar atau hubungi panitia."); setLoading(false); return; }
+    if (!/^(?:pcf|prc)_/.test(token)) { setError("Tautan pribadi tidak lengkap. Buka tautan yang diberikan setelah mendaftar atau hubungi panitia."); setLoading(false); return; }
     void fetch(`${ENV.API_BASE_URL}/confirmations/public/status`,
       { method: "POST", signal: controller.signal, cache: "no-store", referrerPolicy: "no-referrer",
         headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token }) })
@@ -70,6 +73,7 @@ function ParticipantStatus({ token }: { token: string }) {
   };
 
   const confirmed = details?.confirmationStatus === "CONFIRMED";
+  const receiptOnly = details?.privateAccess === false;
   const stage = details ? registrationStage(details) : "PENDING_REVIEW";
   const inactive = stage === "INACTIVE";
   const qrToken = details?.eventOpen && stage === "READY" && details.qrToken?.startsWith("pqr_") ? details.qrToken : null;
@@ -81,6 +85,8 @@ function ParticipantStatus({ token }: { token: string }) {
       next: "QR lama tidak berlaku. Hubungi panitia bila rencana berubah." }
     : details && !details.eventOpen && stage !== "DECLINED"
       ? { label: "Presensi tidak tersedia", next: "Acara belum aktif atau sudah selesai. Masuk ke Portal Asatidz untuk melihat riwayat atau hubungi panitia." }
+      : receiptOnly && (stage === "READY" || stage === "AWAITING_CONFIRMATION")
+        ? { label: "Pendaftaran disetujui", next: "Untuk konfirmasi dan QR pribadi, masuk ke Portal Asatidz atau minta tautan melalui email yang digunakan saat mendaftar." }
       : stage === "AWAITING_CONFIRMATION" && !details?.canConfirm
         ? { label: "Disetujui · tenggat konfirmasi lewat", next: "QR belum diterbitkan. Hubungi panitia untuk peninjauan." }
         : stage === "READY" && !qrToken
@@ -92,7 +98,7 @@ function ParticipantStatus({ token }: { token: string }) {
     : null;
 
   return <PublicLayout><div className="public-confirm" aria-labelledby="public-confirm-title">
-    <div className="public-confirm__eyebrow"><CheckCircle2 aria-hidden="true" /> Daurah Duat dan Pegiat Dakwah · respons pribadi</div>
+    <div className="public-confirm__eyebrow"><CheckCircle2 aria-hidden="true" /> Daurah Duat dan Pegiat Dakwah · {details?.privateAccess ? "akses pribadi" : "bukti pendaftaran"}</div>
     <h1 id="public-confirm-title">Status pendaftaran</h1>
     {loading ? <p className="public-confirm__feedback" role="status">Memuat status pendaftaran…</p> : !details ?
       <div className="public-confirm__feedback" role="alert"><strong>Status belum dapat dibuka</strong><p>{error}</p>
@@ -115,6 +121,22 @@ function ParticipantStatus({ token }: { token: string }) {
         Batas konfirmasi: {formatEventDateTime(details.attendanceConfirmationDeadline, details.timezone)} {eventTimezoneLabel(details.timezone)}
       </p>}
 
+      {receiptOnly && details.canRequestPrivateLink && <form className="public-confirm__identity" onSubmit={(event) => {
+        event.preventDefault(); if (saving) return; setSaving(true); setError(""); setAccessSent("");
+        void fetch(`${ENV.API_BASE_URL}/confirmations/public/link`, { method: "POST", cache: "no-store", referrerPolicy: "no-referrer",
+          headers: { "Content-Type": "application/json" }, body: JSON.stringify({ token, email: accessEmail }) })
+          .then(async (response) => { const body = await response.json(); if (!response.ok) throw new Error(body.error?.message || "Tautan belum dapat dikirim."); setAccessSent(body.data.message); })
+          .catch((cause) => setError(cause instanceof Error ? cause.message : "Tautan belum dapat dikirim. Coba lagi."))
+          .finally(() => setSaving(false));
+      }}>
+        <h2>Buka akses pribadi</h2><p>Isi email yang digunakan saat mendaftar. Tautan konfirmasi dan QR dikirim langsung ke email tersebut, berlaku 30 menit.</p>
+        <label className="public-confirm__access-field" htmlFor="registration-access-email">Email peserta
+          <input id="registration-access-email" type="email" autoComplete="email" required maxLength={254} value={accessEmail}
+            onChange={(event) => setAccessEmail(event.target.value)} disabled={saving} />
+        </label>
+        <button type="submit" className="public-confirm__primary" disabled={saving}>{saving ? "Mengirim…" : "Kirim tautan ke email"}<ArrowRight aria-hidden="true" /></button>
+        {accessSent && <p role="status">{accessSent}</p>}
+      </form>}
       {details.canConfirm && !declineReview && <div className="public-confirm__decision">
         <button type="button" className="public-confirm__primary" onClick={() => void decide("CONFIRM")} disabled={saving}>
           <CheckCircle2 aria-hidden="true" /> {saving ? "Menyimpan…" : "Insya Allah hadir"} <ArrowRight aria-hidden="true" />
@@ -143,7 +165,7 @@ function ParticipantStatus({ token }: { token: string }) {
         <Link to="/login/ustadz"><ArrowRight aria-hidden="true" /> Portal Asatidz</Link>
         {helpUrl && <a href={helpUrl} target="_blank" rel="noopener noreferrer"><CircleHelp aria-hidden="true" /> Hubungi panitia</a>}
       </nav>
-      <p className="public-confirm__privacy">Tautan ini khusus untuk Ustadz. Jangan bagikan kepada orang lain.</p>
+      <p className="public-confirm__privacy">{receiptOnly ? "Tautan bukti tidak dapat dipakai untuk mencatat hadir, mengubah keputusan, atau mengambil QR." : "Tautan akses pribadi berlaku 30 menit. Jangan bagikan kepada orang lain."}</p>
     </>}
   </div></PublicLayout>;
 }

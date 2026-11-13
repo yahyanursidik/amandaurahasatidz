@@ -5,6 +5,7 @@ import { signParticipantQrToken, verifyParticipantQrToken } from "../utils/token
 import { NotFoundError, ValidationError } from "../utils/errors";
 import { isAttendanceQrEligible, type RegistrationState } from "../../../../src/lib/registrationStatus";
 import { isAttendanceEventOpen } from "./attendanceModel";
+import { isAttendanceQrEventOpen } from "../repositories/attendanceRepository";
 
 export function cardPath(token: string) { return `/card?token=${encodeURIComponent(token)}`; }
 
@@ -36,6 +37,6 @@ export async function getPublicParticipantCardService(token: string) {
     throw new ValidationError("Tautan kartu lama sudah tidak berlaku. Lihat status melalui tautan terbaru dari panitia atau masuk ke Portal Asatidz.");
   }
   const { qrTokenVersion, archivedAt, endDate, status, timezone, ...receipt } = participant;
-  const eventOpen = isAttendanceEventOpen(participant);
+  const eventOpen = await isAttendanceQrEventOpen(payload.eventId, participant);
   return { ...receipt, eventOpen, opaqueQrToken: eventOpen && isAttendanceQrEligible(receipt) ? token : null };
 }

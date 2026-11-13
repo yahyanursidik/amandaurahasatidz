@@ -109,7 +109,8 @@ export async function updateUstadzService(id: string, data: any, actorUserId: st
     updateData.whatsapp = normalizePhone(profileChanges.whatsapp);
   }
 
-  const updated = await updateUstadzRepository(id, updateData);
+  const updated = await updateUstadzRepository(id, updateData, { actorUserId, expectedUpdatedAt: existing.updatedAt });
+  if (!updated) throw new ConflictError("Profil berubah saat disimpan. Muat ulang profil lalu coba lagi.");
 
   await createAuditLog({
     actorUserId,

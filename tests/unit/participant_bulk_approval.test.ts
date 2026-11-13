@@ -15,7 +15,8 @@ vi.mock("../../netlify/functions/lib/repositories/participantRepository", () => 
 }));
 vi.mock("../../netlify/functions/lib/repositories/eventRepository", () => ({ findEventByIdRepository: mocks.findEvent }));
 vi.mock("../../netlify/functions/lib/services/auditService", () => ({ createAuditLog: mocks.audit }));
-vi.mock("../../netlify/functions/lib/services/participantCardEmailService", () => ({ queueApprovedParticipantCardEmail: mocks.email }));
+vi.mock("../../netlify/functions/lib/services/participantCardEmailService", () => ({ queueApprovedParticipantCardEmail: mocks.email,
+  flushRegistrationEmailDispatch: vi.fn(async () => {}) }));
 
 import { approveParticipantService, bulkApproveParticipantsService } from "../../netlify/functions/lib/services/participantService";
 import { bulkApproveSchema } from "../../netlify/functions/lib/validations/participantValidation";

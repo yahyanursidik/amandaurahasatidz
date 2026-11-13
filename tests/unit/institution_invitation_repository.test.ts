@@ -8,7 +8,10 @@ vi.mock("../../netlify/functions/lib/services/registrationCapacity", () => ({
   lockRegistrationEvent: async () => ({ id: "event", status: "PUBLISHED", invitationResponseDeadline: null }), assertRegistrationCapacity: async () => {},
 }));
 import { saveInstitutionDelegationRepository as save, updateInvitationRepository } from "../../netlify/functions/lib/repositories/invitationRepository";
-const saveInstitutionDelegationRepository = (id: string, payload: Parameters<typeof save>[1]) => save(id, payload, { eventId: "event", tokenHash: "hash" });
+import { createInstitutionAccessVerification } from "../../netlify/functions/lib/services/institutionAccessCodeService";
+const saveInstitutionDelegationRepository = (id: string, payload: Parameters<typeof save>[1]) => save(id, payload, {
+  eventId: "event", tokenHash: "hash", verificationToken: createInstitutionAccessVerification(id).verificationToken,
+});
 
 const invitation = { id: "invitation", eventId: "event", invitationType: "INSTITUTION", institutionId: "institution", quota: 3,
   invitationNumber: "UND-1", status: "SENT", updatedAt: new Date("2026-01-01") };

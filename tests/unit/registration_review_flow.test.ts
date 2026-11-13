@@ -23,7 +23,7 @@ describe("persetujuan pendaftaran oleh admin", () => {
     expect(() => assertParticipantEligibleForCheckin({ ...pending, approvalStatus: "APPROVED", confirmationStatus: "CONFIRMED" }, event)).not.toThrow();
   });
 
-  const statusLink = "https://contoh.id/confirm#pcf_example.signature";
+  const statusLink = "https://contoh.id/confirm#prc_example.signature";
   const oldCard = "https://contoh.id/card?token=pqr_old.signature";
   const common = { ustadzName: "Ustadz Hasan", eventName: "Daurah", participantCode: "P-ABC",
     rundownLink: "https://contoh.id/events/daurah#jadwal-kegiatan", registrationStatusLink: statusLink };
@@ -41,12 +41,15 @@ describe("persetujuan pendaftaran oleh admin", () => {
 
   it("email persetujuan membedakan permintaan konfirmasi dari QR yang siap", () => {
     const request = renderHtmlEmailTemplate("REGISTRATION_CONFIRMATION_REQUEST", { ...common, confirmationLink: oldCard });
-    expect(request.htmlBody).toContain("Konfirmasi kehadiran");
+    expect(request.htmlBody).toMatch(/konfirmasi kehadiran/i);
+    expect(request.htmlBody).toMatch(/Lihat status (?:&amp;|&) akses/);
+    expect(request.textBody).toContain("minta tautan pribadi ke email Ustadz");
     expect(request.textBody).toContain("Masih ada satu langkah");
     expect(request.textBody + request.htmlBody).not.toContain("pqr_");
     const ready = renderHtmlEmailTemplate("REGISTRATION_APPROVED", { ...common, cardLink: oldCard,
       portalLink: "https://contoh.id/login/ustadz", email: "hasan@contoh.id" });
-    expect(ready.htmlBody).toContain("Buka QR presensi");
+    expect(ready.htmlBody).toContain("Lihat status pendaftaran");
+    expect(ready.textBody).toContain("masuk ke Portal Asatidz atau minta tautan pribadi");
     expect(ready.htmlBody).toContain(`href="${statusLink}"`);
     expect(ready.textBody + ready.htmlBody).not.toContain("pqr_");
   });

@@ -25,13 +25,16 @@ vi.mock("../../netlify/functions/lib/services/auditService", () => ({ createAudi
 
 import { createInvitationService, editInvitationService, getInvitationInstitutionsService, getInvitationUstadzOptionsService, getInvitationsService,
   sendInvitationService, revokeInvitationService, regenerateInvitationLinkService,
-  getPublicInstitutionInvitationService, getPublicIndividualInvitationService, submitInstitutionResponseService,
+  getPublicInstitutionInvitationService, getPublicIndividualInvitationService, submitInstitutionResponseService as submitResponse,
 } from "../../netlify/functions/lib/services/invitationService";
 import { createInvitationSchema, updateInvitationSchema } from "../../netlify/functions/lib/validations/invitationValidation";
 import { invitationAllowsGroup, invitationIsSelfRegistration, invitationParticipantLimit } from "../../src/lib/institutionInvitation";
+import { createInstitutionAccessVerification } from "../../netlify/functions/lib/services/institutionAccessCodeService";
 
 const eventId = "11111111-1111-4111-8111-111111111111";
 const id = "22222222-2222-4222-8222-222222222222";
+const submitInstitutionResponseService = (token: string, payload: Record<string, unknown>, requestId: string) =>
+  submitResponse(token, { ...payload, verificationToken: createInstitutionAccessVerification(id).verificationToken }, requestId);
 const institutionId = "33333333-3333-4333-8333-333333333333";
 const otherId = "44444444-4444-4444-8444-444444444444";
 const deadline = new Date("2099-01-20T08:00:00Z");
@@ -269,7 +272,7 @@ describe("keamanan lingkup event dan formulir publik", () => {
     const result = await getPublicInstitutionInvitationService("inv_inst_token", "request");
     expect(result.invitation).toMatchObject({ quota: 3, allowGroup: true });
     expect(result.invitation.status).toBe("OPENED"); expect(mocks.opened).toHaveBeenCalledWith(id);
-    expect(result.institution).toEqual({ name: "Ma'had Uji", code: "MU", verificationRequired: false });
+    expect(result.institution).toEqual({ name: "Ma'had Uji", code: "MU", verificationRequired: true });
     expect(JSON.stringify(result)).not.toContain("private@example.invalid");
   });
   it("menampilkan sisa kursi mandiri tanpa membocorkan identitas pendaftar", async () => {
@@ -280,6 +283,11 @@ describe("keamanan lingkup event dan formulir publik", () => {
     expect(result.invitation).toMatchObject({ registrationMode: "INDIVIDUAL_SELF", quota: 1, totalQuota: 5,
       registeredCount: 2, remainingQuota: 3, allowGroup: false });
     expect(JSON.stringify(result)).not.toContain("private@example.invalid");
+  });
+  it("menolak pengiriman tanpa kode lembaga walaupun tautan diketahui", async () => {
+    await expect(submitResponse("token", { responseStatus: "DECLINED", isFinal: true, delegates: [] }, "request"))
+      .rejects.toMatchObject({ statusCode: 403 });
+    expect(mocks.save).not.toHaveBeenCalled();
   });
   it("menolak jawaban seluruh lembaga dan rombongan pada tautan mandiri", async () => {
     mocks.token.mockResolvedValue({ invitation: { ...invitation, registrationMode: "INDIVIDUAL_SELF", quota: 5, status: "OPENED" }, event, link: {} });
