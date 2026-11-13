@@ -23,7 +23,7 @@ import { getDbClient } from "./lib/db/client";
 import { logInfo, logError } from "./lib/utils/logger";
 import { classifyDatabaseError } from "./lib/utils/databaseError";
 import { AppError, ForbiddenError, ValidationError, UnauthorizedError } from "./lib/utils/errors";
-import { checkRateLimit } from "./lib/utils/rateLimiter";
+import { checkRateLimit, resetRateLimit } from "./lib/utils/rateLimiter";
 import { generateEmailOtp, verifyEmailOtp } from "./lib/services/otpService";
 import { serializeCookie, clearCookie, parseCookies } from "./lib/utils/cookie";
 import { validateRequestData } from "./lib/utils/validator";
@@ -401,7 +401,8 @@ export const handler: Handler = async (event, _context) => {
     if (pubInvCodeVerifyMatch && method === "POST") {
       const rawToken = pubInvCodeVerifyMatch[1];
       const clientIp = event.headers["client-ip"] || event.headers["x-forwarded-for"] || "127.0.0.1";
-      const limitCheck = checkRateLimit(`pub_inv_code_${rawToken.slice(-12)}_${clientIp}`, 8, 600000);
+      const codeLimitKey = `pub_inv_code_${rawToken.slice(-12)}_${clientIp}`;
+      const limitCheck = checkRateLimit(codeLimitKey, 8, 600000);
       if (!limitCheck.allowed) {
         return buildErrorResponse(
           "TOO_MANY_REQUESTS",
@@ -414,6 +415,8 @@ export const handler: Handler = async (event, _context) => {
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(verifyInstitutionAccessCodeSchema, body);
       const result = await verifyInstitutionInvitationAccessCodeService(rawToken, validated.code, requestId);
+      // Successful entries from one institution's shared Wi-Fi are not failed guesses.
+      resetRateLimit(codeLimitKey);
       return buildSuccessResponse(result, requestId);
     }
     if (pubInvOtpRequestMatch && method === "POST") {

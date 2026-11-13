@@ -9,7 +9,7 @@ import * as schema from "../../netlify/functions/lib/db/schema";
 import { createSessionToken } from "../../netlify/functions/lib/services/authService";
 import { processEmailQueueWorker } from "../../netlify/functions/lib/services/emailQueueService";
 import { generateSecureToken, signParticipantQrToken, verifyParticipantConfirmationToken } from "../../netlify/functions/lib/utils/token";
-import { createInstitutionAccessVerification } from "../../netlify/functions/lib/services/institutionAccessCodeService";
+import { createInstitutionAccessVerification, getInstitutionAccessCode } from "../../netlify/functions/lib/services/institutionAccessCodeService";
 import { handler } from "../../netlify/functions/api";
 
 const local = vi.hoisted(() => ({
@@ -150,6 +150,25 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 afterAll(async () => { await pg.close(); local.db = undefined; });
 
 describe("registration moderation: receipt → approval → confirmation → Gate QR", () => {
+  it("allows institution code verification on shared Wi-Fi while limiting consecutive invalid guesses", async () => {
+    const [institution] = await db.insert(schema.institutions).values({ code: "WIFI", name: "Lembaga Wi-Fi" }).returning();
+    const [invitation] = await db.insert(schema.invitations).values({ eventId, invitationType: "INSTITUTION", institutionId: institution.id,
+      invitationNumber: "TEST-WIFI", registrationMode: "INDIVIDUAL_SELF", quota: 30, status: "SENT" }).returning();
+    const { rawToken, tokenHash } = generateSecureToken("inv_self");
+    await db.insert(schema.invitationLinks).values({ invitationId: invitation.id, tokenHash, expiresAt: new Date("2026-11-15") });
+    const route = `/invitations/public/institution/${rawToken}/code/verify`;
+    const code = getInstitutionAccessCode(invitation.id);
+    for (let index = 0; index < 12; index++) {
+      const verified = await post(route, { code });
+      expect(verified.status, JSON.stringify(verified.error)).toBe(200);
+      expect(verified.data.verificationToken).toBeTruthy();
+    }
+    const incorrect = `${code[0] === "A" ? "B" : "A"}${code.slice(1)}`;
+    for (let index = 0; index < 8; index++) expect((await post(route, { code: incorrect })).status).toBe(422);
+    expect((await post(route, { code: incorrect })).status).toBe(429);
+    expect((await db.select().from(schema.eventParticipants))).toHaveLength(0);
+  });
+
   it("sends only a personal receipt initially, and issues a new credential only after both decisions", async () => {
     const [lead, member] = await register(asatidz("ketua"), [asatidz("anggota")]);
     const row = await findParticipant(lead.participantCode);
