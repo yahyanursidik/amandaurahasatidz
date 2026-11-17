@@ -19,6 +19,7 @@ export type Program = {
   audienceMode: string;
   status: string;
   regularQuota?: number | null;
+  regularAllowGroup?: boolean;
   registrationOpenAt: string | null;
   registrationCloseAt: string | null;
 };
@@ -193,6 +194,7 @@ export const PublicProgramsPage: React.FC = () => {
         <div className="public-home__program-facts"><p><CalendarDays aria-hidden="true" /><span>{formatDate(program.startDate)}{program.endDate !== program.startDate ? ` – ${formatDate(program.endDate)}` : ""}</span></p><p><MapPin aria-hidden="true" /><span>{program.venueName || "Lokasi menyusul"}</span></p></div>
         <div className="public-home__program-actions"><Link to={action.to} className="public-home__program-action">{action.label} <ArrowRight aria-hidden="true" /></Link>{action.to !== detailPath && <Link to={detailPath} className="public-home__program-detail">Rincian kegiatan</Link>}</div>
         {invitationOnly && <p className="public-home__invitation-note">Tautan pendaftaran khusus dikirim panitia kepada penerima undangan.</p>}
+        {hasRegularPath(program) && program.regularAllowGroup === false && <p className="public-home__invitation-note">Pendaftaran reguler hanya untuk diri sendiri.</p>}
       </div>
     </article>;
   })}</div>;
@@ -267,10 +269,10 @@ export const PublicProgramsPage: React.FC = () => {
       </section>}
 
       {!isCatalog && <section className="public-home__journey" aria-labelledby="journey-title">
-        <div><h2 id="journey-title">Dari daftar hingga hadir</h2><p>Satu orang dapat mendaftarkan diri atau rombongan. Setiap asatidz tetap memperoleh QR dan akses portal pribadi.</p></div>
+        <div><h2 id="journey-title">Dari daftar hingga hadir</h2><p>Daftarkan diri sesuai ketentuan kegiatan. Setiap asatidz memperoleh QR dan akses portal pribadi.</p></div>
         <ol>
           <li><span>01</span><CalendarDays aria-hidden="true" /><div><h3>Lihat informasi kegiatan</h3><p>Periksa jadwal, lokasi, dan jalur pendaftaran bila tersedia.</p></div></li>
-          <li><span>02</span><Users aria-hidden="true" /><div><h3>Isi pendaftaran</h3><p>Form reguler bisa memuat rombongan. Undangan lembaga memakai tautan khusus dari panitia.</p></div></li>
+          <li><span>02</span><Users aria-hidden="true" /><div><h3>Isi pendaftaran</h3><p>Rombongan reguler hanya tersedia jika diizinkan panitia. Undangan lembaga memakai tautan khusus dari panitia.</p></div></li>
           <li><span>03</span><QrCode aria-hidden="true" /><div><h3>Pantau status pendaftaran</h3><p>Simpan QR presensi setelah disetujui dan, jika diwajibkan, setelah konfirmasi hadir.</p></div></li>
         </ol>
       </section>}

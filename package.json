@@ -37,7 +37,12 @@
     "db:migrate:event-kiosk": "node scripts/apply-event-kiosk-migration.mjs",
     "db:migrate:performance": "node scripts/apply-performance-indexes.mjs",
     "db:migrate:institution-self": "node scripts/apply-institution-self-registration-migration.mjs",
-    "db:seed": "node scripts/run-seed.mjs"
+    "db:seed": "node scripts/run-seed.mjs",
+    "db:migrate:local": "node scripts/migrate-local.mjs",
+    "db:local:start": "sh scripts/local-db.sh",
+    "db:local:stop": "sh scripts/local-db.sh stop",
+    "dev:local": "sh scripts/dev-local.sh",
+    "db:migrate:regular-group": "node scripts/apply-regular-group-migration.mjs"
   },
   "dependencies": {
     "@neondatabase/serverless": "^0.10.4",
@@ -52,6 +57,7 @@
     "jsqr": "1.4.0",
     "lucide-react": "^0.475.0",
     "nodemailer": "^9.0.3",
+    "pg": "^8.23.1",
     "qrcode.react": "4.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
@@ -66,6 +72,7 @@
     "@rolldown/plugin-babel": "0.1.7",
     "@types/node": "^22.13.1",
     "@types/nodemailer": "^8.0.1",
+    "@types/pg": "^8.23.1",
     "@types/react": "^18.3.18",
     "@types/react-dom": "^18.3.5",
     "@types/ws": "^8.18.2",

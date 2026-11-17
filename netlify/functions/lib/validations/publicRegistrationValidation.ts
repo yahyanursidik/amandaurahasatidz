@@ -11,7 +11,7 @@ export const submitPublicRegistrationSchema = z.object({
   province: z.string().trim().min(2, "Provinsi wajib diisi").max(120),
   cityCode: z.string().trim().max(30).optional().nullable(),
   provinceCode: z.string().trim().max(30).optional().nullable(),
-  consentConfirmed: z.literal(true, { message: "Persetujuan pengiriman data rombongan wajib diberikan" }),
+  consentConfirmed: z.literal(true, { message: "Persetujuan penggunaan data peserta wajib diberikan" }),
   delegates: z.array(z.object({
     fullName: z.string().trim().min(3, "Nama peserta minimal 3 karakter").max(150),
     email: z.string().trim().email("Email peserta tidak valid"),

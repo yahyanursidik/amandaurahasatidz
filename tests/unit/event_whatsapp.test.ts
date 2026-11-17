@@ -28,6 +28,13 @@ describe("berbagi event WhatsApp", () => {
     expect(isPublicPanitiaWhatsAppNumber("abc081234567890")).toBe(false);
   });
 
+  it("menjelaskan pendaftaran pribadi tanpa mengubah komunikasi undangan", () => {
+    const soloEvent = { ...event, regularAllowGroup: false };
+    expect(buildEventWhatsAppMessage("REGULAR", soloEvent, "https://example.org")).toContain("setiap asatidz mengisi formulir terpisah");
+    expect(buildEventWhatsAppMessage("INVITATION", soloEvent, "https://example.org"))
+      .toBe(buildEventWhatsAppMessage("INVITATION", event, "https://example.org"));
+  });
+
   it("membatasi ukuran halaman katalog yang diminta klien", () => {
     expect(eventCatalogQuerySchema.parse({ page: "2", pageSize: "12" }).pageSize).toBe(12);
     expect(eventCatalogQuerySchema.safeParse({ pageSize: "500" }).success).toBe(false);

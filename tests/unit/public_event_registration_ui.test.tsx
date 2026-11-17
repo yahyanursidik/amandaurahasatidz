@@ -30,4 +30,17 @@ describe("formulir reguler publik", () => {
     expect(html).toContain("Formulir reguler belum dapat diisi");
     expect(html).not.toContain("Daftarkan 1 peserta");
   });
+
+  it("menyediakan formulir pribadi tanpa penawaran rombongan ketika dinonaktifkan", () => {
+    const html = renderToStaticMarkup(<StaticRouter location="/events/daurah-coba"><PublicEventRegistrationPage embeddedEvent={{ ...event, regularAllowGroup: false }} /></StaticRouter>);
+    expect(html).toContain("Pendaftaran reguler hanya untuk diri sendiri");
+    expect(html).toContain("Data diri Anda");
+    expect(html).toContain("Satu formulir untuk satu peserta");
+    expect(html).toContain("Daftarkan 1 peserta");
+    expect(html).toContain("Saya setuju data saya digunakan panitia");
+    expect(html).not.toContain("Data peserta pertama");
+    expect(html).not.toContain("Tambah anggota");
+    expect(html).not.toContain("Datang bersama rombongan");
+    expect(html).not.toContain("group-members-title");
+  });
 });

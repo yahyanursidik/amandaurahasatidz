@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertPublicRegistrationOpen, publicGroupLimit } from "../../netlify/functions/lib/services/publicRegistrationService";
+import { assertPublicRegistrationOpen, assertPublicRegistrationGroupAllowed, publicGroupLimit } from "../../netlify/functions/lib/services/publicRegistrationService";
 import { assertValidQuotaAllocation, isRegularRegistrationSource, quotaForSource } from "../../netlify/functions/lib/services/eventQuota";
 import { createEventSchema } from "../../netlify/functions/lib/validations/eventValidation";
 
@@ -43,5 +43,16 @@ describe("jalur dan kuota program", () => {
     const event = { defaultInstitutionQuota: 2, regularQuota: 12, capacity: 30 };
     expect(publicGroupLimit(event)).toBe(12);
     expect(publicGroupLimit({ regularQuota: null, capacity: null })).toBe(20);
+  });
+
+  it("memisahkan kebijakan per orang dari kuota total dan tetap kompatibel dengan event lama", () => {
+    const event = { regularAllowGroup: false, regularQuota: 12, capacity: 30 };
+    expect(publicGroupLimit(event)).toBe(1);
+    expect(() => assertPublicRegistrationGroupAllowed(event, 1)).not.toThrow();
+    expect(() => assertPublicRegistrationGroupAllowed(event, 2)).toThrow(/hanya untuk diri sendiri/);
+    expect(publicGroupLimit({ ...event, regularAllowGroup: true })).toBe(12);
+    expect(publicGroupLimit({ regularQuota: 12, capacity: 30 })).toBe(12);
+    expect(publicGroupLimit({ ...event, regularQuota: 0 })).toBe(0);
+    expect(() => assertPublicRegistrationGroupAllowed({ regularQuota: 2 }, 3)).toThrow(/Maksimal 2/);
   });
 });

@@ -28,6 +28,7 @@ export async function findEventCatalogRepository(query: { page: number; pageSize
       posterUrl: sql<string | null>`case when ${events.posterUrl} like 'data:image/%' then null else ${events.posterUrl} end`,
       posterAlt: events.posterAlt, posterFocalPoint: events.posterFocalPoint,
       audienceMode: events.audienceMode, status: events.status,
+      regularAllowGroup: events.regularAllowGroup,
     }).from(events).where(filter).orderBy(desc(events.startDate), desc(events.createdAt))
       .limit(query.pageSize).offset((query.page - 1) * query.pageSize),
     db.select({ total: count() }).from(events).where(filter),

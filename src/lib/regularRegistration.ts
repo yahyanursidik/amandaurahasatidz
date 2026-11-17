@@ -2,12 +2,23 @@ export type RegularRegistrationEvent = {
   audienceMode: string;
   status: string;
   regularQuota: number | null;
+  regularAllowGroup?: boolean;
   regularApproved: number;
   invitationApproved: number;
   capacity: number | null;
   registrationOpenAt: string | null;
   registrationCloseAt: string | null;
 };
+
+/** Missing policy means the legacy behavior; total quotas still apply per person. */
+export function getRegularRegistrationGroupLimit(event: {
+  regularAllowGroup?: boolean;
+  regularQuota?: number | null;
+  capacity?: number | null;
+}) {
+  return Math.max(0, Math.min(event.regularAllowGroup === false ? 1 : 20,
+    event.regularQuota ?? 20, event.capacity ?? 20));
+}
 
 export function getRegularRegistrationState(event: RegularRegistrationEvent, now = new Date()) {
   if (!["PUBLIC_OPEN", "MIXED"].includes(event.audienceMode)) {
