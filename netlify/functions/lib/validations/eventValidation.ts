@@ -63,6 +63,7 @@ export const createEventSchema = z.object({
   defaultInstitutionQuota: z.coerce.number().int().min(1).optional().nullable(),
   capacity: z.coerce.number().int().min(1).optional().nullable(),
   regularQuota: z.coerce.number().int().min(0).optional().nullable(),
+  regularAllowGroup: z.boolean().default(true),
   invitationQuota: z.coerce.number().int().min(0).optional().nullable(),
 }).superRefine((value, context) => {
   if (value.capacity != null && value.regularQuota != null && value.regularQuota > value.capacity) {

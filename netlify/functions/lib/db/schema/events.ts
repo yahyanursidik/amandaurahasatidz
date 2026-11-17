@@ -33,6 +33,7 @@ export const events = pgTable(
     defaultInstitutionQuota: integer("default_institution_quota"),
     capacity: integer("capacity"),
     regularQuota: integer("regular_quota"),
+    regularAllowGroup: boolean("regular_allow_group").notNull().default(true),
     invitationQuota: integer("invitation_quota"),
     status: text("status").notNull().default("DRAFT"),
     createdBy: uuid("created_by").references(() => users.id),

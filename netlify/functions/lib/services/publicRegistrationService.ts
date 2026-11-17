@@ -14,6 +14,7 @@ import { lockRegistrationEvent, assertRegistrationCapacity } from "./registratio
 import { initialParticipantReviewState } from "./registrationReviewState";
 import { registrationReceiptPath } from "./participantConfirmationLink";
 import { recordWhatsAppProposal } from "./participantContactReview";
+import { getRegularRegistrationGroupLimit } from "../../../../src/lib/regularRegistration";
 
 type PublicRegistrationInput = {
   fullName: string;
@@ -66,8 +67,17 @@ export function assertPublicRegistrationOpen(event: {
   if (event.regularQuota === 0) throw new ForbiddenError("Kuota reguler untuk program ini ditutup.");
 }
 
-export function publicGroupLimit(event: { regularQuota?: number | null; capacity?: number | null }) {
-  return Math.min(20, event.regularQuota ?? 20, event.capacity ?? 20);
+export const publicGroupLimit = getRegularRegistrationGroupLimit;
+
+export function assertPublicRegistrationGroupAllowed(event: Parameters<typeof publicGroupLimit>[0], participantCount: number) {
+  if (event.regularAllowGroup === false && participantCount > 1) {
+    throw new ValidationError("Pendaftaran reguler untuk event ini hanya untuk diri sendiri. Setiap asatidz harus mengisi pendaftaran terpisah.",
+      { reason: "REGULAR_GROUP_DISABLED" });
+  }
+  const limit = publicGroupLimit(event);
+  if (participantCount > limit) {
+    throw new ValidationError(`Maksimal ${limit} peserta untuk satu pendaftaran reguler, termasuk pendaftar utama.`);
+  }
 }
 
 async function getOpenEvent(slug: string) {
@@ -80,8 +90,7 @@ async function getOpenEvent(slug: string) {
 export async function submitPublicRegistrationService(slug: string, input: PublicRegistrationInput, requestId: string) {
   const event = await getOpenEvent(slug);
   const people = normalizePublicRegistrationGroup(input);
-  const maxGroupSize = publicGroupLimit(event);
-  if (people.length > maxGroupSize) throw new ValidationError(`Maksimal ${maxGroupSize} peserta termasuk kepala rombongan untuk satu pendaftaran.`);
+  assertPublicRegistrationGroupAllowed(event, people.length);
   const [regularApproved, totalApproved] = await Promise.all([
     countApprovedParticipantsBySourceRepository(event.id, true), countApprovedParticipantsForEventRepository(event.id),
   ]);
@@ -93,6 +102,9 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
   const result = await withTransaction(async (tx) => {
     const currentEvent = await lockRegistrationEvent(tx, event.id);
     assertPublicRegistrationOpen(currentEvent);
+    // Event edits take the same lock. A form loaded before a policy/quota change
+    // must be validated again before any identities, participants or mail are written.
+    assertPublicRegistrationGroupAllowed(currentEvent, people.length);
     await assertRegistrationCapacity(tx, currentEvent, "DIRECT_PUBLIC", people.length);
     const role = (await tx.select().from(roles).where(eq(roles.code, "USTADZ")).limit(1))[0];
     if (!role) throw new ConflictError("Konfigurasi peran asatidz belum siap. Hubungi admin.");

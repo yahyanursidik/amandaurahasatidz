@@ -10,6 +10,7 @@ export type EventWhatsAppContext = {
   venueName?: string | null;
   status: string;
   audienceMode?: string | null;
+  regularAllowGroup?: boolean;
 };
 
 const dateLabel = (value: string) => {
@@ -27,7 +28,7 @@ export function buildEventWhatsAppMessage(type: EventWhatsAppType, event: EventW
   const body = type === "INVITATION"
     ? "Kami mengundang Ustadz/Ustadzah untuk mengikuti program ini. Untuk pendaftaran jalur undangan, mohon gunakan tautan pribadi yang diberikan panitia. Tautan khusus dan kode akses tidak boleh diteruskan kepada pihak lain."
     : regularOpen
-      ? `Pendaftaran reguler sedang dibuka. Silakan membaca ketentuan dan mendaftar melalui: ${publicUrl}/register`
+      ? `Pendaftaran reguler sedang dibuka.${event.regularAllowGroup === false ? " Pendaftaran hanya untuk diri sendiri; setiap asatidz mengisi formulir terpisah." : ""} Silakan membaca ketentuan dan mendaftar melalui: ${publicUrl}/register`
       : "Informasi pendaftaran reguler dan ketersediaan kuota dapat diperiksa pada halaman program.";
   return [
     "Assalamu'alaikum warahmatullahi wabarakatuh.", "",

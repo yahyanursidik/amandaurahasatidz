@@ -19,6 +19,7 @@ type EventSummary = {
   id: string; code: string; slug: string; name: string; startDate: string; endDate: string;
   timezone: string; venueName: string | null; posterUrl: string | null;
   posterAlt: string | null; posterFocalPoint: string | null; audienceMode: string; status: string;
+  regularAllowGroup?: boolean;
 };
 type Catalog = { items: EventSummary[]; total: number; page: number; pageCount: number; statusCounts: Record<string, number> };
 const PAGE_SIZE = 12;

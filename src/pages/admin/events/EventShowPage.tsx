@@ -87,6 +87,7 @@ type EventDetail = {
   attendanceMode: string;
   capacity: number | null;
   regularQuota: number | null;
+  regularAllowGroup?: boolean;
   invitationQuota: number | null;
   defaultInstitutionQuota: number | null;
   invitationResponseDeadline: string | null;
@@ -430,6 +431,7 @@ export const EventShowPage: React.FC = () => {
                 { label: "Jalur peserta", value: audienceLabel[data.audienceMode] || data.audienceMode, icon: Users },
                 { label: "Kapasitas total", value: data.capacity == null ? "Tidak dibatasi" : `${data.capacity} peserta`, icon: Users },
                 { label: "Kuota reguler", value: data.regularQuota == null ? "Mengikuti kapasitas total" : `${data.regularQuota} peserta`, icon: Users },
+                { label: "Rombongan reguler", value: !["PUBLIC_OPEN", "MIXED"].includes(data.audienceMode) ? "Jalur reguler tidak aktif" : data.regularAllowGroup === false ? "Tidak diizinkan · hanya diri sendiri" : "Diizinkan · mengikuti sisa kuota", icon: Users },
                 { label: "Kuota undangan", value: data.invitationQuota == null ? "Mengikuti kapasitas total" : `${data.invitationQuota} peserta`, icon: Users },
                 { label: "Mode presensi", value: attendanceModeLabel[data.attendanceMode] || data.attendanceMode, icon: ShieldCheck },
                 { label: "Batas respons undangan", value: data.invitationResponseDeadline ? `${formatEventDateTime(data.invitationResponseDeadline, data.timezone)} ${eventTimezoneLabel(data.timezone)}` : "Tidak dibatasi", icon: Clock3 },

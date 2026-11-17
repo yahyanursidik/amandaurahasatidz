@@ -14,7 +14,7 @@ export const EventWhatsAppDialog: React.FC<{ event: EventWhatsAppContext }> = ({
   useEffect(() => {
     setMessage(buildEventWhatsAppMessage(type, event, window.location.origin));
     setCopied(false);
-  }, [event.name, event.slug, event.startDate, event.endDate, event.venueName, event.status, event.audienceMode, type]);
+  }, [event.name, event.slug, event.startDate, event.endDate, event.venueName, event.status, event.audienceMode, event.regularAllowGroup, type]);
 
   const send = () => {
     const url = buildEventWhatsAppUrl(message, phone);

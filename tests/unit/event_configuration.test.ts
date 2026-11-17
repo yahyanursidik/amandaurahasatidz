@@ -7,7 +7,7 @@ import {
   validateEventConfiguration,
 } from "../../src/lib/eventConfiguration";
 import { assertQuotaCoversApproved } from "../../netlify/functions/lib/services/eventQuota";
-import { createEventSchema } from "../../netlify/functions/lib/validations/eventValidation";
+import { createEventSchema, updateEventSchema } from "../../netlify/functions/lib/validations/eventValidation";
 
 const base: EventFormValues = {
   code: "DAURAH-01", slug: "daurah-01", name: "Daurah Asatidz", subtitle: "", description: "",
@@ -18,9 +18,20 @@ const base: EventFormValues = {
   attendanceConfirmationDeadline: "", attendanceConfirmationRequired: true, lateConfirmationPolicy: "BLOCK",
   venueName: "", venueAddress: "", publicContactWhatsapp: "", mapsUrl: "",
   defaultInstitutionQuota: "2", capacity: "100", regularQuota: "40", invitationQuota: "60",
+  regularAllowGroup: true,
 };
 
 describe("konfigurasi event daurah", () => {
+  it("menyimpan izin rombongan secara eksplisit tanpa mengubah pengaturan pada PATCH lain", () => {
+    const payload = { code: base.code, slug: base.slug, name: base.name, startDate: base.startDate, endDate: base.endDate };
+    expect(createEventSchema.parse(payload).regularAllowGroup).toBe(true);
+    expect(createEventSchema.parse({ ...payload, regularAllowGroup: false }).regularAllowGroup).toBe(false);
+    expect(updateEventSchema.parse({ regularAllowGroup: false })).toEqual({ regularAllowGroup: false });
+    expect(updateEventSchema.parse({ name: "Nama diperbarui" })).not.toHaveProperty("regularAllowGroup");
+    for (const value of ["false", "true", 0, 1, null]) {
+      expect(updateEventSchema.safeParse({ regularAllowGroup: value }).success).toBe(false);
+    }
+  });
   it("menghubungkan pilihan jalur dengan aturan reguler, undangan, dan lembaga", () => {
     expect(includesRegularRegistration("PUBLIC_OPEN")).toBe(true);
     expect(includesInvitationRegistration("PUBLIC_OPEN")).toBe(false);

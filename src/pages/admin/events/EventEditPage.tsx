@@ -50,6 +50,7 @@ export const EventEditPage: React.FC = () => {
           defaultInstitutionQuota: "3",
           capacity: "300",
           regularQuota: "100",
+          regularAllowGroup: true,
           invitationQuota: "200",
         });
         return;
@@ -86,6 +87,7 @@ export const EventEditPage: React.FC = () => {
           defaultInstitutionQuota: event.defaultInstitutionQuota ? String(event.defaultInstitutionQuota) : "",
           capacity: event.capacity ? String(event.capacity) : "",
           regularQuota: event.regularQuota == null ? "" : String(event.regularQuota),
+          regularAllowGroup: event.regularAllowGroup !== false,
           invitationQuota: event.invitationQuota == null ? "" : String(event.invitationQuota),
         });
       } catch (loadError) {

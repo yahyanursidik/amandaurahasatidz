@@ -11,6 +11,7 @@ import react from '@vitejs/plugin-react';
 
 const root = path.resolve(import.meta.dirname, '..');
 const chrome = process.env.CHROME_PATH || [
+  '/Applications/Brave Browser.app/Contents/MacOS/Brave Browser',
   'C:/Program Files (x86)/Microsoft/Edge/Application/msedge.exe',
   'C:/Program Files/Google/Chrome/Application/chrome.exe',
 ].find(existsSync);
@@ -29,6 +30,8 @@ const fixture = {
         import {EventPublicPage} from '/src/pages/public/EventPublicPage.tsx';
         import {ParticipantCardPage} from '/src/pages/public/ParticipantCardPage.tsx';
         import {PublicParticipantConfirmationPage} from '/src/pages/public/PublicParticipantConfirmationPage.tsx';
+        import {PublicEventRegistrationPage} from '/src/pages/public/PublicEventRegistrationPage.tsx';
+        import {EventForm} from '/src/components/admin/events/EventForm.tsx';
         import '/src/index.css';
         const event = {
           id:'00000000-0000-0000-0000-000000000001',code:'DC-27',slug:'daurah-coba',name:'Daurah Coba Asatidz',
@@ -36,12 +39,14 @@ const fixture = {
           posterUrl:null,posterAlt:null,posterFocalPoint:'CENTER',timezone:'Asia/Makassar',startDate:'2027-02-10',endDate:'2027-02-12',
           venueName:'Masjid Bandung',venueAddress:'Bandung, Jawa Barat',publicContactWhatsapp:'6281234567890',mapsUrl:'https://maps.google.com/',attendanceConfirmationRequired:true,
           status:'REGISTRATION_OPEN',audienceMode:'MIXED',capacity:30,regularQuota:20,invitationQuota:10,regularApproved:0,
+          regularAllowGroup:!new URLSearchParams(location.search).has('solo'),
           invitationApproved:0,registrationOpenAt:null,registrationCloseAt:'2027-02-09T08:00:00.000Z',
           days:[{id:'day-1',dayNumber:1,date:'2027-02-10',title:'Pembukaan'},{id:'day-2',dayNumber:2,date:'2027-02-12',title:'Penutup'}],
           sessions:[{id:'session-1',eventDayId:'day-1',title:'Materi pertama',sessionType:'MATERIAL',moderatorName:null,
             startAt:'2027-02-10T00:00:00.000Z',endAt:'2027-02-10T02:00:00.000Z',room:'Ruang utama',sortOrder:0}]
         };
         window.__posts = [];
+        window.__savedSettings = [];
         window.__confirmationRequests = [];
         window.__moderation = new URLSearchParams(location.search).has('pending') ? 'PENDING_REVIEW' : 'APPROVED';
         window.fetch = async (url, options = {}) => {
@@ -73,12 +78,15 @@ const fixture = {
             return {ok:true,json:async()=>({data:{...window.__confirmation}})};
           }
           if (options.method === 'POST') {
-            window.__posts.push(JSON.parse(options.body));
+            const input = JSON.parse(options.body);
+            window.__posts.push(input);
+            if (window.__disableGroups && input.delegates.length) return {ok:false,status:422,json:async()=>({error:{
+              message:'Pendaftaran reguler hanya untuk diri sendiri.',details:{reason:'REGULAR_GROUP_DISABLED'}}})};
             return {ok:true,json:async()=>({data:{participantCode:'P-A1',approvalStatus:'PENDING_REVIEW',portalLoginUrl:'/login/ustadz',
-              passwordSetupRequired:false,emailQueued:2,participants:[
+              passwordSetupRequired:false,emailQueued:input.delegates.length+1,participants:[
                 {fullName:'Ustadz Ahmad',email:'ahmad@example.id',whatsapp:'081234567890',participantCode:'P-A1',registrationStatusUrl:'/confirm#prc_first.signature',passwordSetupRequired:true},
                 {fullName:'Ustadz Hasan',email:'hasan@example.id',whatsapp:'081234567891',participantCode:'P-B2',registrationStatusUrl:'/confirm#prc_second.signature',passwordSetupRequired:true}
-              ]}})};
+              ].slice(0,input.delegates.length+1)}})};
           }
           const sparse = new URLSearchParams(location.search).has('sparse');
           return {ok:true,json:async()=>({data:sparse ? {...event,description:null,venueName:null,venueAddress:null,
@@ -86,10 +94,17 @@ const fixture = {
         };
         const initialEntry = new URLSearchParams(location.search).has('receipt') ? '/confirm#prc_first.signature'
           : new URLSearchParams(location.search).has('confirm') ? '/confirm#pcf_first.signature'
-          : new URLSearchParams(location.search).has('card') ? '/card?token=pqr_one.signature' : '/events/daurah-coba';
+          : new URLSearchParams(location.search).has('card') ? '/card?token=pqr_one.signature'
+          : new URLSearchParams(location.search).has('settings') ? '/settings'
+          : new URLSearchParams(location.search).has('register') ? '/events/daurah-coba/register' : '/events/daurah-coba';
         createRoot(document.getElementById('root')).render(React.createElement(MemoryRouter,{initialEntries:[initialEntry]},
           React.createElement(Routes,null,
             React.createElement(Route,{path:'/events/:slug',element:React.createElement(EventPublicPage)}),
+            React.createElement(Route,{path:'/events/:slug/register',element:React.createElement(PublicEventRegistrationPage)}),
+            React.createElement(Route,{path:'/settings',element:React.createElement(EventForm,{
+              initialValues:{code:event.code,slug:event.slug,name:event.name,startDate:event.startDate,endDate:event.endDate,
+                audienceMode:event.audienceMode,regularAllowGroup:event.regularAllowGroup,capacity:'30',regularQuota:'20',invitationQuota:'10'},
+              submitLabel:'Simpan perubahan',onCancel:()=>{},onSubmit:async values=>{window.__savedSettings.push(values);}})}),
             React.createElement(Route,{path:'/card',element:React.createElement(ParticipantCardPage)}),
             React.createElement(Route,{path:'/confirm',element:React.createElement(PublicParticipantConfirmationPage)}))));
       </script></body></html>`));
@@ -269,6 +284,84 @@ try {
   screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
   target = path.join(os.tmpdir(), 'daurah-registration-receipt-375.png');
   await writeFile(target, Buffer.from(screenshot.data, 'base64')); screenshots.push(target);
+
+  // Existing receipts survive a new solo-only policy, including all group members.
+  await send('Page.navigate', { url: `http://127.0.0.1:${port}/public-event-registration-preview?solo=1` });
+  for (let i = 0; i < 100 && !(await evaluate(`!!document.querySelector('.public-receipt')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await evaluate(`document.querySelectorAll('.public-receipt__select option').length`), 2);
+
+  // The standalone route uses the same policy as the embedded landing form.
+  await evaluate('sessionStorage.clear()');
+  await send('Page.navigate', { url: `http://127.0.0.1:${port}/public-event-registration-preview?solo=1&register=1` });
+  for (let i = 0; i < 100 && !(await evaluate(`!!document.querySelector('.public-register__form')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await evaluate(`!!document.querySelector('.public-register__group')`), false);
+  assert.match(await evaluate(`document.querySelector('.public-register__form-heading h2').textContent`), /Data diri Anda/);
+  for (const width of [320, 375, 768, 1280]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 850, deviceScaleFactor: 1, mobile: width < 768 });
+    assert.equal(await evaluate(`document.documentElement.scrollWidth <= window.innerWidth`), true, `solo form has no overflow at ${width}px`);
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 850, deviceScaleFactor: 1, mobile: true });
+  await evaluate(`document.querySelector('.public-register__form-heading').scrollIntoView({block:'start'})`);
+  screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  target = path.join(os.tmpdir(), 'daurah-registration-solo-375.png');
+  await writeFile(target, Buffer.from(screenshot.data, 'base64')); screenshots.push(target);
+  const fillLead = async () => {
+    await setInput('#register-name', 'Ustadz Ahmad');
+    await setInput('#register-email', 'ahmad@example.id');
+    await setInput('#register-whatsapp', '081234567890');
+    await setInput('#register-city', 'KOTA BANDUNG');
+    await setInput('#register-province', 'JAWA BARAT');
+  };
+  await fillLead();
+  await evaluate(`document.querySelector('.public-register__consent input').click(); document.querySelector('.public-register__form').requestSubmit()`);
+  for (let i = 0; i < 50 && !(await evaluate(`!!document.querySelector('.public-receipt')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.deepEqual(await evaluate('window.__posts[0].delegates'), []);
+  assert.equal(await evaluate(`!!document.querySelector('.public-receipt__select')`), false);
+
+  // A stale group form must not silently resend only the lead after rejection.
+  await evaluate('sessionStorage.clear()');
+  await send('Page.navigate', { url: `http://127.0.0.1:${port}/public-event-registration-preview` });
+  for (let i = 0; i < 100 && !(await evaluate(`!!document.querySelector('.public-register__form')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  await fillLead();
+  await evaluate(`document.querySelector('.public-register__group-head button').click()`);
+  await setInput('.public-register__member input[id^="group-name-"]', 'Ustadz Hasan');
+  await setInput('.public-register__member input[id^="group-email-"]', 'hasan@example.id');
+  await setInput('.public-register__member input[id^="group-whatsapp-"]', '081234567891');
+  await evaluate(`window.__disableGroups=true; document.querySelector('.public-register__consent input').click(); document.querySelector('.public-register__form').requestSubmit()`);
+  for (let i = 0; i < 50 && !(await evaluate(`document.querySelector('.public-register__error')?.textContent.includes('Panitia menonaktifkan')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await evaluate('window.__posts.length'), 1, 'no automatic retry');
+  assert.equal(await evaluate(`!!document.querySelector('.public-register__group, .public-receipt')`), false);
+  assert.equal(await evaluate(`document.querySelector('.public-register__consent input').checked`), false);
+  assert.equal(await evaluate(`document.querySelector('#register-name').value`), 'Ustadz Ahmad');
+  assert.equal(await evaluate(`document.activeElement === document.querySelector('.public-register__error')`), true);
+  await evaluate(`document.querySelector('.public-register__consent input').click(); document.querySelector('.public-register__form').requestSubmit()`);
+  for (let i = 0; i < 50 && !(await evaluate(`!!document.querySelector('.public-receipt')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await evaluate('window.__posts.length'), 2);
+  assert.deepEqual(await evaluate('window.__posts[1].delegates'), []);
+
+  await send('Page.navigate', { url: `http://127.0.0.1:${port}/public-event-registration-preview?settings=1` });
+  for (let i = 0; i < 100 && !(await evaluate(`!!document.querySelector('#event-regularAllowGroup')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await evaluate(`document.querySelector('#event-regularAllowGroup').checked`), true);
+  await evaluate(`document.querySelector('#event-regularAllowGroup').click(); document.querySelector('form').requestSubmit()`);
+  for (let i = 0; i < 50 && !(await evaluate('window.__savedSettings.length')); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await evaluate('window.__savedSettings[0].regularAllowGroup'), false);
+  assert.equal(await evaluate('window.__savedSettings[0].regularQuota'), '20', 'total regular quota is not reduced to one');
+  assert.equal(await evaluate('window.__savedSettings[0].invitationQuota'), '10');
+  await evaluate(`document.querySelector('#event-regularAllowGroup').scrollIntoView({block:'center'})`);
+  screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  target = path.join(os.tmpdir(), 'daurah-registration-group-settings-375.png');
+  await writeFile(target, Buffer.from(screenshot.data, 'base64')); screenshots.push(target);
+  await evaluate(`document.querySelector('input[name="audienceMode"][value="INSTITUTION_INVITATION"]').click()`);
+  assert.equal(await evaluate(`document.querySelector('#event-regularAllowGroup').disabled`), true);
+  await evaluate(`document.querySelector('input[name="audienceMode"][value="MIXED"]').click()`);
+  assert.equal(await evaluate(`document.querySelector('#event-regularAllowGroup').checked`), false, 'audience switching preserves the saved preference');
+  await evaluate(`document.querySelector('#event-regularAllowGroup').click(); document.querySelector('form').requestSubmit()`);
+  for (let i = 0; i < 50 && (await evaluate('window.__savedSettings.length')) < 2; i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await evaluate('window.__savedSettings[1].regularAllowGroup'), true);
+  await send('Page.navigate', { url: `http://127.0.0.1:${port}/public-event-registration-preview?settings=1&solo=1` });
+  for (let i = 0; i < 100 && !(await evaluate(`!!document.querySelector('#event-regularAllowGroup')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
+  assert.equal(await evaluate(`document.querySelector('#event-regularAllowGroup').checked`), false, 'editing reloads the disabled policy');
+
   await send('Page.navigate', { url: `http://127.0.0.1:${port}/public-event-registration-preview?card=1` });
   for (let i = 0; i < 100 && !(await evaluate(`!!document.querySelector('.participant-card-page__links')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
   assert.equal(await evaluate(`document.querySelector('.participant-card-page__links a').getAttribute('href')`), '/events/daurah-coba#jadwal-kegiatan');

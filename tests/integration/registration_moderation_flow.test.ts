@@ -150,6 +150,93 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 afterAll(async () => { await pg.close(); local.db = undefined; });
 
 describe("registration moderation: receipt → approval → confirmation → Gate QR", () => {
+  const setRegularGroup = (allowed: boolean, user = adminEmail) => request(`/events/${eventId}`, {
+    method: "PATCH", user, body: { regularAllowGroup: allowed },
+  });
+
+  it("restricts policy edits to event managers and exposes the saved value across event reads", async () => {
+    expect((await setRegularGroup(false, viewerEmail)).status).toBe(403);
+    expect((await setRegularGroup(false)).status).toBe(200);
+    const detail = await request(`/events/${eventId}`, { user: adminEmail });
+    expect(detail.data.regularAllowGroup).toBe(false);
+    expect(detail.data).toMatchObject({ capacity: 20, regularQuota: 10, invitationQuota: 10 });
+    const publicDetail = await request("/events/public/daurah-moderasi");
+    expect(publicDetail.data.regularAllowGroup).toBe(false);
+    const catalog = await request("/events", { user: adminEmail, query: { view: "catalog" } });
+    expect(JSON.stringify(catalog.data)).toContain('"regularAllowGroup":false');
+    const publicCatalog = await request("/events/public");
+    expect(publicCatalog.data.find((item: { slug: string }) => item.slug === "daurah-moderasi").regularAllowGroup).toBe(false);
+    // An unrelated partial edit must not re-enable the policy's create default.
+    expect((await request(`/events/${eventId}`, { method: "PATCH", user: adminEmail, body: { subtitle: "Diperbarui" } })).status).toBe(200);
+    expect((await request("/events/public/daurah-moderasi")).data.regularAllowGroup).toBe(false);
+  });
+
+  it("rejects a group payload before writing anyone or sending mail, but accepts multiple separate registrations", async () => {
+    await setRegularGroup(false);
+    const beforeUsers = await db.select().from(schema.users);
+    const rejected = await post(publicRegistration, { ...asatidz("ditolak-ketua"), institutionName: "Lembaga Belum Dikirim",
+      delegates: [asatidz("ditolak-anggota")], consentConfirmed: true, regularAllowGroup: true });
+    expect(rejected.status).toBe(422);
+    expect(rejected.error).toMatchObject({ details: { reason: "REGULAR_GROUP_DISABLED" } });
+    expect(await db.select().from(schema.eventParticipants)).toHaveLength(0);
+    expect(await db.select().from(schema.ustadzProfiles)).toHaveLength(0);
+    expect(await db.select().from(schema.users)).toHaveLength(beforeUsers.length);
+    expect(await db.select().from(schema.institutions)).toHaveLength(0);
+    expect(await db.select().from(schema.emailJobs)).toHaveLength(0);
+    expect(local.send).not.toHaveBeenCalled();
+    expect(local.immediate).not.toHaveBeenCalled();
+    const [first] = await register(asatidz("sendiri-satu"));
+    const [second] = await register(asatidz("sendiri-dua"));
+    for (const person of [first, second]) {
+      const participant = await findParticipant(person.participantCode);
+      expect(participant).toMatchObject({ publicGroupId: null, isDelegationLead: false, approvalStatus: "PENDING_REVIEW" });
+      expect((await request(`/portal/groups/${participant.id}`, { user: person.email })).status).toBe(403);
+      expect((await status(linkToken(person.registrationStatusUrl))).data).toMatchObject({ stage: "PENDING_REVIEW", qrToken: null });
+    }
+    expect(await db.select().from(schema.eventParticipants)).toHaveLength(2);
+  });
+
+  it("preserves existing group membership, receipts and individual approval/confirmation when grouping is disabled", async () => {
+    const [lead, member] = await register(asatidz("lama-ketua"), [asatidz("lama-anggota")]);
+    const before = await db.select().from(schema.eventParticipants);
+    await setRegularGroup(false);
+    expect(await db.select().from(schema.eventParticipants)).toEqual(before);
+    const leadRow = await findParticipant(lead.participantCode);
+    const group = await request(`/portal/groups/${leadRow.id}`, { user: lead.email });
+    expect(group.status, JSON.stringify(group.error)).toBe(200);
+    expect(group.data).toMatchObject({ kind: "PUBLIC_GROUP", quota: 2 });
+    expect(group.data.members).toHaveLength(2);
+    expect((await approve(leadRow.id)).status).toBe(200);
+    const privateToken = await requestPrivateLink(linkToken(lead.registrationStatusUrl), lead.email);
+    const confirmed = await decide(privateToken, "CONFIRM");
+    expect(confirmed.status, JSON.stringify(confirmed.error)).toBe(200);
+    expect(confirmed.data.qrToken).toMatch(/^pqr_/);
+    expect((await status(linkToken(member.registrationStatusUrl))).data).toMatchObject({ stage: "PENDING_REVIEW", qrToken: null });
+    await setRegularGroup(true);
+    const next = await register(asatidz("baru-ketua"), [asatidz("baru-anggota")]);
+    expect(next).toHaveLength(2);
+    expect((await findParticipant(next[0].participantCode)).publicGroupId).not.toBe(leadRow.publicGroupId);
+  }, 30_000);
+
+  it("continues to allow institution invitation groups when regular registration is solo-only", async () => {
+    await setRegularGroup(false);
+    const [institution] = await db.insert(schema.institutions).values({ code: "GROUP", name: "Lembaga Rombongan" }).returning();
+    const [invitation] = await db.insert(schema.invitations).values({ eventId, invitationType: "INSTITUTION", invitationNumber: "GROUP-TEST",
+      institutionId: institution.id, quota: 2, status: "SENT" }).returning();
+    const { rawToken, tokenHash } = generateSecureToken("inv_inst");
+    await db.insert(schema.invitationLinks).values({ invitationId: invitation.id, tokenHash, expiresAt: new Date("2026-11-15") });
+    const result = await post(`/invitations/public/institution/${rawToken}/response`, {
+      responseStatus: "ACCEPTED", isFinal: true,
+      delegates: [{ ...asatidz("undangan-ketua"), isLead: true }, { ...asatidz("undangan-anggota"), isLead: false }],
+      verificationToken: createInstitutionAccessVerification(invitation.id).verificationToken,
+    });
+    expect(result.status, JSON.stringify(result.error)).toBe(200);
+    expect(result.data.participants).toHaveLength(2);
+    expect(result.data.emailQueued).toBe(2);
+    const registered = await db.select().from(schema.eventParticipants);
+    expect(registered.every(person => person.registrationSource === "INSTITUTION_DELEGATION" && person.publicGroupId === null)).toBe(true);
+  });
+
   it("allows institution code verification on shared Wi-Fi while limiting consecutive invalid guesses", async () => {
     const [institution] = await db.insert(schema.institutions).values({ code: "WIFI", name: "Lembaga Wi-Fi" }).returning();
     const [invitation] = await db.insert(schema.invitations).values({ eventId, invitationType: "INSTITUTION", institutionId: institution.id,

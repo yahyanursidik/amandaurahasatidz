@@ -50,6 +50,7 @@ type PublicEvent = {
   audienceMode: string;
   capacity: number | null;
   regularQuota: number | null;
+  regularAllowGroup?: boolean;
   invitationQuota: number | null;
   regularApproved: number;
   invitationApproved: number;

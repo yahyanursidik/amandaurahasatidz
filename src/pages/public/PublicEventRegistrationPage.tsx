@@ -5,7 +5,7 @@ import { ArrowLeft, ArrowRight, Plus, Trash2, Users } from "lucide-react";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { ENV } from "@/config/env";
 import { RegionFields, type RegionValue } from "@/components/public/RegionFields";
-import { getRegularRegistrationState } from "@/lib/regularRegistration";
+import { getRegularRegistrationGroupLimit, getRegularRegistrationState } from "@/lib/regularRegistration";
 import { PublicRegistrationReceipt } from "@/components/public/PublicRegistrationReceipt";
 import type { ReceiptParticipant } from "@/lib/publicRegistrationReceipt";
 import { readRegistrationProof, saveRegistrationProof } from "@/lib/registrationProof";
@@ -22,6 +22,7 @@ type EventSummary = {
   status: string;
   audienceMode: string;
   regularQuota: number | null;
+  regularAllowGroup?: boolean;
   regularApproved: number;
   capacity: number | null;
   invitationApproved: number;
@@ -44,7 +45,8 @@ const emptyDelegate = (id: number, region: RegionValue): Delegate => ({ id, full
 
 async function readResponse<T>(response: Response): Promise<T> {
   const payload = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(response.status >= 500 ? "Layanan pendaftaran sedang tidak tersedia. Coba lagi sebentar atau hubungi panitia." : payload.error?.message || "Permintaan tidak dapat diproses. Coba lagi.");
+  if (!response.ok) throw Object.assign(new Error(response.status >= 500 ? "Layanan pendaftaran sedang tidak tersedia. Coba lagi sebentar atau hubungi panitia." : payload.error?.message || "Permintaan tidak dapat diproses. Coba lagi."),
+    { reason: payload.error?.details?.reason });
   return payload.data as T;
 }
 
@@ -93,14 +95,24 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
   }, [slug, embeddedEvent, proofKey]);
 
   const registration = event ? getRegularRegistrationState(event) : null;
-  const maxGroupSize = event ? Math.max(1, Math.min(20,
+  const groupAllowed = event?.regularAllowGroup !== false;
+  const maxGroupSize = event ? Math.max(1, Math.min(getRegularRegistrationGroupLimit(event),
     event.regularQuota == null ? 20 : event.regularQuota - event.regularApproved,
     event.capacity == null ? 20 : event.capacity - event.regularApproved - event.invitationApproved,
   )) : 20;
+  useEffect(() => {
+    if (groupAllowed || delegates.length === 0 || result) return;
+    // Never silently submit only the lead after the policy changes. Discard the
+    // unsent member draft and require the user to review and consent again.
+    setDelegates([]);
+    setConsent(false);
+    setError("Panitia menonaktifkan rombongan reguler. Isian anggota yang belum dikirim dihapus; pendaftaran mereka belum tersimpan. Periksa data diri Anda dan setujui kembali sebelum mengirim.");
+  }, [groupAllowed, delegates.length, result]);
   const contactUrl = event?.publicContactWhatsapp
     ? buildEventWhatsAppUrl(`Assalamu’alaikum warahmatullahi wabarakatuh. Saya perlu bantuan mendaftar ${event.name}. Jazakumullahu khairan.`, event.publicContactWhatsapp)
     : null;
   const addDelegate = () => {
+    if (!groupAllowed) return;
     nextDelegateId.current += 1;
     const nextId = nextDelegateId.current;
     setConsent(false);
@@ -109,7 +121,9 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
 
   const submit = async (formEvent: React.FormEvent) => {
     formEvent.preventDefault();
+    if (busy) return;
     if (!consent) { setError("Setujui penggunaan data peserta sebelum mendaftar."); return; }
+    if (!groupAllowed && delegates.length) { setError("Pendaftaran hanya untuk diri sendiri. Periksa kembali data Anda sebelum mengirim."); return; }
     if (delegates.length + 1 > maxGroupSize) { setError("Jumlah peserta melebihi batas saat ini. Kurangi anggota rombongan lalu coba lagi."); return; }
     const emails = [email, ...delegates.map((delegate) => delegate.email)].map((value) => value.trim().toLowerCase());
     if (new Set(emails).size !== emails.length) { setError("Ada email yang dipakai lebih dari satu peserta. Gunakan email pribadi berbeda untuk tiap asatidz."); return; }
@@ -127,6 +141,10 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
       scrollAfterSubmit.current = true;
       if (event) saveRegistrationProof(proofKey, { event, result: data });
     } catch (submitError) {
+      if ((submitError as { reason?: string })?.reason === "REGULAR_GROUP_DISABLED") {
+        setEvent((current) => current ? { ...current, regularAllowGroup: false } : current);
+        setConsent(false);
+      }
       setError(submitError instanceof Error ? submitError.message : "Pendaftaran belum tersimpan.");
     } finally { setBusy(false); }
   };
@@ -137,7 +155,7 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
       <header ref={receiptHeadingRef} className="public-register__header scroll-mt-24">
         <div><p>{result ? "Bukti pendaftaran" : "Pendaftaran reguler"}</p>
           {embeddedEvent ? <h2>{result ? "Bukti pendaftaran" : "Daftar sebagai peserta"}</h2> : <h1>{result ? "Bukti pendaftaran" : event?.name || "Pendaftaran daurah"}</h1>}
-          {!result && <span>Isi data Anda. Jika datang bersama asatidz lain, tambahkan anggota rombongan di bawah.</span>}
+          {!result && <span>{groupAllowed ? "Isi data Anda. Jika datang bersama asatidz lain, tambahkan anggota rombongan di bawah." : "Pendaftaran reguler hanya untuk diri sendiri. Setiap asatidz mengisi formulir terpisah."}</span>}
         </div>
       </header>
       {loading ? <p role="status" className="public-register__notice">Memuat informasi daurah…</p> : !event ? <p role="alert" className="public-register__error">{error || "Daurah tidak tersedia."}</p> : result ? (
@@ -145,7 +163,7 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
       ) : !registration?.open ? <div className="public-register__notice" role="status"><strong>Formulir reguler belum dapat diisi.</strong><p>{registration?.reason}</p></div> : (
         <div className="public-register__layout">
           <section className="public-register__form-panel" aria-labelledby="register-data-title">
-            <div className="public-register__form-heading"><div><h2 id="register-data-title">Data peserta pertama</h2><p>Nama yang mengisi formulir juga ikut terdaftar.</p></div><span>{delegates.length + 1} peserta</span></div>
+            <div className="public-register__form-heading"><div><h2 id="register-data-title">{groupAllowed ? "Data peserta pertama" : "Data diri Anda"}</h2><p>{groupAllowed ? "Nama yang mengisi formulir juga ikut terdaftar." : "Satu formulir untuk satu peserta."}</p></div><span>{delegates.length + 1} peserta</span></div>
             {error && <p ref={errorRef} tabIndex={-1} role="alert" className="public-register__error">{error}</p>}
             <form onSubmit={submit} className="public-register__form">
               <div className="public-register__field"><label htmlFor="register-name">Nama lengkap</label><input id="register-name" required minLength={3} maxLength={150} autoComplete="name" value={fullName} onChange={(input) => setFullName(input.target.value)} placeholder="Sesuai nama sehari-hari" /></div>
@@ -154,7 +172,7 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
               <div className="public-register__region"><h3>Domisili</h3><RegionFields prefix="register" value={region} onChange={setRegion} /></div>
               <details className="public-register__optional"><summary>Lembaga dan alamat <span>(opsional)</span></summary><div className="public-register__optional-fields"><div className="public-register__field"><label htmlFor="register-institution">Nama lembaga/komunitas</label><input id="register-institution" value={institutionName} onChange={(input) => setInstitutionName(input.target.value)} maxLength={180} placeholder="Jika mewakili lembaga" /></div><div className="public-register__field"><label htmlFor="register-address">Alamat domisili</label><textarea id="register-address" rows={3} maxLength={500} value={address} onChange={(input) => setAddress(input.target.value)} placeholder="Alamat ringkas" /></div></div></details>
 
-              <section className="public-register__group" aria-labelledby="group-members-title">
+              {groupAllowed && <section className="public-register__group" aria-labelledby="group-members-title">
                 <div className="public-register__group-head"><div><Users aria-hidden="true" /><h3 id="group-members-title">Datang bersama rombongan?</h3><p>Tambahkan asatidz lain. Masing-masing mendapat QR dan akses portal pribadi.</p></div><button type="button" disabled={busy || delegates.length >= maxGroupSize - 1} onClick={addDelegate}><Plus aria-hidden="true" /> Tambah anggota</button></div>
                 {delegates.map((delegate, index) => <fieldset key={delegate.id} className="public-register__member"><legend>Anggota {index + 2}</legend>
                   <button type="button" disabled={busy} onClick={() => { setConsent(false); setDelegates((current) => current.filter((item) => item.id !== delegate.id)); }} aria-label={`Hapus anggota ${index + 2}`}><Trash2 aria-hidden="true" /> Hapus</button>
@@ -166,7 +184,7 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
                 </fieldset>)}
                 {delegates.length > 0 && <p className="public-register__group-tip">Domisili anggota baru mengikuti peserta pertama; ubah bila berbeda.</p>}
                 <p className="public-register__group-limit">Batas satu pengiriman: {maxGroupSize} peserta, termasuk peserta pertama.</p>
-              </section>
+              </section>}
 
               <label className="public-register__consent"><input type="checkbox" required checked={consent} onChange={(input) => setConsent(input.target.checked)} /><span>{delegates.length ? "Saya telah mendapat izin dari anggota rombongan untuk mengirim data mereka dan akan membagikan QR serta sandi masing-masing secara pribadi." : "Saya setuju data saya digunakan panitia untuk pendaftaran dan informasi daurah ini."}</span></label>
               <div className="public-register__submit"><button disabled={busy} type="submit" className="public-register__primary">{busy ? "Menyimpan…" : `Daftarkan ${delegates.length + 1} ${delegates.length ? "orang" : "peserta"}`} <ArrowRight aria-hidden="true" /></button><p>Bukti pendaftaran langsung tersedia. QR presensi terbit setelah pendaftaran disetujui{event.attendanceConfirmationRequired !== false ? " dan Ustadz mengonfirmasi hadir" : ""}.</p></div>

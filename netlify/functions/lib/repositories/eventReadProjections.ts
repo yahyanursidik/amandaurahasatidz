@@ -14,5 +14,6 @@ export const publicProgramColumns = {
   posterUrl: publicPosterUrl, posterAlt: events.posterAlt, startDate: events.startDate,
   endDate: events.endDate, venueName: events.venueName, audienceMode: events.audienceMode,
   status: events.status, regularQuota: events.regularQuota,
+  regularAllowGroup: events.regularAllowGroup,
   registrationOpenAt: events.registrationOpenAt, registrationCloseAt: events.registrationCloseAt,
 };

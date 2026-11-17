@@ -43,6 +43,7 @@ export type EventFormValues = {
   defaultInstitutionQuota: string;
   capacity: string;
   regularQuota: string;
+  regularAllowGroup: boolean;
   invitationQuota: string;
 };
 
@@ -73,6 +74,7 @@ const emptyValues: EventFormValues = {
   defaultInstitutionQuota: "2",
   capacity: "",
   regularQuota: "",
+  regularAllowGroup: true,
   invitationQuota: "",
 };
 
@@ -230,6 +232,17 @@ export const EventForm: React.FC<Props> = ({ initialValues, submitting, submitLa
                 <label className="sm:col-span-2"><span className="event-config-label">Kuota awal per lembaga {!hasInstitution && <em>· tidak aktif</em>}</span><input id="event-defaultInstitutionQuota" type="number" min="1" step="1" value={values.defaultInstitutionQuota} onChange={(event) => update("defaultInstitutionQuota", event.target.value)} aria-invalid={Boolean(configurationErrors.defaultInstitutionQuota) || undefined} aria-describedby={configurationErrors.defaultInstitutionQuota ? "event-defaultInstitutionQuota-error" : "event-defaultInstitutionQuota-hint"} className={fieldClass} /><span id={configurationErrors.defaultInstitutionQuota ? "event-defaultInstitutionQuota-error" : "event-defaultInstitutionQuota-hint"} role={configurationErrors.defaultInstitutionQuota ? "alert" : undefined} className={configurationErrors.defaultInstitutionQuota ? "event-config-error" : "event-config-hint"}>{configurationErrors.defaultInstitutionQuota || "Dapat diubah untuk tiap undangan lembaga."}</span></label>
               </div>
             </div>
+            <div className="event-config-block">
+              <h3>Pendaftaran reguler</h3>
+              <label className="event-config-checkbox">
+                <input id="event-regularAllowGroup" type="checkbox" checked={values.regularAllowGroup} disabled={!hasRegular || submitting}
+                  aria-describedby="event-regularAllowGroup-hint" onChange={(event) => update("regularAllowGroup", event.target.checked)} />
+                <span><strong>Boleh membawa rombongan pada pendaftaran reguler</strong><small>{values.regularAllowGroup
+                  ? "Pendaftar boleh menambahkan asatidz lain, maksimal 20 orang termasuk dirinya dan mengikuti sisa kuota."
+                  : "Hanya mendaftarkan diri sendiri. Setiap asatidz mengisi formulir terpisah."}</small></span>
+              </label>
+              <p id="event-regularAllowGroup-hint" className="event-config-hint">{!hasRegular ? "Pengaturan tersimpan dan berlaku saat jalur reguler diaktifkan. " : ""}Berlaku untuk pendaftaran reguler baru. Rombongan yang sudah terdaftar dan aturan undangan lembaga tetap berlaku.</p>
+            </div>
           </div>
           <aside className="event-config-summary" aria-label="Ringkasan konfigurasi">
             <div className="flex items-center gap-2"><Users aria-hidden="true" className="h-5 w-5" /><h3>Ringkasan</h3></div>
@@ -239,6 +252,7 @@ export const EventForm: React.FC<Props> = ({ initialValues, submitting, submitLa
               <div><dt>Jalur</dt><dd>{audienceOptions.find((option) => option.value === values.audienceMode)?.title}</dd></div>
               <div><dt>Kapasitas total</dt><dd>{values.capacity ? `${values.capacity} kursi` : "Tanpa batas"}</dd></div>
               <div><dt>Reguler</dt><dd>{quotaSummary(values.regularQuota, hasRegular)}</dd></div>
+              <div><dt>Rombongan reguler</dt><dd>{!hasRegular ? "Jalur tidak aktif" : values.regularAllowGroup ? "Diizinkan" : "Hanya diri sendiri"}</dd></div>
               <div><dt>Undangan</dt><dd>{quotaSummary(values.invitationQuota, hasInvitation)}</dd></div>
             </dl>
             <p>Setelah draft tersimpan: atur hari aktif, sesi, undangan, dan panitia dari halaman event.</p>

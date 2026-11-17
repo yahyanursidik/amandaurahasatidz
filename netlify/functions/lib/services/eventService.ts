@@ -109,6 +109,7 @@ export async function getEventBySlugPublicService(slug: string) {
     capacity: event.capacity,
     defaultInstitutionQuota: event.defaultInstitutionQuota,
     regularQuota: event.regularQuota,
+    regularAllowGroup: event.regularAllowGroup,
     invitationQuota: event.invitationQuota,
     regularApproved,
     invitationApproved,
