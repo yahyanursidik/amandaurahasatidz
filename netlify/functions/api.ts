@@ -348,9 +348,9 @@ export const handler: Handler = async (event, _context) => {
         const response = buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak pencarian lembaga. Coba lagi sebentar.", requestId, 429);
         return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Retry-After": String(limit.retryAfterSeconds) } };
       }
-      const { search } = validateRequestData(registrationInstitutionSearchSchema, event.queryStringParameters || {});
-      const data = await suggestPublicRegistrationInstitutionsService(registrationInstitutionsMatch[1], search);
-      const response = buildSuccessResponse(data, requestId);
+      const query = validateRequestData(registrationInstitutionSearchSchema, event.queryStringParameters || {});
+      const result = await suggestPublicRegistrationInstitutionsService(registrationInstitutionsMatch[1], query);
+      const response = buildSuccessResponse(result.data, requestId, result.meta);
       return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
     }
     const pubEventMatch = path.match(/^\/events\/public\/([a-z0-9-]+)$/i);

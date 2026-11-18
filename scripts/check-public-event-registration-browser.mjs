@@ -53,19 +53,29 @@ const fixture = {
           {id:'00000000-0000-4000-8000-000000000011',name:"Ma'had Cahaya Uji",region:'KOTA BANDUNG, JAWA BARAT'},
           {id:'00000000-0000-4000-8000-000000000012',name:"Ma'had Cahaya Uji",region:'KABUPATEN JEMBER, JAWA TIMUR'},
         ];
+        const institutionDirectory = [...institutionOptions, ...Array.from({length:21}, (_, index) => ({
+          id:'fixture-' + index, name:'Lembaga Uji ' + (index + 1), region:null,
+        }))];
         window.__moderation = new URLSearchParams(location.search).has('pending') ? 'PENDING_REVIEW' : 'APPROVED';
         window.fetch = async (url, options = {}) => {
           const lookupUrl = new URL(url, location.href);
           if (lookupUrl.pathname.endsWith('/registration/institutions')) {
             const search = lookupUrl.searchParams.get('search');
-            window.__institutionQueries.push(search);
+            const page = Number(lookupUrl.searchParams.get('page'));
+            const pageSize = 20;
+            const result = (rows) => ({ok:true,json:async()=>({
+              data:rows.slice((page - 1) * pageSize, page * pageSize),
+              meta:{page,pageSize,total:rows.length,pageCount:Math.max(1,Math.ceil(rows.length / pageSize))},
+            })});
+            window.__institutionQueries.push({search,page});
             if (window.__institutionLookupDown) return {ok:false,status:503};
             if (search === 'lambat') {
               await new Promise(resolve => { window.__resolveSlowLookup = resolve; });
               window.__slowLookupAborted = options.signal.aborted;
-              return {ok:true,json:async()=>({data:[{id:'old',name:'Saran lama',region:null}]})};
+              return result([{id:'old',name:'Saran lama',region:null}]);
             }
-            return {ok:true,json:async()=>({data:search === 'mahad' && !window.__rejectInstitution ? institutionOptions : []})};
+            if (!search) return result(institutionDirectory);
+            return result(['ma','mahad','mahd'].includes(search) && !window.__rejectInstitution ? institutionOptions : []);
           }
           if (String(url).includes('/cards/public')) return {ok:true,json:async()=>({data:{ustadzName:'Ustadz Ahmad',eventName:event.name,
             eventSlug:event.slug,participantCode:'P-A1',opaqueQrToken:'pqr_old.signature',approvalStatus:'PENDING_REVIEW',confirmationStatus:'INVITED',eventOpen:true,attendanceConfirmationRequired:true}})};
@@ -256,16 +266,24 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 100));
   await setInput('#register-province', 'JAWA BARAT');
   await new Promise((resolve) => setTimeout(resolve, 100));
+  await evaluate(`document.querySelector('${institutionInput}').click()`);
+  await eventually(`document.querySelectorAll('${institutionList} [role="option"]').length === 20`, 'clicking an empty field opens the directory');
+  assert.match(await evaluate(`document.querySelector('${institutionInput}-hint').textContent`), /20 dari 23 lembaga/);
+  await evaluate(`document.querySelector('.public-register__institution-more').click()`);
+  await eventually(`document.querySelectorAll('${institutionList} [role="option"]').length === 23`, 'load more opens the remaining institutions');
+  assert.match(await evaluate(`document.querySelector('${institutionInput}-hint').textContent`), /23 dari 23 lembaga/);
+  assert.equal(await evaluate(`!!document.querySelector('.public-register__institution-more')`), false);
   await searchInstitution('ma');
-  await new Promise(resolve => setTimeout(resolve, 350));
-  assert.deepEqual(await evaluate('window.__institutionQueries'), [], 'queries shorter than 3 characters stay local');
+  await eventually(`document.querySelectorAll('${institutionList} [role="option"]').length === 2`, 'short queries are searchable');
   await searchInstitution('lambat');
   await eventually('typeof window.__resolveSlowLookup === "function"', 'old lookup started');
   await searchInstitution("Ma'had");
   await eventually(`document.querySelectorAll('${institutionList} [role="option"]').length === 2`, 'matching institutions rendered');
   await evaluate('window.__resolveSlowLookup()');
   await eventually('window.__slowLookupAborted === true', 'changing query aborted the previous lookup');
-  assert.deepEqual(await evaluate('window.__institutionQueries'), ['lambat', 'mahad']);
+  assert.deepEqual(await evaluate('window.__institutionQueries'), [
+    {search:'',page:1}, {search:'',page:2}, {search:'ma',page:1}, {search:'lambat',page:1}, {search:'mahad',page:1},
+  ]);
   assert.match(await evaluate(`document.querySelector('${institutionList}').textContent`), /BANDUNG.*JEMBER/);
   for (const width of [320, 375, 414, 768, 1280]) {
     await send('Emulation.setDeviceMetricsOverride', { width, height: 850, deviceScaleFactor: 1, mobile: width < 768 });
@@ -396,19 +414,43 @@ try {
   assert.equal(await evaluate(`document.querySelector('#register-email').value`), 'ahmad@example.id');
   assert.equal(await evaluate(`document.querySelector('.public-register__consent input').checked`), false);
   assert.equal(await evaluate(`window.__posts.length`), 1, 'no silent resubmit after a stale selection');
-  await eventually(`document.querySelector('${institutionInput}-hint').textContent.includes('Belum ada saran')`, 'no matches state');
+  await eventually(`document.querySelector('${institutionInput}-hint').textContent.includes('Belum ada lembaga yang cocok')`, 'no matches state');
   await evaluate(`document.querySelector('[aria-label="Kosongkan kolom lembaga"]').click()`);
   assert.equal(await evaluate(`document.querySelector('${institutionInput}').value`), '');
   assert.equal(await evaluate(`!!document.querySelector('${institutionInput}-error')`), false);
   await evaluate('window.__institutionLookupDown=true');
   await searchInstitution('Komunitas Uji Baru');
-  await eventually(`document.querySelector('${institutionInput}-hint').textContent.includes('Saran sedang tidak tersedia')`, 'manual entry remains available after lookup failure');
+  await eventually(`document.querySelector('${institutionInput}-hint').textContent.includes('Daftar lembaga belum dapat dimuat')`, 'manual entry remains available after lookup failure');
   await evaluate(`document.querySelector('.public-register__consent input').click(); document.querySelector('.public-register__form').requestSubmit()`);
   for (let i = 0; i < 50 && !(await evaluate(`!!document.querySelector('.public-receipt')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
   assert.deepEqual(await evaluate('window.__posts[1].delegates'), []);
   assert.equal(await evaluate('window.__posts[1].institutionName'), 'Komunitas Uji Baru');
   assert.equal(await evaluate('Object.hasOwn(window.__posts[1], "institutionId")'), false);
   assert.equal(await evaluate(`!!document.querySelector('.public-receipt__select')`), false);
+
+  await evaluate('sessionStorage.clear()');
+  await send('Page.navigate', { url: `http://127.0.0.1:${port}/public-event-registration-preview?register=1&solo=1` });
+  await eventually(`!!document.querySelector('${institutionInput}')`, 'standalone form opens for a new proposal');
+  await fillLead();
+  await searchInstitution('mahd');
+  await evaluate(`document.querySelector('.public-register__institution-label button').click()`);
+  assert.equal(await evaluate('document.activeElement.id'), 'register-institution');
+  assert.equal(await evaluate(`document.querySelector('${institutionInput}').value`), 'mahd');
+  await eventually(`document.querySelectorAll('${institutionList} [role="option"]').length === 2`, 'similar names are shown while proposing a new one');
+  assert.equal(await evaluate(`document.querySelector('${institutionInput}-city').disabled`), true);
+  await searchInstitution('Komunitas Pendidikan Uji Jember');
+  await evaluate(`document.querySelector('${institutionInput}-province').value = '35';
+    document.querySelector('${institutionInput}-province').dispatchEvent(new Event('change',{bubbles:true}));`);
+  await eventually(`!document.querySelector('${institutionInput}-city').disabled`, 'choosing a province enables the city');
+  await evaluate(`document.querySelector('${institutionInput}-city').value = '3509';
+    document.querySelector('${institutionInput}-city').dispatchEvent(new Event('change',{bubbles:true}));`);
+  assert.equal(await evaluate(`document.querySelector('#register-city').value`), 'KOTA BANDUNG');
+  await evaluate(`document.querySelector('.public-register__consent input').click(); document.querySelector('.public-register__form').requestSubmit()`);
+  await eventually(`!!document.querySelector('.public-receipt')`, 'new institution proposal is sent with the registration');
+  assert.deepEqual(await evaluate('window.__posts[0].institutionProposal'), {
+    name:'Komunitas Pendidikan Uji Jember', provinceCode:'35', cityCode:'3509',
+  });
+  assert.equal(await evaluate('Object.hasOwn(window.__posts[0], "institutionId") || Object.hasOwn(window.__posts[0], "institutionName")'), false);
 
   // A stale group form must not silently resend only the lead after rejection.
   await evaluate('sessionStorage.clear()');

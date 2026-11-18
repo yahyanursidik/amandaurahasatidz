@@ -15,6 +15,12 @@ export function knownInstitutionRegion(cityCode?: string | null, provinceCode?: 
   return { city: city?.city, province: city?.province || province?.name };
 }
 
+export function isValidInstitutionRegion(provinceCode?: string | null, cityCode?: string | null) {
+  if (!provinceCode) return !cityCode;
+  if (!institutionProvinces.some((province) => province.code === provinceCode)) return false;
+  return !cityCode || cityByCode.get(cityCode)?.provinceId === provinceCode;
+}
+
 export const institutionRegionLabel = (cityCode?: string | null, provinceCode?: string | null) => {
   const region = knownInstitutionRegion(cityCode, provinceCode);
   return {
