@@ -10,6 +10,7 @@ import {
   ClipboardList,
   FileBarChart,
   Mail,
+  PlaySquare,
   ScanLine,
   Settings,
   ShieldCheck,
@@ -31,6 +32,7 @@ const buildItems = (eventId: string) => [
   { label: "Kehadiran", href: `/admin/events/${eventId}/attendance`, icon: ShieldCheck },
   { label: "Kiosk QR", href: `/admin/events/${eventId}/kiosk`, icon: ScanLine },
   { label: "Komunikasi", href: `/admin/events/${eventId}/communications`, icon: Mail },
+  { label: "Rekaman", href: `/admin/events/${eventId}/recordings`, icon: PlaySquare },
   { label: "Laporan", href: `/admin/events/${eventId}/reports`, icon: FileBarChart },
   { label: "Pengaturan", href: `/admin/events/${eventId}/edit`, icon: Settings },
 ];

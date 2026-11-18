@@ -14,6 +14,7 @@ describe("admin navigation information architecture", () => {
       "Tim pelaksana",
       "Absensi harian",
       "Komunikasi",
+      "Rekaman",
       "Laporan event",
       "Ubah event",
     ]));

@@ -20,6 +20,7 @@ import {
   Loader2,
   RefreshCw,
   MapPin,
+  PlaySquare,
   QrCode,
   Save,
   ShieldCheck,
@@ -959,6 +960,7 @@ export const ParticipantPortalPage: React.FC = () => {
           <nav className="portal-home__quick-links" aria-label="Akses cepat peserta">
             <Link to="/portal/announcements"><Bell aria-hidden="true" /> Pengumuman{unreadAnnouncements > 0 ? ` · ${unreadAnnouncements} baru` : ""}</Link>
             <Link to="/portal/attendance"><CheckCircle2 aria-hidden="true" /> Riwayat hadir</Link>
+            <Link to="/portal/recordings"><PlaySquare aria-hidden="true" /> Rekaman kajian</Link>
             {canViewDelegation(selectedParticipation, portalTime) &&
               <Link to="/portal/invitations"><Crown aria-hidden="true" /> Rombongan</Link>}
             <Link to="/programs"><CalendarDays aria-hidden="true" /> Program lain</Link>
