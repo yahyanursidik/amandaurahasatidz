@@ -172,7 +172,10 @@ export function RegistrationInstitutionField({ id, eventSlug, value, onChange, d
   const optionId = (index: number) => `${id}-option-${index}`;
   return (
     <div className="public-register__field" onBlur={(event) => {
-      if (!event.currentTarget.contains(event.relatedTarget)) close();
+      if (event.currentTarget.contains(event.relatedTarget)) return;
+      close();
+      setLookup(null);
+      setPage(1);
     }} onKeyDown={(event) => { if (event.key === "Escape") close(); }}>
       <div className="public-register__institution-label">
         <label htmlFor={id}>{proposal ? "Nama lembaga baru *" : <>Lembaga/komunitas <span>(opsional)</span></>}</label>
