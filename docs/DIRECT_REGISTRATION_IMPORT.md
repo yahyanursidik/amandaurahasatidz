@@ -10,11 +10,11 @@
 
 ## Saran lembaga pada formulir reguler
 
-Kolom **Lembaga/komunitas (opsional)** tersedia pada halaman event dan tautan daftar langsung. Ketik sedikitnya tiga huruf atau angka, lalu pilih nama dan wilayah yang sesuai dengan sentuhan atau tombol panah dan Enter. Jika saran kosong atau pencarian gagal, isi nama lengkap atau kosongkan kolom.
+Klik kolom **Lembaga/komunitas (opsional)** pada halaman event atau tautan daftar langsung untuk membuka daftar lembaga aktif dari data induk. Gunakan **Muat lebih banyak** untuk melihat halaman berikutnya. Pencarian menerima sebagian nama, singkatan, nama beserta wilayah, dan salah ketik ringan. Pilih lembaga sesuai wilayahnya dengan sentuhan atau tombol panah dan Enter.
 
-Pencarian hanya mengembalikan ID, nama, dan wilayah dari lembaga aktif yang terverifikasi. Formulir mengirim `institutionId` jika peserta memilih saran, atau `institutionName` jika mengisi manual. API memeriksa kembali kelayakan pilihan saat menyimpan. Jika lembaga sudah tidak tersedia atau nama manual cocok dengan beberapa lembaga aktif, peserta dapat memperbaiki pilihan tanpa mengisi ulang data diri.
+Jika lembaga belum tercatat, tekan **Tambah lembaga baru** dan masukkan nama lengkap serta provinsi dan kabupaten/kota jika diketahui. Formulir tetap menampilkan nama yang mirip agar peserta dapat memakai data yang sudah ada. Usulan baru tersimpan bersama pendaftaran dan muncul dalam daftar publik setelah diverifikasi panitia. Kolom lembaga bisa dikosongkan atau diisi dengan nama lengkap saat pencarian gagal.
 
-Nama manual yang cocok dengan satu lembaga aktif memakai data yang sudah ada. Nama baru dibuat sebagai komunitas belum terverifikasi. Lembaga dan domisili peserta tetap dicatat di kolom terpisah. Pada pendaftaran rombongan, satu pilihan lembaga berlaku untuk seluruh peserta di formulir tersebut. Undangan lembaga memakai penerima yang ditetapkan panitia.
+API mengembalikan ID, nama, dan wilayah. Saat menyimpan, API memeriksa kembali ketersediaan lembaga dan menggunakan data yang sudah ada jika satu lembaga cocok dengan nama dan wilayah yang diberikan. Jika beberapa lembaga cocok, peserta dapat memperbaiki pilihan tanpa mengisi ulang data diri. Wilayah lembaga dicatat terpisah dari domisili peserta. Pada pendaftaran rombongan reguler, satu pilihan lembaga berlaku untuk seluruh peserta di formulir tersebut. Undangan lembaga memakai penerima yang ditetapkan panitia.
 
 ## Mengizinkan atau mematikan rombongan reguler
 

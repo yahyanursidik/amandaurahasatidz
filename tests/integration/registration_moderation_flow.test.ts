@@ -11,6 +11,7 @@ import { processEmailQueueWorker } from "../../netlify/functions/lib/services/em
 import { generateSecureToken, signParticipantQrToken, verifyParticipantConfirmationToken } from "../../netlify/functions/lib/utils/token";
 import { createInstitutionAccessVerification, getInstitutionAccessCode } from "../../netlify/functions/lib/services/institutionAccessCodeService";
 import { handler } from "../../netlify/functions/api";
+import type { RegistrationInstitutionProposal } from "../../src/lib/registrationInstitution";
 
 const local = vi.hoisted(() => ({
   db: undefined as ReturnType<typeof drizzle<typeof schema>> | undefined,
@@ -156,37 +157,52 @@ describe("saran lembaga pada pendaftaran reguler", () => {
       code: "MAHAD-A", name: "Ma'had Cahaya", status: "ACTIVE", verificationStatus: "VERIFIED",
       cityCode: "3273", provinceCode: "32", ...fields,
     }).returning();
-  const search = (term: string) => request(institutionLookup, { query: { search: term } });
-  const submit = (suffix: string, institution: { institutionId?: string; institutionName?: string }) =>
+  const search = (term: string, page = "1") => request(institutionLookup, { query: { search: term, page } });
+  const submit = (suffix: string, institution: {
+    institutionId?: string; institutionName?: string; institutionProposal?: RegistrationInstitutionProposal;
+  }) =>
     post(publicRegistration, { ...asatidz(suffix), consentConfirmed: true, ...institution });
 
-  it("ranks name matches and exposes only verified names, IDs, and recognized regions", async () => {
+  it("ranks matches and exposes active master records without contacts or pending public proposals", async () => {
     const [exact] = await insertInstitution({ notes: "private-note", phone: "private-phone", address: "private-address" });
     const [partial] = await insertInstitution({ code: "MAHAD-B", name: "Yayasan Ma’had Cahaya",
       cityCode: "private-city", provinceCode: "private-province", email: "private@moderation.invalid" });
-    await insertInstitution({ code: "MAHAD-C", name: "Ma'had Cahaya Baru", verificationStatus: "UNVERIFIED" });
+    const [staffEntry] = await insertInstitution({ code: "MAHAD-C", name: "Ma'had Cahaya Baru", verificationStatus: "UNVERIFIED" });
     await insertInstitution({ code: "MAHAD-D", name: "Ma'had Cahaya Lama", deletedAt: now });
     await insertInstitution({ code: "MAHAD-E", name: "Ma'had Cahaya Nonaktif", status: "INACTIVE" });
+    await insertInstitution({ code: "REG-0123456789ABCDEF", name: "Ma'had Cahaya Menunggu", verificationStatus: "UNVERIFIED" });
     const result = await search("  MAHAD   CAHAYA ");
     expect(result.status).toBe(200);
     expect(result.headers["Cache-Control"]).toBe("no-store");
     expect(result.data).toEqual([
       { id: exact.id, name: "Ma'had Cahaya", region: "KOTA BANDUNG, JAWA BARAT" },
+      { id: staffEntry.id, name: "Ma'had Cahaya Baru", region: "KOTA BANDUNG, JAWA BARAT" },
       { id: partial.id, name: "Yayasan Ma’had Cahaya", region: null },
     ]);
     expect((await search("cah mah")).data).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: exact.id }), expect.objectContaining({ id: partial.id }),
     ]));
     expect((await search("private")).data).toEqual([]);
+    const selectedStaffEntry = await submit("lembaga-data-induk", { institutionId: staffEntry.id });
+    expect(selectedStaffEntry.status, JSON.stringify(selectedStaffEntry.error)).toBe(200);
+    expect((await findParticipant(selectedStaffEntry.data.participantCode)).institutionId).toBe(staffEntry.id);
   });
 
-  it("bounds the response and restricts lookups to open regular events", async () => {
-    await db.insert(schema.institutions).values(Array.from({ length: 10 }, (_, index) => ({
+  it("lists the whole catalogue across pages even without a search and gates access on open regular events", async () => {
+    const records = await db.insert(schema.institutions).values(Array.from({ length: 23 }, (_, index) => ({
       code: `UJI-${index}`, name: `Lembaga Uji ${index}`, verificationStatus: "VERIFIED",
-    })));
-    expect((await search("lembaga")).data).toHaveLength(8);
+    }))).returning();
+    const first = await request(institutionLookup);
+    const next = await search("", "2");
+    expect(first.status).toBe(200);
+    expect(first.meta).toEqual({ page: 1, pageSize: 20, total: 23, pageCount: 2 });
+    expect(first.data).toHaveLength(20);
+    expect(next.data).toHaveLength(3);
+    expect([...first.data, ...next.data].map((option) => option.id)).toEqual(records.map(({ id }) => id));
+    expect((await search("le")).data).toHaveLength(20);
+    expect((await search("lembaga", "2")).data).toEqual(next.data);
+    expect((await search("lembaga", "0")).status).toBe(422);
     expect((await search("%_   ")).status).toBe(422);
-    expect((await search("le")).status).toBe(422);
     expect((await search("x".repeat(181))).status).toBe(422);
     await db.update(schema.events).set({ registrationOpenAt: new Date("2026-11-14") }).where(eq(schema.events.id, eventId));
     expect((await search("lembaga")).status).toBe(403);
@@ -194,6 +210,18 @@ describe("saran lembaga pada pendaftaran reguler", () => {
     expect((await search("lembaga")).status).toBe(403);
     await db.update(schema.events).set({ archivedAt: now }).where(eq(schema.events.id, eventId));
     expect((await search("lembaga")).status).toBe(404);
+  });
+
+  it("finds acronyms, partial names, spelling variants, and nearby typos in names and regions", async () => {
+    const [yts] = await insertInstitution({ name: "Yayasan Tarbiyah Sunnah" });
+    const [mahad] = await insertInstitution({ code: "MAHAD-B", name: "Ma’had Al-Hudá", cityCode: "3509", provinceCode: "35" });
+    for (const term of ["YTS", "sunnha", "tarbiah bandng", "bandung sunn", "Y T S"]) {
+      expect((await search(term)).data[0]?.id).toBe(yts.id);
+    }
+    for (const term of ["mahad alhuda", "al huda jembr", "mahd huda"]) {
+      expect((await search(term)).data[0]?.id).toBe(mahad.id);
+    }
+    expect((await search("sunnah medan")).data).toEqual([]);
   });
 
   it("uses the chosen ID for each participant and affiliation, including same name branches", async () => {
@@ -220,11 +248,11 @@ describe("saran lembaga pada pendaftaran reguler", () => {
     expect(await db.select().from(schema.institutions)).toHaveLength(2);
   });
 
-  it("rejects unavailable, unverified or invalid selections without creating any registration", async () => {
+  it("rejects unavailable, pending public or invalid selections without creating any registration", async () => {
     const [archived] = await insertInstitution();
     expect((await search("mahad")).data).toHaveLength(1);
     await db.update(schema.institutions).set({ deletedAt: now }).where(eq(schema.institutions.id, archived.id));
-    const [unverified] = await insertInstitution({ code: "MAHAD-B", name: "Ma'had Baru", verificationStatus: "UNVERIFIED" });
+    const [unverified] = await insertInstitution({ code: "REG-0123456789ABCDEF", name: "Ma'had Baru", verificationStatus: "UNVERIFIED" });
     for (const id of [archived.id, unverified.id, eventId]) {
       const result = await submit("lembaga-tidak-tersedia", { institutionId: id });
       expect(result.status).toBe(409);
@@ -240,7 +268,7 @@ describe("saran lembaga pada pendaftaran reguler", () => {
 
   it("keeps manual names and optional registration, reusing a match and creating a new name once", async () => {
     const [existing] = await insertInstitution({ name: "Komunitas   Uji Lama", verificationStatus: "UNVERIFIED" });
-    expect((await search("komunitas uji")).data).toEqual([]);
+    expect((await search("komunitas uji")).data[0]?.id).toBe(existing.id);
     const matched = await submit("cocok", { institutionName: "  komunitas uji lama  " });
     expect(matched.status, JSON.stringify(matched.error)).toBe(200);
     expect((await findParticipant(matched.data.participantCode)).institutionId).toBe(existing.id);
@@ -257,6 +285,33 @@ describe("saran lembaga pada pendaftaran reguler", () => {
 
     const [without] = await register(asatidz("tanpa-lembaga"));
     expect((await findParticipant(without.participantCode)).institutionId).toBeNull();
+  });
+
+  it("records a new institution with optional region and publishes the suggestion only after verification", async () => {
+    const proposal = { name: "  Lembaga   Uji Baru  ", provinceCode: "35", cityCode: "3509" };
+    expect((await submit("wilayah-salah", { institutionProposal: { ...proposal, provinceCode: "32" } })).status).toBe(422);
+    expect((await submit("nama-kosong", { institutionProposal: { name: "   ?" } })).status).toBe(422);
+    expect(await db.select().from(schema.institutions)).toEqual([]);
+    const [existing] = await insertInstitution({ name: "Lembaga Uji Lama", cityCode: "3204" });
+    const registered = await submit("usul-satu", { institutionProposal: proposal });
+    expect(registered.status, JSON.stringify(registered.error)).toBe(200);
+    const id = (await findParticipant(registered.data.participantCode)).institutionId!;
+    const [saved] = await db.select().from(schema.institutions).where(eq(schema.institutions.id, id));
+    expect(saved).toMatchObject({ name: "Lembaga Uji Baru", cityCode: "3509", provinceCode: "35", verificationStatus: "UNVERIFIED" });
+    expect((await search("lembaga uji baru")).data.some((option: { id: string }) => option.id === id)).toBe(false);
+
+    const reused = await submit("usul-sama", { institutionProposal: { ...proposal, name: "LEMBAGA UJI BARU" } });
+    expect(reused.status, JSON.stringify(reused.error)).toBe(200);
+    expect((await findParticipant(reused.data.participantCode)).institutionId).toBe(id);
+    const wrongBranch = await submit("usul-cabang", { institutionProposal: { ...proposal, name: existing.name } });
+    expect(wrongBranch.status).toBe(409);
+    expect(wrongBranch.error.details.reason).toBe("REGISTRATION_INSTITUTION_AMBIGUOUS");
+    expect(await db.select().from(schema.institutions)).toHaveLength(2);
+
+    await db.update(schema.institutions).set({ verificationStatus: "VERIFIED" }).where(eq(schema.institutions.id, id));
+    expect((await search("lembaga uji baru")).data[0]).toEqual({
+      id, name: "Lembaga Uji Baru", region: "KABUPATEN JEMBER, JAWA TIMUR",
+    });
   });
 
   it("asks the applicant to resolve ambiguous legacy names and does not revive inactive institutions", async () => {

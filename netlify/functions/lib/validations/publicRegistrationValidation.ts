@@ -1,14 +1,21 @@
 import { z } from "zod";
-import {
-  hasRegistrationInstitutionSearchTerm,
-  registrationInstitutionSearchKey,
-  REGISTRATION_INSTITUTION_NAME_MAX,
-  REGISTRATION_INSTITUTION_SEARCH_MIN,
-} from "../../../../src/lib/registrationInstitution";
+import { isValidInstitutionRegion } from "../../../../src/lib/institutionRegion";
+import { registrationInstitutionSearchKey, REGISTRATION_INSTITUTION_NAME_MAX } from "../../../../src/lib/registrationInstitution";
 
 export const registrationInstitutionSearchSchema = z.object({
-  search: z.string().trim().max(REGISTRATION_INSTITUTION_NAME_MAX).transform(registrationInstitutionSearchKey)
-    .refine(hasRegistrationInstitutionSearchTerm, `Masukkan minimal ${REGISTRATION_INSTITUTION_SEARCH_MIN} huruf atau angka.`),
+  search: z.string().trim().max(REGISTRATION_INSTITUTION_NAME_MAX).default("")
+    .refine((value) => !value || !!registrationInstitutionSearchKey(value), "Masukkan nama atau wilayah lembaga.")
+    .transform(registrationInstitutionSearchKey),
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
+});
+
+const institutionProposalSchema = z.object({
+  name: z.string().trim().max(REGISTRATION_INSTITUTION_NAME_MAX)
+    .refine((value) => registrationInstitutionSearchKey(value).replaceAll(" ", "").length >= 3, "Isi nama lengkap lembaga."),
+  provinceCode: z.string().regex(/^\d{2}$/).nullable().optional(),
+  cityCode: z.string().regex(/^\d{4}$/).nullable().optional(),
+}).strict().refine(({ provinceCode, cityCode }) => isValidInstitutionRegion(provinceCode, cityCode), {
+  path: ["cityCode"], message: "Pilih kabupaten/kota yang sesuai dengan provinsi lembaga.",
 });
 
 export const submitPublicRegistrationSchema = z.object({
@@ -17,6 +24,7 @@ export const submitPublicRegistrationSchema = z.object({
   whatsapp: z.string().trim().min(9, "Nomor WhatsApp minimal 9 digit").max(20),
   address: z.string().trim().max(500).optional().nullable(),
   institutionId: z.string().uuid("Pilihan lembaga tidak valid").optional().nullable(),
+  institutionProposal: institutionProposalSchema.optional().nullable(),
   institutionName: z.string().trim().max(REGISTRATION_INSTITUTION_NAME_MAX).refine((value) => value.length === 0 || value.length >= 3,
     "Nama lembaga/komunitas minimal 3 karakter jika diisi").optional().nullable(),
   city: z.string().trim().min(2, "Kabupaten/kota wajib diisi").max(120),
@@ -35,8 +43,8 @@ export const submitPublicRegistrationSchema = z.object({
     provinceCode: z.string().trim().max(30).optional().nullable(),
   })).max(19, "Maksimal 20 asatidz dalam satu rombongan, termasuk ketua").default([]),
 }).superRefine((value, context) => {
-  if (value.institutionId && value.institutionName) {
-    context.addIssue({ code: z.ZodIssueCode.custom, path: ["institutionId"], message: "Kirim pilihan lembaga atau nama yang diketik." });
+  if ([value.institutionId, value.institutionName, value.institutionProposal].filter(Boolean).length > 1) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["institutionId"], message: "Gunakan satu pilihan lembaga." });
   }
   const emails = [value.email, ...value.delegates.map((delegate) => delegate.email)].map((email) => email.trim().toLowerCase());
   if (new Set(emails).size !== emails.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ["delegates"], message: "Setiap asatidz harus memakai email pribadi yang berbeda." });

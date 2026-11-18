@@ -8,6 +8,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { createAuditLog } from "./auditService";
 import { findRegistrationInstitutionSuggestions, resolvePublicRegistrationInstitution } from "./registrationInstitutionService";
+import type { RegistrationInstitutionProposal } from "../../../../src/lib/registrationInstitution";
 import { queueRegistrationReceivedEmails } from "./participantCardEmailService";
 import { logError } from "../utils/logger";
 import { lockRegistrationEvent, assertRegistrationCapacity } from "./registrationCapacity";
@@ -23,6 +24,7 @@ type PublicRegistrationInput = {
   address?: string | null;
   institutionId?: string | null;
   institutionName?: string | null;
+  institutionProposal?: RegistrationInstitutionProposal | null;
   city: string;
   province: string;
   cityCode?: string | null;
@@ -88,9 +90,9 @@ async function getOpenEvent(slug: string) {
   return event;
 }
 
-export async function suggestPublicRegistrationInstitutionsService(slug: string, search: string) {
+export async function suggestPublicRegistrationInstitutionsService(slug: string, query: { search: string; page: number }) {
   await getOpenEvent(slug);
-  return findRegistrationInstitutionSuggestions(search);
+  return findRegistrationInstitutionSuggestions(query);
 }
 
 export async function submitPublicRegistrationService(slug: string, input: PublicRegistrationInput, requestId: string) {

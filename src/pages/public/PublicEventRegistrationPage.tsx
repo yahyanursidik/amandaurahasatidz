@@ -6,6 +6,7 @@ import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { ENV } from "@/config/env";
 import { RegionFields, type RegionValue } from "@/components/public/RegionFields";
 import { RegistrationInstitutionField, type RegistrationInstitutionValue } from "@/components/public/RegistrationInstitutionField";
+import { registrationInstitutionSearchKey } from "@/lib/registrationInstitution";
 import { getRegularRegistrationGroupLimit, getRegularRegistrationState } from "@/lib/regularRegistration";
 import { PublicRegistrationReceipt } from "@/components/public/PublicRegistrationReceipt";
 import type { ReceiptParticipant } from "@/lib/publicRegistrationReceipt";
@@ -134,6 +135,10 @@ function PublicEventRegistrationForm({ slug, embeddedEvent }: { slug: string; em
       return;
     }
     const typedInstitution = institution.name.trim().replace(/\s+/g, " ");
+    if (institution.proposal && registrationInstitutionSearchKey(typedInstitution).replaceAll(" ", "").length < 3) {
+      setInstitutionError("Isi nama lengkap lembaga baru atau kembali ke daftar.");
+      return;
+    }
     if (!institution.selected && typedInstitution && typedInstitution.length < 3) {
       setInstitutionError("Isi minimal 3 karakter atau kosongkan kolom lembaga.");
       return;
@@ -146,10 +151,14 @@ function PublicEventRegistrationForm({ slug, embeddedEvent }: { slug: string; em
     setBusy(true);
     setError("");
     try {
+      const institutionInput = institution.selected ? { institutionId: institution.selected.id }
+        : institution.proposal ? { institutionProposal: {
+          name: typedInstitution, provinceCode: institution.proposal.provinceCode || null, cityCode: institution.proposal.cityCode || null,
+        } } : { institutionName: typedInstitution || null };
       const data = await readResponse<RegistrationResult>(await fetch(
         `${ENV.API_BASE_URL}/events/public/${encodeURIComponent(slug)}/registration`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fullName, email: email.trim(), whatsapp, address,
-          ...(institution.selected ? { institutionId: institution.selected.id } : { institutionName: typedInstitution || null }),
+          ...institutionInput,
           ...region,
           delegates: delegates.map((delegate) => ({ fullName: delegate.fullName, email: delegate.email.trim(), whatsapp: delegate.whatsapp, address: delegate.address, ...delegate.region })),
           consentConfirmed: consent }) },
