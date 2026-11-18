@@ -48,8 +48,25 @@ const fixture = {
         window.__posts = [];
         window.__savedSettings = [];
         window.__confirmationRequests = [];
+        window.__institutionQueries = [];
+        const institutionOptions = [
+          {id:'00000000-0000-4000-8000-000000000011',name:"Ma'had Cahaya Uji",region:'KOTA BANDUNG, JAWA BARAT'},
+          {id:'00000000-0000-4000-8000-000000000012',name:"Ma'had Cahaya Uji",region:'KABUPATEN JEMBER, JAWA TIMUR'},
+        ];
         window.__moderation = new URLSearchParams(location.search).has('pending') ? 'PENDING_REVIEW' : 'APPROVED';
         window.fetch = async (url, options = {}) => {
+          const lookupUrl = new URL(url, location.href);
+          if (lookupUrl.pathname.endsWith('/registration/institutions')) {
+            const search = lookupUrl.searchParams.get('search');
+            window.__institutionQueries.push(search);
+            if (window.__institutionLookupDown) return {ok:false,status:503};
+            if (search === 'lambat') {
+              await new Promise(resolve => { window.__resolveSlowLookup = resolve; });
+              window.__slowLookupAborted = options.signal.aborted;
+              return {ok:true,json:async()=>({data:[{id:'old',name:'Saran lama',region:null}]})};
+            }
+            return {ok:true,json:async()=>({data:search === 'mahad' && !window.__rejectInstitution ? institutionOptions : []})};
+          }
           if (String(url).includes('/cards/public')) return {ok:true,json:async()=>({data:{ustadzName:'Ustadz Ahmad',eventName:event.name,
             eventSlug:event.slug,participantCode:'P-A1',opaqueQrToken:'pqr_old.signature',approvalStatus:'PENDING_REVIEW',confirmationStatus:'INVITED',eventOpen:true,attendanceConfirmationRequired:true}})};
           if (String(url).includes('/confirmations/public')) {
@@ -82,6 +99,8 @@ const fixture = {
             window.__posts.push(input);
             if (window.__disableGroups && input.delegates.length) return {ok:false,status:422,json:async()=>({error:{
               message:'Pendaftaran reguler hanya untuk diri sendiri.',details:{reason:'REGULAR_GROUP_DISABLED'}}})};
+            if (window.__rejectInstitution && input.institutionId) return {ok:false,status:409,json:async()=>({error:{
+              message:'Lembaga ini tidak dapat dipakai. Pilih lembaga lain atau kosongkan kolom ini.',details:{reason:'REGISTRATION_INSTITUTION_UNAVAILABLE'}}})};
             return {ok:true,json:async()=>({data:{participantCode:'P-A1',approvalStatus:'PENDING_REVIEW',portalLoginUrl:'/login/ustadz',
               passwordSetupRequired:false,emailQueued:input.delegates.length+1,participants:[
                 {fullName:'Ustadz Ahmad',email:'ahmad@example.id',whatsapp:'081234567890',participantCode:'P-A1',registrationStatusUrl:'/confirm#prc_first.signature',passwordSetupRequired:true},
@@ -166,6 +185,20 @@ try {
     return result.result.value;
   };
   const setInput = async (selector, value) => evaluate(`(() => { const el=document.querySelector(${JSON.stringify(selector)}); const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set; setter.call(el,${JSON.stringify(value)}); el.dispatchEvent(new Event('input',{bubbles:true})); })()`);
+  const eventually = async (expression, message) => {
+    for (let attempt = 0; attempt < 80; attempt++) {
+      if (await evaluate(expression)) return;
+      await new Promise(resolve => setTimeout(resolve, 50));
+    }
+    assert.fail(message);
+  };
+  const institutionInput = '#register-institution';
+  const institutionList = '#register-institution-suggestions';
+  const searchInstitution = async (name) => {
+    await evaluate(`document.querySelector('${institutionInput}').focus()`);
+    await setInput(institutionInput, name);
+  };
+  const institutionKey = (key) => evaluate(`document.querySelector('${institutionInput}').dispatchEvent(new KeyboardEvent('keydown',{key:${JSON.stringify(key)},bubbles:true,cancelable:true}))`);
   await send('Runtime.enable');
   await send('Page.enable');
   await send('Network.enable');
@@ -223,6 +256,37 @@ try {
   await new Promise((resolve) => setTimeout(resolve, 100));
   await setInput('#register-province', 'JAWA BARAT');
   await new Promise((resolve) => setTimeout(resolve, 100));
+  await searchInstitution('ma');
+  await new Promise(resolve => setTimeout(resolve, 350));
+  assert.deepEqual(await evaluate('window.__institutionQueries'), [], 'queries shorter than 3 characters stay local');
+  await searchInstitution('lambat');
+  await eventually('typeof window.__resolveSlowLookup === "function"', 'old lookup started');
+  await searchInstitution("Ma'had");
+  await eventually(`document.querySelectorAll('${institutionList} [role="option"]').length === 2`, 'matching institutions rendered');
+  await evaluate('window.__resolveSlowLookup()');
+  await eventually('window.__slowLookupAborted === true', 'changing query aborted the previous lookup');
+  assert.deepEqual(await evaluate('window.__institutionQueries'), ['lambat', 'mahad']);
+  assert.match(await evaluate(`document.querySelector('${institutionList}').textContent`), /BANDUNG.*JEMBER/);
+  for (const width of [320, 375, 414, 768, 1280]) {
+    await send('Emulation.setDeviceMetricsOverride', { width, height: 850, deviceScaleFactor: 1, mobile: width < 768 });
+    assert.equal(await evaluate(`document.documentElement.scrollWidth <= innerWidth &&
+      Array.from(document.querySelectorAll('${institutionList} [role="option"]')).every(el => el.getBoundingClientRect().height >= 44 && el.scrollWidth <= el.clientWidth)`), true, `institution suggestions fit at ${width}px`);
+  }
+  await send('Emulation.setDeviceMetricsOverride', { width: 375, height: 850, deviceScaleFactor: 1, mobile: true });
+  await evaluate(`document.querySelector('${institutionInput}').scrollIntoView({block:'center'})`);
+  await institutionKey('Escape');
+  assert.equal(await evaluate(`document.querySelector('${institutionInput}').getAttribute('aria-expanded')`), 'false');
+  await institutionKey('ArrowDown');
+  assert.equal(await evaluate(`document.querySelector('${institutionInput}').getAttribute('aria-activedescendant')`), 'register-institution-option-0');
+  await institutionKey('ArrowDown');
+  assert.equal(await evaluate(`document.querySelector('${institutionInput}').getAttribute('aria-activedescendant')`), 'register-institution-option-1');
+  screenshot = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: false });
+  target = path.join(os.tmpdir(), 'daurah-registration-institution-375.png');
+  await writeFile(target, Buffer.from(screenshot.data, 'base64')); screenshots.push(target);
+  await institutionKey('Enter');
+  assert.equal(await evaluate(`document.querySelector('${institutionInput}').value`), "Ma'had Cahaya Uji");
+  assert.match(await evaluate(`document.querySelector('${institutionInput}-hint').textContent`), /Lembaga dipilih.*JEMBER/);
+  assert.equal(await evaluate(`window.__posts.length`), 0, 'selecting via Enter does not submit the form');
   await evaluate(`document.querySelector('.public-register__consent input').click()`);
   assert.equal(await evaluate(`document.querySelector('.public-register__consent input').checked`), true);
   await evaluate(`document.querySelector('.public-register__group-head button').click()`);
@@ -245,6 +309,8 @@ try {
   assert.equal(await evaluate(`window.__posts.length`), 1);
   assert.equal(await evaluate(`window.__posts[0].consentConfirmed`), true);
   assert.equal(await evaluate(`window.__posts[0].delegates[0].city`), 'KOTA BANDUNG');
+  assert.equal(await evaluate('window.__posts[0].institutionId'), '00000000-0000-4000-8000-000000000012');
+  assert.equal(await evaluate('Object.hasOwn(window.__posts[0], "institutionName")'), false);
   assert.equal(await evaluate(`document.querySelectorAll('.public-receipt__select option').length`), 2);
   assert.equal(await evaluate(`document.querySelector('.public-receipt__shortcuts a').getAttribute('href')`), '/events/daurah-coba#jadwal-kegiatan');
   assert.equal(await evaluate(`new URL(document.querySelector('.public-receipt__confirmation a').href).hash`), '#prc_first.signature');
@@ -313,9 +379,35 @@ try {
     await setInput('#register-province', 'JAWA BARAT');
   };
   await fillLead();
+  await searchInstitution('mahad');
+  await eventually(`document.querySelectorAll('${institutionList} [role="option"]').length === 2`, 'standalone form offers suggestions');
+  await evaluate(`document.querySelector('${institutionInput}').scrollIntoView({block:'center'})`);
+  const { x, y } = await evaluate(`(() => {
+    const rect = document.querySelector('${institutionList} [role="option"]').getBoundingClientRect();
+    return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+  })()`);
+  await send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
+  await send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await eventually(`document.querySelector('${institutionInput}-hint').textContent.includes('Lembaga dipilih')`, 'tap selects the visible option');
+  await evaluate(`window.__rejectInstitution=true; document.querySelector('.public-register__consent input').click(); document.querySelector('.public-register__form').requestSubmit()`);
+  await eventually(`!!document.querySelector('${institutionInput}-error')`, 'server conflict appears beside the institution field');
+  assert.equal(await evaluate('window.__posts[0].institutionId'), '00000000-0000-4000-8000-000000000011');
+  assert.equal(await evaluate(`document.activeElement.id`), 'register-institution');
+  assert.equal(await evaluate(`document.querySelector('#register-email').value`), 'ahmad@example.id');
+  assert.equal(await evaluate(`document.querySelector('.public-register__consent input').checked`), false);
+  assert.equal(await evaluate(`window.__posts.length`), 1, 'no silent resubmit after a stale selection');
+  await eventually(`document.querySelector('${institutionInput}-hint').textContent.includes('Belum ada saran')`, 'no matches state');
+  await evaluate(`document.querySelector('[aria-label="Kosongkan kolom lembaga"]').click()`);
+  assert.equal(await evaluate(`document.querySelector('${institutionInput}').value`), '');
+  assert.equal(await evaluate(`!!document.querySelector('${institutionInput}-error')`), false);
+  await evaluate('window.__institutionLookupDown=true');
+  await searchInstitution('Komunitas Uji Baru');
+  await eventually(`document.querySelector('${institutionInput}-hint').textContent.includes('Saran sedang tidak tersedia')`, 'manual entry remains available after lookup failure');
   await evaluate(`document.querySelector('.public-register__consent input').click(); document.querySelector('.public-register__form').requestSubmit()`);
   for (let i = 0; i < 50 && !(await evaluate(`!!document.querySelector('.public-receipt')`)); i++) await new Promise((resolve) => setTimeout(resolve, 100));
-  assert.deepEqual(await evaluate('window.__posts[0].delegates'), []);
+  assert.deepEqual(await evaluate('window.__posts[1].delegates'), []);
+  assert.equal(await evaluate('window.__posts[1].institutionName'), 'Komunitas Uji Baru');
+  assert.equal(await evaluate('Object.hasOwn(window.__posts[1], "institutionId")'), false);
   assert.equal(await evaluate(`!!document.querySelector('.public-receipt__select')`), false);
 
   // A stale group form must not silently resend only the lead after rejection.

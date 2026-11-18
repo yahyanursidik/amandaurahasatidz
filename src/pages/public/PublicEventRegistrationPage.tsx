@@ -5,6 +5,7 @@ import { ArrowLeft, ArrowRight, Plus, Trash2, Users } from "lucide-react";
 import { PublicLayout } from "@/components/layouts/PublicLayout";
 import { ENV } from "@/config/env";
 import { RegionFields, type RegionValue } from "@/components/public/RegionFields";
+import { RegistrationInstitutionField, type RegistrationInstitutionValue } from "@/components/public/RegistrationInstitutionField";
 import { getRegularRegistrationGroupLimit, getRegularRegistrationState } from "@/lib/regularRegistration";
 import { PublicRegistrationReceipt } from "@/components/public/PublicRegistrationReceipt";
 import type { ReceiptParticipant } from "@/lib/publicRegistrationReceipt";
@@ -52,7 +53,12 @@ async function readResponse<T>(response: Response): Promise<T> {
 
 export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummary }> = ({ embeddedEvent }) => {
   const { slug = "" } = useParams<{ slug: string }>();
-  const proofKey = `registration:regular:${embeddedEvent?.slug || slug}`;
+  const eventSlug = embeddedEvent?.slug || slug;
+  return <PublicEventRegistrationForm key={eventSlug} slug={eventSlug} embeddedEvent={embeddedEvent} />;
+};
+
+function PublicEventRegistrationForm({ slug, embeddedEvent }: { slug: string; embeddedEvent?: EventSummary }) {
+  const proofKey = `registration:regular:${slug}`;
   const [event, setEvent] = useState<EventSummary | null>(() => embeddedEvent || readRegistrationProof<EventSummary, RegistrationResult>(proofKey)?.event || null);
   const [loading, setLoading] = useState(!event);
   const [error, setError] = useState("");
@@ -61,7 +67,8 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
   const [fullName, setFullName] = useState("");
   const [whatsapp, setWhatsapp] = useState("");
   const [address, setAddress] = useState("");
-  const [institutionName, setInstitutionName] = useState("");
+  const [institution, setInstitution] = useState<RegistrationInstitutionValue>({ name: "", selected: null });
+  const [institutionError, setInstitutionError] = useState("");
   const [region, setRegion] = useState<RegionValue>(emptyRegion);
   const [delegates, setDelegates] = useState<Delegate[]>([]);
   const [consent, setConsent] = useState(false);
@@ -122,6 +129,15 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
   const submit = async (formEvent: React.FormEvent) => {
     formEvent.preventDefault();
     if (busy) return;
+    if (institutionError) {
+      document.getElementById("register-institution")?.focus();
+      return;
+    }
+    const typedInstitution = institution.name.trim().replace(/\s+/g, " ");
+    if (!institution.selected && typedInstitution && typedInstitution.length < 3) {
+      setInstitutionError("Isi minimal 3 karakter atau kosongkan kolom lembaga.");
+      return;
+    }
     if (!consent) { setError("Setujui penggunaan data peserta sebelum mendaftar."); return; }
     if (!groupAllowed && delegates.length) { setError("Pendaftaran hanya untuk diri sendiri. Periksa kembali data Anda sebelum mengirim."); return; }
     if (delegates.length + 1 > maxGroupSize) { setError("Jumlah peserta melebihi batas saat ini. Kurangi anggota rombongan lalu coba lagi."); return; }
@@ -133,7 +149,8 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
       const data = await readResponse<RegistrationResult>(await fetch(
         `${ENV.API_BASE_URL}/events/public/${encodeURIComponent(slug)}/registration`,
         { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ fullName, email: email.trim(), whatsapp, address,
-          institutionName: institutionName.trim(), ...region,
+          ...(institution.selected ? { institutionId: institution.selected.id } : { institutionName: typedInstitution || null }),
+          ...region,
           delegates: delegates.map((delegate) => ({ fullName: delegate.fullName, email: delegate.email.trim(), whatsapp: delegate.whatsapp, address: delegate.address, ...delegate.region })),
           consentConfirmed: consent }) },
       ));
@@ -141,11 +158,19 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
       scrollAfterSubmit.current = true;
       if (event) saveRegistrationProof(proofKey, { event, result: data });
     } catch (submitError) {
-      if ((submitError as { reason?: string })?.reason === "REGULAR_GROUP_DISABLED") {
+      const reason = (submitError as { reason?: string })?.reason;
+      const message = submitError instanceof Error ? submitError.message : "Pendaftaran belum tersimpan.";
+      if (reason === "REGISTRATION_INSTITUTION_UNAVAILABLE" || reason === "REGISTRATION_INSTITUTION_AMBIGUOUS") {
+        setInstitution((current) => ({ ...current, selected: null }));
+        setInstitutionError(message);
+        setConsent(false);
+        return;
+      }
+      if (reason === "REGULAR_GROUP_DISABLED") {
         setEvent((current) => current ? { ...current, regularAllowGroup: false } : current);
         setConsent(false);
       }
-      setError(submitError instanceof Error ? submitError.message : "Pendaftaran belum tersimpan.");
+      setError(message);
     } finally { setBusy(false); }
   };
 
@@ -170,7 +195,15 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
               <div className="public-register__field"><label htmlFor="register-email">Email pribadi</label><input id="register-email" type="email" autoComplete="email" required maxLength={254} value={email} onChange={(input) => setEmail(input.target.value)} placeholder="nama@contoh.id" /><p>Email menjadi nama pengguna untuk masuk portal.</p></div>
               <div className="public-register__field"><label htmlFor="register-whatsapp">Nomor WhatsApp aktif</label><input id="register-whatsapp" required type="tel" inputMode="tel" autoComplete="tel" minLength={9} maxLength={20} pattern="[0-9+(). -]{9,20}" value={whatsapp} onChange={(input) => setWhatsapp(input.target.value)} placeholder="0812…" /></div>
               <div className="public-register__region"><h3>Domisili</h3><RegionFields prefix="register" value={region} onChange={setRegion} /></div>
-              <details className="public-register__optional"><summary>Lembaga dan alamat <span>(opsional)</span></summary><div className="public-register__optional-fields"><div className="public-register__field"><label htmlFor="register-institution">Nama lembaga/komunitas</label><input id="register-institution" value={institutionName} onChange={(input) => setInstitutionName(input.target.value)} maxLength={180} placeholder="Jika mewakili lembaga" /></div><div className="public-register__field"><label htmlFor="register-address">Alamat domisili</label><textarea id="register-address" rows={3} maxLength={500} value={address} onChange={(input) => setAddress(input.target.value)} placeholder="Alamat ringkas" /></div></div></details>
+              <RegistrationInstitutionField id="register-institution" eventSlug={slug} value={institution} disabled={busy}
+                error={institutionError} onChange={(next) => { setInstitution(next); setInstitutionError(""); }} />
+              <details className="public-register__optional">
+                <summary>Alamat domisili <span>(opsional)</span></summary>
+                <div className="public-register__field">
+                  <label htmlFor="register-address">Alamat lengkap</label>
+                  <textarea id="register-address" rows={3} maxLength={500} value={address} onChange={(input) => setAddress(input.target.value)} placeholder="Alamat ringkas" />
+                </div>
+              </details>
 
               {groupAllowed && <section className="public-register__group" aria-labelledby="group-members-title">
                 <div className="public-register__group-head"><div><Users aria-hidden="true" /><h3 id="group-members-title">Datang bersama rombongan?</h3><p>Tambahkan asatidz lain. Masing-masing mendapat QR dan akses portal pribadi.</p></div><button type="button" disabled={busy || delegates.length >= maxGroupSize - 1} onClick={addDelegate}><Plus aria-hidden="true" /> Tambah anggota</button></div>
@@ -196,4 +229,4 @@ export const PublicEventRegistrationPage: React.FC<{ embeddedEvent?: EventSummar
     </div>
   );
   return embeddedEvent ? content : <PublicLayout>{content}</PublicLayout>;
-};
+}

@@ -182,24 +182,26 @@ export async function findEventByIdRepository(id: string, db = getDbClient()) {
   };
 }
 
+function publicEventBySlug(slug: string) {
+  return and(eq(events.slug, slug), isNull(events.archivedAt),
+    inArray(events.status, ["PUBLISHED", "REGISTRATION_OPEN", "REGISTRATION_CLOSED", "ONGOING", "COMPLETED"]));
+}
+
+export async function findRegularRegistrationEventRepository(slug: string) {
+  const [event] = await getDbClient().select({
+    id: events.id, name: events.name, status: events.status, audienceMode: events.audienceMode,
+    regularQuota: events.regularQuota, regularAllowGroup: events.regularAllowGroup, capacity: events.capacity,
+    registrationOpenAt: events.registrationOpenAt, registrationCloseAt: events.registrationCloseAt,
+  }).from(events).where(publicEventBySlug(slug)).limit(1);
+  return event ?? null;
+}
+
 export async function findEventBySlugRepository(slug: string) {
   const db = getDbClient();
   const found = await db
     .select({ ...getTableColumns(events), posterUrl: publicPosterUrl })
     .from(events)
-    .where(
-      and(
-        eq(events.slug, slug),
-        isNull(events.archivedAt),
-        inArray(events.status, [
-          "PUBLISHED",
-          "REGISTRATION_OPEN",
-          "REGISTRATION_CLOSED",
-          "ONGOING",
-          "COMPLETED",
-        ])
-      )
-    )
+    .where(publicEventBySlug(slug))
     .limit(1);
   if (found.length === 0) return null;
 

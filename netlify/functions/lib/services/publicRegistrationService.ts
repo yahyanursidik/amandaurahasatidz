@@ -2,12 +2,12 @@ import { randomBytes, randomUUID } from "node:crypto";
 import { and, eq, inArray } from "drizzle-orm";
 import { withTransaction } from "../db/transaction";
 import { eventParticipants, roles, userRoleAssignments, users, ustadzProfiles, ustadzInstitutionAffiliations } from "../db/schema";
-import { findEventBySlugRepository } from "../repositories/eventRepository";
+import { findRegularRegistrationEventRepository } from "../repositories/eventRepository";
 import { countApprovedParticipantsBySourceRepository, countApprovedParticipantsForEventRepository } from "../repositories/participantRepository";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../utils/errors";
 import { normalizeEmail, normalizeName, normalizePhone } from "../utils/normalization";
 import { createAuditLog } from "./auditService";
-import { resolveRegistrationInstitution } from "./registrationInstitutionService";
+import { findRegistrationInstitutionSuggestions, resolvePublicRegistrationInstitution } from "./registrationInstitutionService";
 import { queueRegistrationReceivedEmails } from "./participantCardEmailService";
 import { logError } from "../utils/logger";
 import { lockRegistrationEvent, assertRegistrationCapacity } from "./registrationCapacity";
@@ -21,6 +21,7 @@ type PublicRegistrationInput = {
   email: string;
   whatsapp: string;
   address?: string | null;
+  institutionId?: string | null;
   institutionName?: string | null;
   city: string;
   province: string;
@@ -81,10 +82,15 @@ export function assertPublicRegistrationGroupAllowed(event: Parameters<typeof pu
 }
 
 async function getOpenEvent(slug: string) {
-  const event = await findEventBySlugRepository(slug);
+  const event = await findRegularRegistrationEventRepository(slug);
   if (!event) throw new NotFoundError("Program daurah tidak ditemukan.");
   assertPublicRegistrationOpen(event);
   return event;
+}
+
+export async function suggestPublicRegistrationInstitutionsService(slug: string, search: string) {
+  await getOpenEvent(slug);
+  return findRegistrationInstitutionSuggestions(search);
 }
 
 export async function submitPublicRegistrationService(slug: string, input: PublicRegistrationInput, requestId: string) {
@@ -146,7 +152,7 @@ export async function submitPublicRegistrationService(slug: string, input: Publi
       existing.push({ person, profile, user });
     }
     const publicGroupId = people.length > 1 ? randomUUID() : null;
-    const institutionId = await resolveRegistrationInstitution(tx, input.institutionName);
+    const institutionId = await resolvePublicRegistrationInstitution(tx, input);
     const registered = [];
     for (const [index, entry] of existing.entries()) {
       const { person } = entry;
