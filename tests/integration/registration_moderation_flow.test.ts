@@ -308,7 +308,21 @@ describe("saran lembaga pada pendaftaran reguler", () => {
     expect(wrongBranch.error.details.reason).toBe("REGISTRATION_INSTITUTION_AMBIGUOUS");
     expect(await db.select().from(schema.institutions)).toHaveLength(2);
 
-    await db.update(schema.institutions).set({ verificationStatus: "VERIFIED" }).where(eq(schema.institutions.id, id));
+    const stewardEmail = "steward@moderation.invalid";
+    const [steward] = await db.insert(schema.users).values({ email: stewardEmail }).returning();
+    const [stewardRole] = await db.insert(schema.roles).values({ code: "DATA_STEWARD", name: "Pengelola data" }).returning();
+    await db.insert(schema.userRoleAssignments).values({ userId: steward.id, roleId: stewardRole.id });
+    const pending = () => request("/institutions", { user: stewardEmail, query: { search: saved.name, verificationStatus: "UNVERIFIED" } });
+    const inDirectory = await pending();
+    expect(inDirectory.status).toBe(200);
+    expect(inDirectory.data).toMatchObject([{ id, verificationStatus: "UNVERIFIED", cityCode: "3509", provinceCode: "35" }]);
+    const verify = (user: string) => request(`/institutions/${id}`, { method: "PATCH", user, body: { verificationStatus: "VERIFIED" } });
+    expect((await verify(viewerEmail)).status).toBe(403);
+    const verified = await verify(stewardEmail);
+    expect(verified.status, JSON.stringify(verified.error)).toBe(200);
+    expect(verified.data).toMatchObject({ id, verificationStatus: "VERIFIED" });
+    expect((await pending()).data).toEqual([]);
+    expect((await findParticipant(registered.data.participantCode)).approvalStatus).toBe("PENDING_REVIEW");
     expect((await search("lembaga uji baru")).data[0]).toEqual({
       id, name: "Lembaga Uji Baru", region: "KABUPATEN JEMBER, JAWA TIMUR",
     });

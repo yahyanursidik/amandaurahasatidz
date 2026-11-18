@@ -74,6 +74,10 @@ const fixture = {
               window.__slowLookupAborted = options.signal.aborted;
               return result([{id:'old',name:'Saran lama',region:null}]);
             }
+            if (search === 'komunitas baru diverifikasi') {
+              return result(window.__institutionVerified
+                ? [{id:'verified-fixture',name:'Komunitas Baru Diverifikasi',region:'KABUPATEN JEMBER, JAWA TIMUR'}] : []);
+            }
             if (!search) return result(institutionDirectory);
             return result(['ma','mahad','mahd'].includes(search) && !window.__rejectInstitution ? institutionOptions : []);
           }
@@ -432,6 +436,18 @@ try {
   await send('Page.navigate', { url: `http://127.0.0.1:${port}/public-event-registration-preview?register=1&solo=1` });
   await eventually(`!!document.querySelector('${institutionInput}')`, 'standalone form opens for a new proposal');
   await fillLead();
+  await send('Emulation.setFocusEmulationEnabled', { enabled: true });
+  await searchInstitution('Komunitas Baru Diverifikasi');
+  await eventually(`document.querySelector('${institutionInput}-hint').textContent.includes('Belum ada lembaga yang cocok')`, 'unverified proposal is not suggested');
+  assert.equal(await evaluate('document.activeElement.id'), 'register-institution');
+  await evaluate(`document.querySelector('#register-name').focus()`);
+  assert.equal(await evaluate('document.activeElement.id'), 'register-name');
+  await eventually(`document.querySelector('${institutionInput}-hint').textContent.includes('Buka daftar')`, 'leaving the field closes the suggestions');
+  await evaluate(`window.__institutionVerified = true; document.querySelector('${institutionInput}').focus()`);
+  await eventually(`document.querySelector('${institutionList}')?.textContent.includes('Komunitas Baru Diverifikasi')`, 'reopening the field loads institutions verified since the last search');
+  assert.deepEqual(await evaluate('window.__institutionQueries.filter(({search}) => search === "komunitas baru diverifikasi")'), [
+    {search:'komunitas baru diverifikasi',page:1}, {search:'komunitas baru diverifikasi',page:1},
+  ]);
   await searchInstitution('mahd');
   await evaluate(`document.querySelector('.public-register__institution-label button').click()`);
   assert.equal(await evaluate('document.activeElement.id'), 'register-institution');
