@@ -27,8 +27,8 @@ import { checkRateLimit, resetRateLimit } from "./lib/utils/rateLimiter";
 import { generateEmailOtp, verifyEmailOtp } from "./lib/services/otpService";
 import { serializeCookie, clearCookie, parseCookies } from "./lib/utils/cookie";
 import { validateRequestData } from "./lib/utils/validator";
-import { submitPublicRegistrationSchema } from "./lib/validations/publicRegistrationValidation";
-import { submitPublicRegistrationService } from "./lib/services/publicRegistrationService";
+import { registrationInstitutionSearchSchema, submitPublicRegistrationSchema } from "./lib/validations/publicRegistrationValidation";
+import { submitPublicRegistrationService, suggestPublicRegistrationInstitutionsService } from "./lib/services/publicRegistrationService";
 import { getPublicParticipantCardService } from "./lib/services/participantCardService";
 import { getPublicParticipantConfirmationService, requestPrivateParticipantAccessService, submitPublicParticipantConfirmationService } from "./lib/services/participantConfirmationService";
 import { getParticipantShareService } from "./lib/services/participantShareService";
@@ -339,6 +339,19 @@ export const handler: Handler = async (event, _context) => {
     const publicPosterMatch = path.match(/^\/events\/public\/([a-z0-9-]+)\/poster$/i);
     if (publicPosterMatch && method === "GET") {
       return await getPublicEventPosterService(publicPosterMatch[1], event.headers["if-none-match"], event.queryStringParameters?.v);
+    }
+    const registrationInstitutionsMatch = path.match(/^\/events\/public\/([a-z0-9-]+)\/registration\/institutions$/i);
+    if (registrationInstitutionsMatch && method === "GET") {
+      const clientIp = event.headers["x-nf-client-connection-ip"] || event.headers["client-ip"] || "unknown";
+      const limit = checkRateLimit(`registration_institution_lookup_${clientIp}`, 120, 60_000);
+      if (!limit.allowed) {
+        const response = buildErrorResponse("TOO_MANY_REQUESTS", "Terlalu banyak pencarian lembaga. Coba lagi sebentar.", requestId, 429);
+        return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Retry-After": String(limit.retryAfterSeconds) } };
+      }
+      const { search } = validateRequestData(registrationInstitutionSearchSchema, event.queryStringParameters || {});
+      const data = await suggestPublicRegistrationInstitutionsService(registrationInstitutionsMatch[1], search);
+      const response = buildSuccessResponse(data, requestId);
+      return { ...response, headers: { ...response.headers, "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" } };
     }
     const pubEventMatch = path.match(/^\/events\/public\/([a-z0-9-]+)$/i);
     if (pubEventMatch && method === "GET") {

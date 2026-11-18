@@ -1,11 +1,23 @@
 import { z } from "zod";
+import {
+  hasRegistrationInstitutionSearchTerm,
+  registrationInstitutionSearchKey,
+  REGISTRATION_INSTITUTION_NAME_MAX,
+  REGISTRATION_INSTITUTION_SEARCH_MIN,
+} from "../../../../src/lib/registrationInstitution";
+
+export const registrationInstitutionSearchSchema = z.object({
+  search: z.string().trim().max(REGISTRATION_INSTITUTION_NAME_MAX).transform(registrationInstitutionSearchKey)
+    .refine(hasRegistrationInstitutionSearchTerm, `Masukkan minimal ${REGISTRATION_INSTITUTION_SEARCH_MIN} huruf atau angka.`),
+});
 
 export const submitPublicRegistrationSchema = z.object({
   fullName: z.string().trim().min(3, "Nama lengkap minimal 3 karakter").max(150),
   email: z.string().trim().email("Alamat email tidak valid"),
   whatsapp: z.string().trim().min(9, "Nomor WhatsApp minimal 9 digit").max(20),
   address: z.string().trim().max(500).optional().nullable(),
-  institutionName: z.string().trim().max(180).refine((value) => value.length === 0 || value.length >= 3,
+  institutionId: z.string().uuid("Pilihan lembaga tidak valid").optional().nullable(),
+  institutionName: z.string().trim().max(REGISTRATION_INSTITUTION_NAME_MAX).refine((value) => value.length === 0 || value.length >= 3,
     "Nama lembaga/komunitas minimal 3 karakter jika diisi").optional().nullable(),
   city: z.string().trim().min(2, "Kabupaten/kota wajib diisi").max(120),
   province: z.string().trim().min(2, "Provinsi wajib diisi").max(120),
@@ -23,6 +35,9 @@ export const submitPublicRegistrationSchema = z.object({
     provinceCode: z.string().trim().max(30).optional().nullable(),
   })).max(19, "Maksimal 20 asatidz dalam satu rombongan, termasuk ketua").default([]),
 }).superRefine((value, context) => {
+  if (value.institutionId && value.institutionName) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ["institutionId"], message: "Kirim pilihan lembaga atau nama yang diketik." });
+  }
   const emails = [value.email, ...value.delegates.map((delegate) => delegate.email)].map((email) => email.trim().toLowerCase());
   if (new Set(emails).size !== emails.length) context.addIssue({ code: z.ZodIssueCode.custom, path: ["delegates"], message: "Setiap asatidz harus memakai email pribadi yang berbeda." });
 });

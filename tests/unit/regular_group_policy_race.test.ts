@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({ find: vi.fn(), lock: vi.fn(), capacity: vi.fn(), select: vi.fn(), audit: vi.fn(), email: vi.fn() }));
-vi.mock("../../netlify/functions/lib/repositories/eventRepository", () => ({ findEventBySlugRepository: mocks.find }));
+vi.mock("../../netlify/functions/lib/repositories/eventRepository", () => ({ findRegularRegistrationEventRepository: mocks.find }));
 vi.mock("../../netlify/functions/lib/repositories/participantRepository", () => ({
   countApprovedParticipantsBySourceRepository: async () => 0,
   countApprovedParticipantsForEventRepository: async () => 0,

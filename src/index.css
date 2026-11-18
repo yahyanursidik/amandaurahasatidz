@@ -7423,6 +7423,60 @@
 .public-register__field { display: grid; gap: var(--space-public-xs); min-width: 0; }
 .public-register__form .public-register__field label { margin: 0; font-size: var(--text-public-small); }
 .public-register__field > p { min-height: 1lh; margin: 0; color: var(--color-public-muted); font-size: var(--text-public-small); }
+.public-register__institution-box { position: relative; min-width: 0; }
+.public-register__institution-input { display: flex; gap: var(--space-public-xs); }
+.public-register__institution-input input { min-width: 0; }
+.public-register__institution-input input[aria-invalid="true"] { border-color: var(--color-public-error); }
+.public-register__institution-input button {
+  flex: none;
+  min-height: 48px;
+  padding-inline: var(--space-public-sm);
+  border: 1px solid var(--color-public-rule);
+  border-radius: var(--radius-public-control);
+  background: var(--color-public-surface);
+  color: var(--color-public-accent);
+  font-size: var(--text-public-small);
+  font-weight: 700;
+  cursor: pointer;
+}
+.public-register__institution-input button:focus-visible {
+  outline: 2px solid var(--color-public-focus);
+  outline-offset: 2px;
+}
+.public-register__institution-input button:hover:not(:disabled),
+.public-register__institution-options [role="option"]:hover,
+.public-register__institution-options [aria-selected="true"] { background: var(--color-public-success-paper); }
+.public-register__institution-input button:active:not(:disabled),
+.public-register__institution-options [role="option"]:active { background: var(--color-invitation-surface-muted); }
+.public-register__institution-input button:disabled { opacity: 0.55; cursor: not-allowed; }
+.public-register__institution-options {
+  position: absolute;
+  z-index: 5;
+  inset-inline: 0;
+  top: calc(100% + 4px);
+  max-height: min(16rem, 40vh);
+  overflow-y: auto;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-public-rule);
+  border-radius: var(--radius-public-control);
+  background: var(--color-public-surface);
+}
+.public-register__institution-options [role="option"] {
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-height: 44px;
+  padding: var(--space-public-xs) var(--space-public-sm);
+  color: var(--color-public-ink);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+}
+.public-register__institution-options [role="option"] + [role="option"] { border-top: 1px solid var(--color-public-rule); }
+.public-register__institution-options span { color: var(--color-public-muted); font-size: var(--text-public-small); }
+.public-register__field > .public-register__institution-error { color: var(--color-public-error); font-weight: 650; }
 .public-register__form input, .public-register__form textarea { outline-offset: 1px; }
 .public-register__form textarea { resize: vertical; }
 .public-register__region { display: grid; gap: var(--space-public-sm); }

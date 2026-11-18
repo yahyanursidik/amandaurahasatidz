@@ -3,7 +3,7 @@ import { join } from "node:path";
 import type { HandlerContext, HandlerEvent } from "@netlify/functions";
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "../../netlify/functions/lib/db/schema";
 import { createSessionToken } from "../../netlify/functions/lib/services/authService";
@@ -44,6 +44,7 @@ const dayId = "00000000-0000-4000-8000-000000000022";
 const adminEmail = "admin@moderation.invalid";
 const viewerEmail = "viewer@moderation.invalid";
 const publicRegistration = "/events/public/daurah-moderasi/registration";
+const institutionLookup = `${publicRegistration}/institutions`;
 const asatidz = (suffix: string) => ({
   fullName: `Ustadz Uji ${suffix}`, email: `${suffix}@moderation.invalid`,
   whatsapp: "6281234567890", city: "KOTA BANDUNG", province: "JAWA BARAT",
@@ -148,6 +149,130 @@ beforeEach(async () => {
 }, 30_000);
 afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 afterAll(async () => { await pg.close(); local.db = undefined; });
+
+describe("saran lembaga pada pendaftaran reguler", () => {
+  const insertInstitution = (fields: Partial<typeof schema.institutions.$inferInsert> = {}) =>
+    db.insert(schema.institutions).values({
+      code: "MAHAD-A", name: "Ma'had Cahaya", status: "ACTIVE", verificationStatus: "VERIFIED",
+      cityCode: "3273", provinceCode: "32", ...fields,
+    }).returning();
+  const search = (term: string) => request(institutionLookup, { query: { search: term } });
+  const submit = (suffix: string, institution: { institutionId?: string; institutionName?: string }) =>
+    post(publicRegistration, { ...asatidz(suffix), consentConfirmed: true, ...institution });
+
+  it("ranks name matches and exposes only verified names, IDs, and recognized regions", async () => {
+    const [exact] = await insertInstitution({ notes: "private-note", phone: "private-phone", address: "private-address" });
+    const [partial] = await insertInstitution({ code: "MAHAD-B", name: "Yayasan Ma’had Cahaya",
+      cityCode: "private-city", provinceCode: "private-province", email: "private@moderation.invalid" });
+    await insertInstitution({ code: "MAHAD-C", name: "Ma'had Cahaya Baru", verificationStatus: "UNVERIFIED" });
+    await insertInstitution({ code: "MAHAD-D", name: "Ma'had Cahaya Lama", deletedAt: now });
+    await insertInstitution({ code: "MAHAD-E", name: "Ma'had Cahaya Nonaktif", status: "INACTIVE" });
+    const result = await search("  MAHAD   CAHAYA ");
+    expect(result.status).toBe(200);
+    expect(result.headers["Cache-Control"]).toBe("no-store");
+    expect(result.data).toEqual([
+      { id: exact.id, name: "Ma'had Cahaya", region: "KOTA BANDUNG, JAWA BARAT" },
+      { id: partial.id, name: "Yayasan Ma’had Cahaya", region: null },
+    ]);
+    expect((await search("cah mah")).data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: exact.id }), expect.objectContaining({ id: partial.id }),
+    ]));
+    expect((await search("private")).data).toEqual([]);
+  });
+
+  it("bounds the response and restricts lookups to open regular events", async () => {
+    await db.insert(schema.institutions).values(Array.from({ length: 10 }, (_, index) => ({
+      code: `UJI-${index}`, name: `Lembaga Uji ${index}`, verificationStatus: "VERIFIED",
+    })));
+    expect((await search("lembaga")).data).toHaveLength(8);
+    expect((await search("%_   ")).status).toBe(422);
+    expect((await search("le")).status).toBe(422);
+    expect((await search("x".repeat(181))).status).toBe(422);
+    await db.update(schema.events).set({ registrationOpenAt: new Date("2026-11-14") }).where(eq(schema.events.id, eventId));
+    expect((await search("lembaga")).status).toBe(403);
+    await db.update(schema.events).set({ registrationOpenAt: null, audienceMode: "INSTITUTION_INVITATION" }).where(eq(schema.events.id, eventId));
+    expect((await search("lembaga")).status).toBe(403);
+    await db.update(schema.events).set({ archivedAt: now }).where(eq(schema.events.id, eventId));
+    expect((await search("lembaga")).status).toBe(404);
+  });
+
+  it("uses the chosen ID for each participant and affiliation, including same name branches", async () => {
+    const [bandung] = await insertInstitution();
+    const [jember] = await insertInstitution({ code: "MAHAD-B", cityCode: "3509", provinceCode: "35" });
+    const options = await search("mahad cahaya");
+    expect(options.data).toEqual(expect.arrayContaining([
+      { id: bandung.id, name: bandung.name, region: "KOTA BANDUNG, JAWA BARAT" },
+      { id: jember.id, name: jember.name, region: "KABUPATEN JEMBER, JAWA TIMUR" },
+    ]));
+    const result = await post(publicRegistration, {
+      ...asatidz("ketua-terpilih"), consentConfirmed: true, institutionId: jember.id, delegates: [asatidz("anggota-terpilih")],
+    });
+    expect(result.status, JSON.stringify(result.error)).toBe(200);
+    const participants = await db.select().from(schema.eventParticipants);
+    expect(participants).toHaveLength(2);
+    expect(participants.every((person) => person.institutionId === jember.id && person.registrationSource === "DIRECT_PUBLIC")).toBe(true);
+    const affiliations = await db.select().from(schema.ustadzInstitutionAffiliations);
+    expect(affiliations).toHaveLength(2);
+    expect(affiliations.every((item) => item.institutionId === jember.id && !item.verifiedAt && !item.isPrimary)).toBe(true);
+    const profiles = await db.select().from(schema.ustadzProfiles)
+      .where(inArray(schema.ustadzProfiles.id, participants.map((person) => person.ustadzId)));
+    expect(profiles.every((profile) => profile.cityCode === "KOTA BANDUNG" && profile.provinceCode === "JAWA BARAT")).toBe(true);
+    expect(await db.select().from(schema.institutions)).toHaveLength(2);
+  });
+
+  it("rejects unavailable, unverified or invalid selections without creating any registration", async () => {
+    const [archived] = await insertInstitution();
+    expect((await search("mahad")).data).toHaveLength(1);
+    await db.update(schema.institutions).set({ deletedAt: now }).where(eq(schema.institutions.id, archived.id));
+    const [unverified] = await insertInstitution({ code: "MAHAD-B", name: "Ma'had Baru", verificationStatus: "UNVERIFIED" });
+    for (const id of [archived.id, unverified.id, eventId]) {
+      const result = await submit("lembaga-tidak-tersedia", { institutionId: id });
+      expect(result.status).toBe(409);
+      expect(result.error.details.reason).toBe("REGISTRATION_INSTITUTION_UNAVAILABLE");
+    }
+    expect((await submit("id-salah", { institutionId: "no-uuid" })).status).toBe(422);
+    expect((await submit("dua-pilihan", { institutionId: unverified.id, institutionName: unverified.name })).status).toBe(422);
+    expect(await db.select().from(schema.eventParticipants)).toHaveLength(0);
+    expect(await db.select().from(schema.ustadzProfiles)).toHaveLength(0);
+    expect(await db.select().from(schema.emailJobs)).toHaveLength(0);
+    expect(local.send).not.toHaveBeenCalled();
+  });
+
+  it("keeps manual names and optional registration, reusing a match and creating a new name once", async () => {
+    const [existing] = await insertInstitution({ name: "Komunitas   Uji Lama", verificationStatus: "UNVERIFIED" });
+    expect((await search("komunitas uji")).data).toEqual([]);
+    const matched = await submit("cocok", { institutionName: "  komunitas uji lama  " });
+    expect(matched.status, JSON.stringify(matched.error)).toBe(200);
+    expect((await findParticipant(matched.data.participantCode)).institutionId).toBe(existing.id);
+
+    const created = await submit("baru-satu", { institutionName: "  Komunitas    Uji Baru   " });
+    const reused = await submit("baru-dua", { institutionName: "KOMUNITAS UJI BARU" });
+    expect(created.status, JSON.stringify(created.error)).toBe(200);
+    expect(reused.status, JSON.stringify(reused.error)).toBe(200);
+    const institutionId = (await findParticipant(created.data.participantCode)).institutionId!;
+    expect((await findParticipant(reused.data.participantCode)).institutionId).toBe(institutionId);
+    const [community] = await db.select().from(schema.institutions).where(eq(schema.institutions.id, institutionId));
+    expect(community).toMatchObject({ name: "Komunitas Uji Baru", institutionType: "COMMUNITY", verificationStatus: "UNVERIFIED" });
+    expect(await db.select().from(schema.institutions)).toHaveLength(2);
+
+    const [without] = await register(asatidz("tanpa-lembaga"));
+    expect((await findParticipant(without.participantCode)).institutionId).toBeNull();
+  });
+
+  it("asks the applicant to resolve ambiguous legacy names and does not revive inactive institutions", async () => {
+    await insertInstitution();
+    await insertInstitution({ code: "MAHAD-B", cityCode: "3509" });
+    await insertInstitution({ code: "MAHAD-C", name: "Komunitas Tutup", status: "INACTIVE" });
+    const ambiguous = await submit("nama-sama", { institutionName: "MA'HAD CAHAYA" });
+    expect(ambiguous.status).toBe(409);
+    expect(ambiguous.error.details.reason).toBe("REGISTRATION_INSTITUTION_AMBIGUOUS");
+    const inactive = await submit("nama-nonaktif", { institutionName: "Komunitas Tutup" });
+    expect(inactive.status).toBe(409);
+    expect(inactive.error.details.reason).toBe("REGISTRATION_INSTITUTION_UNAVAILABLE");
+    expect(await db.select().from(schema.institutions)).toHaveLength(3);
+    expect(await db.select().from(schema.eventParticipants)).toHaveLength(0);
+  });
+});
 
 describe("registration moderation: receipt → approval → confirmation → Gate QR", () => {
   const setRegularGroup = (allowed: boolean, user = adminEmail) => request(`/events/${eventId}`, {

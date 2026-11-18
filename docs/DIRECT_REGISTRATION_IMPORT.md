@@ -8,6 +8,14 @@
 - Preview CSV boleh berisi campuran baris valid dan invalid: panitia dapat mengonfirmasi untuk **hanya mengimpor baris valid**, sementara baris invalid/ambigu tetap dilewati dan dilaporkan untuk ditinjau secara terpisah. Status peserta lama pada event yang sama diperbarui melalui ID yang sama, sehingga catatan presensi tidak terputus atau dibuat ulang.
 - Navigasi `/admin/ustadz` menjaga pencarian dan filter ketika berpindah halaman. Mengubah pencarian/filter memulai kembali dari halaman pertama.
 
+## Saran lembaga pada formulir reguler
+
+Kolom **Lembaga/komunitas (opsional)** tersedia pada halaman event dan tautan daftar langsung. Ketik sedikitnya tiga huruf atau angka, lalu pilih nama dan wilayah yang sesuai dengan sentuhan atau tombol panah dan Enter. Jika saran kosong atau pencarian gagal, isi nama lengkap atau kosongkan kolom.
+
+Pencarian hanya mengembalikan ID, nama, dan wilayah dari lembaga aktif yang terverifikasi. Formulir mengirim `institutionId` jika peserta memilih saran, atau `institutionName` jika mengisi manual. API memeriksa kembali kelayakan pilihan saat menyimpan. Jika lembaga sudah tidak tersedia atau nama manual cocok dengan beberapa lembaga aktif, peserta dapat memperbaiki pilihan tanpa mengisi ulang data diri.
+
+Nama manual yang cocok dengan satu lembaga aktif memakai data yang sudah ada. Nama baru dibuat sebagai komunitas belum terverifikasi. Lembaga dan domisili peserta tetap dicatat di kolom terpisah. Pada pendaftaran rombongan, satu pilihan lembaga berlaku untuk seluruh peserta di formulir tersebut. Undangan lembaga memakai penerima yang ditetapkan panitia.
+
 ## Mengizinkan atau mematikan rombongan reguler
 
 Pada **Event → Pengaturan → Jadwal & jalur → Pendaftaran reguler**, ubah
