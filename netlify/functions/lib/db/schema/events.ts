@@ -46,6 +46,20 @@ export const events = pgTable(
   ]
 );
 
+export const eventRecordings = pgTable(
+  "event_recordings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    eventId: uuid("event_id").notNull().references(() => events.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    url: text("url").notNull(),
+    published: boolean("published").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (table) => [uniqueIndex("uniq_event_recordings_event_url").on(table.eventId, table.url)],
+);
+
 // 10. event_days
 export const eventDays = pgTable(
   "event_days",

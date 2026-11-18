@@ -1,6 +1,6 @@
 import React from "react";
 import { AppShell } from "../common/AppShell";
-import { User, QrCode, Calendar, Bell, Home, Mail, CheckCircle2, CalendarRange, HeartHandshake, MessageCircle, BookOpen, HandHeart, Lightbulb, MapPinned } from "lucide-react";
+import { User, QrCode, Calendar, Bell, Home, Mail, CheckCircle2, CalendarRange, HeartHandshake, MessageCircle, BookOpen, HandHeart, Lightbulb, MapPinned, PlaySquare } from "lucide-react";
 import { SidebarNavItem } from "../common/Sidebar";
 
 export const portalNavItems: SidebarNavItem[] = [
@@ -9,6 +9,7 @@ export const portalNavItems: SidebarNavItem[] = [
   { label: "QR Kehadiran", shortLabel: "QR", href: "/portal/qr", icon: <QrCode />, mobilePrimary: true },
   { label: "Jadwal Daurah", shortLabel: "Jadwal", href: "/portal/schedule", icon: <Calendar />, mobilePrimary: true },
   { label: "Riwayat Kehadiran", shortLabel: "Riwayat", href: "/portal/attendance", icon: <CheckCircle2 /> },
+  { label: "Rekaman Kajian", shortLabel: "Rekaman", href: "/portal/recordings", icon: <PlaySquare /> },
   { label: "Pengumuman", shortLabel: "Info", href: "/portal/announcements", icon: <Bell /> },
   { label: "Kegiatan Saya", shortLabel: "Kegiatan", href: "/portal/activities", icon: <CalendarRange /> },
   { label: "Profil Saya", shortLabel: "Profil", href: "/portal/profile", icon: <User /> },
