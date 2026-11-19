@@ -1,4 +1,5 @@
-import { COMMUNICATION_VARIABLES, renderCommunicationText, getUnresolvedCommunicationVariables } from "../../../../src/lib/communicationTemplates";
+import { COMMUNICATION_VARIABLES, findCommunicationVariables, renderCommunicationText, getUnresolvedCommunicationVariables } from "../../../../src/lib/communicationTemplates";
+import { materialPortalPath } from "../../../../src/lib/eventMaterial";
 import { renderBrandedTextEmailHtml } from "./emailHtmlTemplates";
 
 export interface CommunicationContent {
@@ -20,6 +21,7 @@ export interface CommunicationRecipient {
 }
 
 export interface CommunicationEvent {
+  id: string;
   name: string;
   startDate: string;
   endDate: string;
@@ -41,10 +43,12 @@ export function normalizeCommunicationEmail(email: string | null) {
 
 export function communicationVariables(event: CommunicationEvent, recipient?: CommunicationRecipient) {
   let portalLink = "";
+  let materialsLink = "";
   try {
     const origin = new URL(process.env.APP_URL || process.env.URL || "");
     if (origin.protocol === "https:" || (origin.protocol === "http:" && ["localhost", "127.0.0.1"].includes(origin.hostname))) {
       portalLink = new URL("/portal/announcements", origin).toString();
+      materialsLink = new URL(materialPortalPath(event.id), origin).toString();
     }
   } catch { /* Unconfigured URL is an unresolved variable, not a relative email link. */ }
   return {
@@ -52,6 +56,7 @@ export function communicationVariables(event: CommunicationEvent, recipient?: Co
     eventDates: event.startDate === event.endDate ? event.startDate : `${event.startDate} – ${event.endDate}`,
     eventVenue: [event.venueName, event.venueAddress].filter(Boolean).join(", "),
     portalLink,
+    materialsLink,
     ustadzName: recipient?.name || "",
     participantCode: recipient?.participantCode || "",
     institutionName: recipient?.institutionName || "",
@@ -64,7 +69,8 @@ export function renderFinalCommunication(content: CommunicationContent, variable
   const body = renderCommunicationText(bodyText, variables);
   const emailSubject = renderCommunicationText(content.emailSubject?.trim() || content.title, variables).replace(/[\r\n]+/g, " ");
   // Static layout title; all user and variable content is escaped by the branded renderer.
-  const emailHtml = renderBrandedTextEmailHtml(`${title}\n\n${body}`);
+  const materialsLink = findCommunicationVariables(bodyText).includes("materialsLink") ? variables.materialsLink : undefined;
+  const emailHtml = renderBrandedTextEmailHtml(`${title}\n\n${body}`, undefined, materialsLink, "Buka Materi & Rekaman");
   return { title, body, emailSubject, emailHtml };
 }
 

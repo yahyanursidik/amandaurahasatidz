@@ -116,7 +116,8 @@ function escapeHtml(text: string): string {
 }
 export function localCommunicationPreview(fields: CommunicationFields): CommunicationPreview {
   const variables = { eventName: "Daurah Asatidz (contoh)", eventDates: "15–17 Agustus 2026", eventVenue: "Aula Utama (contoh)",
-    portalLink: "https://example.org/portal", ustadzName: "Ustadz Ahmad (contoh)", participantCode: "CONTOH-001", institutionName: "Lembaga Contoh" };
+    portalLink: "https://example.org/portal", materialsLink: "https://example.org/portal/materials?event=00000000-0000-4000-8000-000000000001",
+    ustadzName: "Ustadz Ahmad (contoh)", participantCode: "CONTOH-001", institutionName: "Lembaga Contoh" };
   const title = renderCommunicationText(fields.title, variables);
   const body = renderCommunicationText(fields.body, variables);
   const emailSubject = renderCommunicationText(fields.emailSubject, variables);

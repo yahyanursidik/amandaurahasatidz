@@ -1,8 +1,9 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { buildCommunicationPreview, communicationVariables, renderFinalCommunication, type CommunicationRecipient } from "../../netlify/functions/lib/services/communicationRendering";
 import { createAnnouncementSchema, communicationTemplateSchema, publishAnnouncementSchema } from "../../netlify/functions/lib/validations/announcementValidation";
+import { BUILTIN_COMMUNICATION_TEMPLATES } from "../../src/lib/communicationTemplates";
 
-const event = { name: "Daurah & Ilmu", startDate: "2026-10-01", endDate: "2026-10-03", venueName: "Aula", venueAddress: "Kota" };
+const event = { id: "00000000-0000-4000-8000-000000000741", name: "Daurah & Ilmu", startDate: "2026-10-01", endDate: "2026-10-03", venueName: "Aula", venueAddress: "Kota" };
 const recipient = (name: string, email: string | null): CommunicationRecipient => ({
   participantId: name, institutionId: null, userId: null, name, email, participantCode: `P-${name}`, institutionName: "Sekolah",
 });
@@ -29,6 +30,16 @@ describe("event communication final rendering", () => {
     expect(final.emailHtml).not.toContain("<svg");
     expect(final.emailHtml).toContain("&lt;img");
     expect(final.emailSubject).toBe(final.title);
+  });
+
+  it("resolves the materials template to the event's authenticated portal link in text and email", () => {
+    vi.stubEnv("APP_URL", "https://portal.example.org");
+    const template = BUILTIN_COMMUNICATION_TEMPLATES.find((item) => item.id === "builtin-materials")!;
+    const preview = buildCommunicationPreview(template, event, [recipient("Ahmad", "ahmad@example.org")]);
+    const href = `https://portal.example.org/portal/materials?event=${event.id}`;
+    expect(preview.unresolvedVariables).toEqual([]);
+    expect(preview.body.split("\n")).toContain(href);
+    expect(preview.emailHtml).toContain(`href="${href}"`);
   });
 
   it("finds unknown/missing/malformed/editorial variables across ALL recipients, but drafts accept them", () => {

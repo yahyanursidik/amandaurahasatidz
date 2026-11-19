@@ -32,7 +32,7 @@ const recipient: CommunicationRecipient = { participantId: "participant", instit
   name: "Ahmad", email: "ahmad@example.invalid", participantCode: "TEST-01", institutionName: "Lembaga uji" };
 function preview() {
   return buildCommunicationPreview({ title: "Info {{ustadzName}}", body: "Kode {{participantCode}} & pesan", emailSubject: "Subjek {{ustadzName}}", sendEmailNotification: true },
-    { name: "Daurah", startDate: "2026-10-03", endDate: "2026-10-03", venueName: "Aula", venueAddress: null }, [recipient]);
+    { id: eventId, name: "Daurah", startDate: "2026-10-03", endDate: "2026-10-03", venueName: "Aula", venueAddress: null }, [recipient]);
 }
 beforeEach(() => {
   state.results = []; state.calls = [];

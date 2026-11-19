@@ -5,6 +5,7 @@ import { AuthIdentity } from "@/lib/refine/authProvider";
 import { LoadingState } from "./LoadingState";
 import { isCommitteeOrganizerOnly } from "@/lib/committeeOrganizerAccess";
 import { LOCATION_CHECKIN_PATH, locationCheckinHash, parseLocationCheckinHash } from "@/lib/locationCheckin";
+import { parseMaterialPortalPath } from "@/lib/eventMaterial";
 import { hasPortalAccess, PORTAL_LOGIN_PATHS, PORTAL_ROLES, type PortalCode } from "@/config/portalAccess";
 
 export type PortalAccess = PortalCode;
@@ -41,7 +42,8 @@ export const ProtectedRoute: React.FC<ProtectedRouteProps> = ({ children }) => {
   if (!data?.authenticated) {
     const loginPath = PORTAL_LOGIN_PATHS[portal];
     const scan = location.pathname === LOCATION_CHECKIN_PATH ? parseLocationCheckinHash(location.hash) : null;
-    return <Navigate to={loginPath} replace state={{ from: location.pathname + (scan ? locationCheckinHash(scan) : "") }} />;
+    const material = parseMaterialPortalPath(location.pathname + location.search);
+    return <Navigate to={loginPath} replace state={{ from: material ?? location.pathname + (scan ? locationCheckinHash(scan) : "") }} />;
   }
 
   const assignments = identity?.assignments || [];

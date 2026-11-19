@@ -26,6 +26,16 @@ Dataset `src/lib/indonesiaRegionData.ts` digunakan bersama frontend dan backend;
 
 Beranda `/portal` menampilkan salam dan doa hangat dengan nama profil. Menu Ruang Asatidz tetap mengarah ke `/portal/ruang-asatidz` beserta subhalamannya. Tautan **Halaman publik Ruang Asatidz** di sidebar dan header portal dihapus; halaman publik `/ruang-asatidz` tetap tersedia di navigasi publik.
 
+### Materi & Rekaman
+
+Admin mengelola materi dari **Event → Materi & Rekaman**. Pilih video atau PDF, kaitkan dengan sesi bila perlu, lalu isi tautan utama dan tautan alternatif. Pratinjau tersedia sebelum simpan. Admin dapat menyimpan draf, membagikan materi, atau menariknya kembali dengan menyimpan sebagai draf. Portal Asatidz mengelompokkan materi yang dibagikan berdasarkan event. Pintasan dari jadwal membuka filter event dan sesi. Status **Tandai selesai** tersimpan per akun peserta.
+
+Template pengumuman **Materi dan rekaman** menyisipkan tautan portal khusus event. Filter event dan sesi pada tautan langsung dipertahankan saat peserta masuk ke portal.
+
+Video mendukung YouTube dan Google Drive. PDF mendukung file Google Drive dan URL HTTPS `.pdf` tetap dari Amazon S3. Host S3 kompatibel atau CDN milik organisasi dapat didaftarkan melalui `MATERIAL_PDF_HOSTS` di sisi server, berupa hostname persis yang dipisahkan koma. File S3 harus bisa diakses lewat URL tersebut dan dikirim sebagai `application/pdf` atau `application/octet-stream`. Penampil dalam portal membaca PDF per halaman hingga 64 MiB. Untuk PDF di atas 512 KiB, penyimpanan harus mendukung permintaan HTTP Range. Tautan **Buka PDF** tetap tersedia untuk membuka dokumen langsung di penyedia. Akses ke tautan yang sudah dibagikan mengikuti izin penyedia file. Tautan S3 bertanda tangan kedaluwarsa sehingga formulir meminta URL tetap.
+
+Terapkan `drizzle/0018_event_recordings.sql` sebelum `drizzle/0019_event_materials.sql`. Migrasi kedua mempertahankan ID, tautan, dan status rekaman lama. Jalur halaman lama mengarah ke menu baru, dan API rekaman lama tetap mengembalikan video.
+
 ## Pengujian
 
 Jalankan `npm run typecheck`, `npm test -- --maxWorkers=2`, dan `npm run build`. Uji browser profil `node scripts/check-profile-browser.mjs` memakai Chromium/Edge/Chrome dan API fixture lokal; tidak mengakses database atau provider email.

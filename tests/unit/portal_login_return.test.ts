@@ -13,4 +13,16 @@ describe("portal login return path", () => {
       expect(portalLoginReturnPath("admin", from)).toBeNull();
     }
   });
+
+  it("preserves an event and session filter only for the Asatidz materials route", () => {
+    const event = "00000000-0000-4000-8000-000000000741";
+    const session = "00000000-0000-4000-8000-000000000761";
+    const scope = `/portal/materials?event=${event}`;
+    expect(portalLoginReturnPath("ustadz", scope)).toBe(scope);
+    expect(portalLoginReturnPath("ustadz", `${scope}&session=${session}`)).toBe(`${scope}&session=${session}`);
+    for (const path of [`${scope}&next=//example.org`, `${scope}&event=${event}`, `/portal/materials?event=invalid`, `${scope}#abc`]) {
+      expect(portalLoginReturnPath("ustadz", path)).toBeNull();
+    }
+    expect(portalLoginReturnPath("committee", scope)).toBeNull();
+  });
 });

@@ -37,7 +37,7 @@ import { manualParticipantSchema } from "./lib/validations/participantValidation
 import { handleRuangAsatidzRoute } from "./lib/routes/ruangAsatidzRoutes";
 import { handleUkhuwahRoute } from "./lib/routes/ukhuwahRoutes";
 import { handleUstadzNotesRoute } from "./lib/routes/ustadzNotesRoutes";
-import { handleEventRecordingRoute } from "./lib/routes/eventRecordingRoutes";
+import { handleEventMaterialRoute } from "./lib/routes/eventMaterialRoutes";
 
 import {
   createInstitutionSchema,
@@ -652,8 +652,8 @@ export const handler: Handler = async (event, _context) => {
     if (ukhuwahResponse) return ukhuwahResponse;
     const ytsNotesResponse = await handleUstadzNotesRoute(event, path, method, userSession, requestId);
     if (ytsNotesResponse) return ytsNotesResponse;
-    const recordingResponse = await handleEventRecordingRoute(event, path, method, userSession, requestId);
-    if (recordingResponse) return recordingResponse;
+    const materialResponse = await handleEventMaterialRoute(event, path, method, userSession, requestId);
+    if (materialResponse) return materialResponse;
 
     if (path === "/auth/session" && method === "GET") {
       requireAuth(userSession);
