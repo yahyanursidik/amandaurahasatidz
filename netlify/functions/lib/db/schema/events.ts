@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, timestamp, boolean, integer, date, jsonb, uniqueIndex, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, timestamp, boolean, integer, date, jsonb, uniqueIndex, index, primaryKey, type AnyPgColumn } from "drizzle-orm/pg-core";
+import type { MaterialKind } from "../../../../../src/lib/eventMaterial";
 import { users } from "./foundation";
 import { ustadzProfiles } from "./master_data";
 
@@ -54,11 +55,26 @@ export const eventRecordings = pgTable(
     title: text("title").notNull(),
     url: text("url").notNull(),
     published: boolean("published").notNull().default(false),
+    kind: text("kind").$type<MaterialKind>().notNull().default("VIDEO"),
+    alternateUrls: jsonb("alternate_urls").$type<string[]>().notNull().default([]),
+    sessionId: uuid("session_id").references((): AnyPgColumn => eventSessions.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (table) => [uniqueIndex("uniq_event_recordings_event_url").on(table.eventId, table.url)],
+  (table) => [
+    uniqueIndex("uniq_event_recordings_event_url").on(table.eventId, table.url),
+    index("idx_event_recordings_session").on(table.sessionId),
+  ],
 );
+
+export const eventMaterialProgress = pgTable("event_material_progress", {
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  recordingId: uuid("recording_id").notNull().references(() => eventRecordings.id, { onDelete: "cascade" }),
+  completedAt: timestamp("completed_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  primaryKey({ columns: [table.userId, table.recordingId] }),
+  index("idx_event_material_progress_recording").on(table.recordingId),
+]);
 
 // 10. event_days
 export const eventDays = pgTable(

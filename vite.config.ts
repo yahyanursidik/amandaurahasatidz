@@ -4,6 +4,7 @@
 import { defineConfig, loadEnv, type Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
+import { readdir, readFile } from "node:fs/promises";
 import type { IncomingMessage, ServerResponse } from "node:http";
 
 const readRequestBody = async (request: IncomingMessage) => {
@@ -22,12 +23,14 @@ const writeFunctionResponse = (
     headers?: Record<string, string>;
     multiValueHeaders?: Record<string, string[]>;
     body?: string;
+    isBase64Encoded?: boolean;
   },
 ) => {
   response.statusCode = functionResponse.statusCode;
   Object.entries(functionResponse.headers || {}).forEach(([name, value]) => response.setHeader(name, value));
   Object.entries(functionResponse.multiValueHeaders || {}).forEach(([name, value]) => response.setHeader(name, value));
-  response.end(functionResponse.body || "");
+  const body = functionResponse.body || "";
+  response.end(functionResponse.isBase64Encoded ? Buffer.from(body, "base64") : body);
 };
 
 const localNetlifyApi = (): Plugin => ({
@@ -90,6 +93,22 @@ const localNetlifyApi = (): Plugin => ({
   },
 });
 
+const pdfJsAssets = (): Plugin => ({
+  name: "event-material-pdf-assets",
+  apply: "build",
+  async buildStart() {
+    const distribution = new URL("./node_modules/pdfjs-dist/", import.meta.url);
+    for (const folder of ["cmaps", "standard_fonts", "iccs", "wasm"]) {
+      const directory = new URL(`${folder}/`, distribution);
+      const files = await readdir(directory);
+      await Promise.all(files.map(async (file) => {
+        this.emitFile({ type: "asset", fileName: `pdfjs/${folder}/${file}`, source: await readFile(new URL(file, directory)) });
+      }));
+    }
+    this.emitFile({ type: "asset", fileName: "pdfjs/LICENSE", source: await readFile(new URL("LICENSE", distribution)) });
+  },
+});
+
 // https://vitejs.dev/config/
 export default defineConfig(({ mode }) => {
   const runtimeEnvironment = loadEnv(mode, import.meta.dirname, "");
@@ -98,7 +117,7 @@ export default defineConfig(({ mode }) => {
   }
 
   return {
-    plugins: [react(), localNetlifyApi()],
+    plugins: [react(), localNetlifyApi(), pdfJsAssets()],
     cacheDir: ".vite-cache",
     resolve: {
       alias: {

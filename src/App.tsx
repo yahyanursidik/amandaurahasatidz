@@ -34,7 +34,7 @@ const UstadzManageGuard = lazy(() => import("./components/admin/ustadz/UstadzMan
 const EventListPage = lazy(() => import("./pages/admin/events/EventListPage").then((module) => ({ default: module.EventListPage })));
 const EventCreatePage = lazy(() => import("./pages/admin/events/EventCreatePage").then((module) => ({ default: module.EventCreatePage })));
 const EventEditPage = lazy(() => import("./pages/admin/events/EventEditPage").then((module) => ({ default: module.EventEditPage })));
-const EventRecordingsPage = lazy(() => import("./pages/admin/events/EventRecordingsPage").then((module) => ({ default: module.EventRecordingsPage })));
+const EventMaterialsPage = lazy(() => import("./pages/admin/events/EventMaterialsPage").then((module) => ({ default: module.EventMaterialsPage })));
 const EventShowPage = lazy(() => import("./pages/admin/events/EventShowPage").then((module) => ({ default: module.EventShowPage })));
 const EventRegistrationsPage = lazy(() => import("./pages/admin/events/EventRegistrationsPage").then((module) => ({ default: module.EventRegistrationsPage })));
 const EventParticipantWhatsAppPage = lazy(() => import("./pages/admin/events/EventParticipantWhatsAppPage").then((module) => ({ default: module.EventParticipantWhatsAppPage })));
@@ -52,7 +52,7 @@ const CommitteeOperationsPage = lazy(() => import("./pages/committee/CommitteeOp
 const CommitteeParticipantsPage = lazy(() => import("./pages/committee/CommitteeParticipantsPage").then((module) => ({ default: module.CommitteeParticipantsPage })));
 const CommitteeAssignmentsPage = lazy(() => import("./pages/committee/CommitteeAssignmentsPage").then((module) => ({ default: module.CommitteeAssignmentsPage })));
 const ParticipantPortalPage = lazy(() => import("./pages/portal/ParticipantPortalPage").then((module) => ({ default: module.ParticipantPortalPage })));
-const PortalRecordingsPage = lazy(() => import("./pages/portal/PortalRecordingsPage").then((module) => ({ default: module.PortalRecordingsPage })));
+const PortalMaterialsPage = lazy(() => import("./pages/portal/PortalMaterialsPage").then((module) => ({ default: module.PortalMaterialsPage })));
 const RuangAsatidzPage = lazy(() => import("./pages/portal/RuangAsatidzPage").then((module) => ({ default: module.RuangAsatidzPage })));
 const RuangAsatidzAdminPage = lazy(() => import("./pages/admin/RuangAsatidzAdminPage").then((module) => ({ default: module.RuangAsatidzAdminPage })));
 const EventPublicPage = lazy(() => import("./pages/public/EventPublicPage").then((module) => ({ default: module.EventPublicPage })));
@@ -162,7 +162,8 @@ export const App: React.FC = () => {
               </ProtectedRoute>
             }
           />
-          <Route path="/admin/events/:id/recordings" element={<ProtectedRoute><EventRecordingsPage /></ProtectedRoute>} />
+          <Route path="/admin/events/:id/materials" element={<ProtectedRoute><EventMaterialsPage /></ProtectedRoute>} />
+          <Route path="/admin/events/:id/recordings" element={<ProtectedRoute><EventMaterialsPage /></ProtectedRoute>} />
           <Route
             path="/admin/events/:id/registrations"
             element={
@@ -404,7 +405,8 @@ export const App: React.FC = () => {
           {/* Portal 3: Ustadz (Protected) */}
           <Route path="/admin/ruang-asatidz/*" element={<ProtectedRoute><RuangAsatidzAdminPage /></ProtectedRoute>} />
           <Route path="/portal/ruang-asatidz/*" element={<ProtectedRoute><RuangAsatidzPage /></ProtectedRoute>} />
-          <Route path="/portal/recordings" element={<ProtectedRoute><PortalRecordingsPage /></ProtectedRoute>} />
+          <Route path="/portal/materials" element={<ProtectedRoute><PortalMaterialsPage /></ProtectedRoute>} />
+          <Route path="/portal/recordings" element={<Navigate to="/portal/materials" replace />} />
           <Route
             path="/portal"
             element={

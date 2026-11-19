@@ -47,6 +47,8 @@ export const Header: React.FC<HeaderProps> = ({
             <p className="max-w-40 truncate text-[10px] text-emerald-300">{identity?.email || portalName}</p>
           </div>
           <button
+            type="button"
+            aria-label="Keluar"
             onClick={() => logout()}
             className="flex min-h-[44px] items-center space-x-1 whitespace-nowrap rounded-md border border-emerald-800 bg-emerald-900 px-3 py-1.5 text-xs text-emerald-200 transition hover:bg-emerald-800 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-300"
           >

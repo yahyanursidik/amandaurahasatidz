@@ -20,7 +20,7 @@ import {
   Loader2,
   RefreshCw,
   MapPin,
-  PlaySquare,
+  LibraryBig,
   QrCode,
   Save,
   ShieldCheck,
@@ -32,6 +32,7 @@ import { PortalLayout } from "@/components/layouts/PortalLayout";
 import { PageHeader } from "@/components/common/PageHeader";
 import { StatusBadge, StatusVariant } from "@/components/common/StatusBadge";
 import { eventApi } from "@/lib/eventApi";
+import { materialPortalPath, parseMaterialPortalPath } from "@/lib/eventMaterial";
 import { ProfileEditor, type PortalProfile } from "@/components/portal/ProfileEditor";
 import { PortalGreeting } from "@/components/portal/PortalGreeting";
 import { choosePortalParticipationId, readPortalParticipationSelection, savePortalParticipationSelection } from "@/lib/portalParticipation";
@@ -960,7 +961,7 @@ export const ParticipantPortalPage: React.FC = () => {
           <nav className="portal-home__quick-links" aria-label="Akses cepat peserta">
             <Link to="/portal/announcements"><Bell aria-hidden="true" /> Pengumuman{unreadAnnouncements > 0 ? ` · ${unreadAnnouncements} baru` : ""}</Link>
             <Link to="/portal/attendance"><CheckCircle2 aria-hidden="true" /> Riwayat hadir</Link>
-            <Link to="/portal/recordings"><PlaySquare aria-hidden="true" /> Rekaman kajian</Link>
+            <Link to={materialPortalPath(selectedParticipation.eventId)}><LibraryBig aria-hidden="true" /> Materi & Rekaman</Link>
             {canViewDelegation(selectedParticipation, portalTime) &&
               <Link to="/portal/invitations"><Crown aria-hidden="true" /> Rombongan</Link>}
             <Link to="/programs"><CalendarDays aria-hidden="true" /> Program lain</Link>
@@ -1202,6 +1203,12 @@ export const ParticipantPortalPage: React.FC = () => {
 
       {activeTab === "SCHEDULE" && selectedParticipation && (
         <section className="space-y-3">
+          {selectedParticipation.approvalStatus === "APPROVED" && (
+            <Link to={materialPortalPath(selectedParticipation.eventId)}
+              className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-emerald-800 px-3 text-sm font-bold text-emerald-900 hover:bg-emerald-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-800">
+              <LibraryBig className="h-4 w-4" aria-hidden="true" /> Materi event
+            </Link>
+          )}
           {selectedParticipation.sessions.length ? (
             selectedParticipation.sessions.map((session) => (
               <article
@@ -1221,10 +1228,14 @@ export const ParticipantPortalPage: React.FC = () => {
                     {formatTime(session.endAt)}
                   </p>
                 </div>
-                <StatusBadge
-                  label={session.checkinRequired ? "Wajib check-in" : "Tanpa check-in"}
-                  variant={session.checkinRequired ? "warning" : "neutral"}
-                />
+                <div className="flex flex-wrap items-center gap-2 sm:flex-col sm:items-end">
+                  <StatusBadge label={session.checkinRequired ? "Wajib check-in" : "Tanpa check-in"}
+                    variant={session.checkinRequired ? "warning" : "neutral"} />
+                  {selectedParticipation.approvalStatus === "APPROVED" && <Link
+                    to={materialPortalPath(selectedParticipation.eventId, session.id)}
+                    aria-label={`Materi sesi ${session.title}`}
+                    className="inline-flex min-h-11 items-center rounded px-2 text-sm font-bold text-emerald-800 underline underline-offset-4 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-800">Materi sesi</Link>}
+                </div>
               </article>
             ))
           ) : (
@@ -1350,8 +1361,15 @@ export const ParticipantPortalPage: React.FC = () => {
                     </button>
                   )}
                 </div>
-                <p className="mt-5 max-w-3xl whitespace-pre-line text-sm leading-7 text-slate-700">
-                  {announcement.body}
+                <p className="mt-5 max-w-3xl whitespace-pre-line text-sm leading-7 text-slate-700 [overflow-wrap:anywhere]">
+                  {announcement.body.split(/(\r?\n)/).map((part, index) => {
+                    const origin = window.location.origin;
+                    const line = part.trim();
+                    const destination = line.startsWith(origin) ? parseMaterialPortalPath(line.slice(origin.length)) : null;
+                    return destination ? <Link key={index} to={destination}
+                      className="inline-flex min-h-11 items-center gap-2 rounded-lg border border-emerald-800 px-3 font-bold text-emerald-900 hover:bg-emerald-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-800">
+                      <LibraryBig className="h-4 w-4" aria-hidden="true" /> Materi & Rekaman</Link> : part;
+                  })}
                 </p>
               </article>
             ))

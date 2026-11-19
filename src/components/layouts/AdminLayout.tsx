@@ -19,7 +19,7 @@ import {
   Mail,
   Megaphone,
   PencilLine,
-  PlaySquare,
+  LibraryBig,
   Plus,
   ShieldCheck,
   UserRoundCog,
@@ -84,7 +84,7 @@ export const getAdminNavItems = (pathname: string, canManageUstadz = true, canMe
               { label: "Tim pelaksana", href: `${eventBase}/team`, icon: <UsersRound />, exact: true, keywords: ["panitia", "penugasan"] },
               { label: "Absensi harian", href: `${eventBase}/attendance`, icon: <ListChecks />, exact: true, keywords: ["kehadiran", "check in", "qr"] },
               { label: "Komunikasi", href: `${eventBase}/communications`, icon: <Mail />, exact: true, keywords: ["wa", "email", "pengumuman"] },
-              { label: "Rekaman", href: `${eventBase}/recordings`, icon: <PlaySquare />, exact: true, keywords: ["kajian", "video", "youtube", "drive"] },
+              { label: "Materi & Rekaman", href: `${eventBase}/materials`, icon: <LibraryBig />, exact: true, keywords: ["kajian", "pdf", "video", "youtube", "drive", "s3"] },
               { label: "Laporan event", href: `${eventBase}/reports`, icon: <BarChart3 />, exact: true, keywords: ["rekap", "ekspor", "raport"] },
               { label: "Ubah event", href: `${eventBase}/edit`, icon: <PencilLine />, exact: true, keywords: ["edit", "poster", "pengaturan"] },
             ] satisfies SidebarNavItem[]

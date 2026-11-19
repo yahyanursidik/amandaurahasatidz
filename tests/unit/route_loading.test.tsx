@@ -84,7 +84,7 @@ describe("lazy route loading", () => {
     ["/gate/event-a", "CheckInPublicPage", "SUPER_ADMIN"],
     ["/invitation/institution/slug/token", "InvitationRegistrationPage", "SUPER_ADMIN"],
     ["/admin/events/event-a/reports", "EventOperationsPage", "SUPER_ADMIN"],
-    ["/admin/events/event-a/recordings", "EventRecordingsPage", "EVENT_ADMIN"],
+    ["/admin/events/event-a/materials", "EventMaterialsPage", "EVENT_ADMIN"],
     ["/admin/events/event-a/registrations/whatsapp", "EventParticipantWhatsAppPage", "EVENT_ADMIN"],
     ["/admin/events/event-a/kiosk", "EventKioskPage", "SUPER_ADMIN"],
     ["/admin/panduan", "AdminGuidePage", "SUPER_ADMIN"],
@@ -95,7 +95,7 @@ describe("lazy route loading", () => {
     ["/portal/ruang-asatidz/saran", "RuangAsatidzPage", "USTADZ"],
     ["/admin/ruang-asatidz/moderasi", "RuangAsatidzAdminPage", "SUPER_ADMIN"],
     ["/portal/schedule", "ParticipantPortalPage", "USTADZ"],
-    ["/portal/recordings", "PortalRecordingsPage", "USTADZ"],
+    ["/portal/materials", "PortalMaterialsPage", "USTADZ"],
     ["/not-a-route", "NotFoundPage", "SUPER_ADMIN"],
   ])("loads only the matched page at %s", async (path, page, role) => {
     session.path = path;

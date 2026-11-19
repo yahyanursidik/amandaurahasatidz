@@ -25,7 +25,7 @@ const youtubeId = /^[A-Za-z0-9_-]{11}$/;
 const driveId = /^[A-Za-z0-9_-]{10,128}$/;
 const driveResourceKey = /^[A-Za-z0-9_-]{1,200}$/;
 
-export function parseRecordingSource(value: string): RecordingSource | null {
+export function parseMediaUrl(value: string): URL | null {
   const trimmed = value.trim();
   if (trimmed.length > RECORDING_URL_MAX) return null;
   let url: URL;
@@ -35,6 +35,12 @@ export function parseRecordingSource(value: string): RecordingSource | null {
     return null;
   }
   if (url.protocol !== "https:" || url.port || url.username || url.password) return null;
+  return url;
+}
+
+export function parseRecordingSource(value: string): RecordingSource | null {
+  const url = parseMediaUrl(value);
+  if (!url) return null;
 
   if (url.hostname === "youtu.be" || youtubeHosts.has(url.hostname)) {
     const id = url.hostname === "youtu.be" ? url.pathname.match(/^\/([\w-]+)\/?$/)?.[1]
