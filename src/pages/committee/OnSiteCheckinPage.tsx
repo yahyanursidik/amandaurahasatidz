@@ -13,10 +13,12 @@ import type { AttendanceRehearsal } from "@/lib/attendanceRehearsal";
 type CheckinLog = {
   id: string; result: "SUCCESS" | "FAILED" | "DUPLICATE"; method: string; failureReason?: string | null;
   createdAt: string; participantCode?: string | null; ustadzName?: string | null;
-  metadata?: { kioskDeviceId?: string; attendanceUnitId?: string } | null;
+  metadata?: { kioskDeviceId?: string; attendanceUnitId?: string; confirmationOverride?: boolean } | null;
 };
-type Candidate = { id: string; participantCode: string; ustadzName: string; institutionName?: string | null; blockReason?: string | null };
-type CheckinResult = { attendanceStatus: string; participant: { participantCode: string; ustadzName: string }; attendanceUnit: CheckinUnit };
+type Candidate = { id: string; participantCode: string; ustadzName: string; institutionName?: string | null;
+  blockReason?: string | null; manualWithoutConfirmation?: boolean };
+type CheckinResult = { attendanceStatus: string; participant: { participantCode: string; ustadzName: string };
+  attendanceUnit: CheckinUnit; confirmationOverride?: boolean };
 
 export const OnSiteCheckinPage: React.FC = () => {
   const [params, setParams] = useSearchParams();
@@ -40,6 +42,7 @@ export const OnSiteCheckinPage: React.FC = () => {
   const [logsError, setLogsError] = useState("");
   const searchRequest = useRef<AbortController>();
   const recordRequest = useRef<AbortController>();
+  const markButton = useRef<HTMLButtonElement>(null);
   const requestedEventId = params.get("eventId");
   const event = requestedEventId ? events.find((item) => item.eventId === requestedEventId) : events[0];
   const eventId = event?.eventId;
@@ -115,7 +118,7 @@ export const OnSiteCheckinPage: React.FC = () => {
         body: JSON.stringify({ ...attendanceUnitSelection(unit), qrTokenOrCode: input.trim(),
           method: candidate ? "SEARCH_SELECT" : input.trim().startsWith("pqr_") ? "QR_SCAN" : "MANUAL_CODE" }) });
       if (controller.signal.aborted) return;
-      setNotice(`${attendanceLabels[saved.attendanceStatus] || "Kehadiran"} · ${saved.participant.ustadzName} · ${saved.attendanceUnit.title}`);
+      setNotice(`${attendanceLabels[saved.attendanceStatus] || "Kehadiran"} · ${saved.participant.ustadzName} · ${saved.attendanceUnit.title}${saved.confirmationOverride ? " · Manual tanpa konfirmasi" : ""}`);
       setInput(""); setCandidate(null);
       await committeeApi<CheckinLog[]>(`/events/${eventId}/checkin/logs?limit=12`, { signal: controller.signal })
         .then((value) => { if (!controller.signal.aborted) { setLogs(value); setLogsError(""); } })
@@ -165,6 +168,10 @@ export const OnSiteCheckinPage: React.FC = () => {
       <div className="grid min-w-0 content-start gap-5">
         <section className="attendance-panel" aria-labelledby="staff-checkin-title">
           <h2 id="staff-checkin-title">{rehearsal ? "Uji QR dan perangkat" : "Catat kehadiran"}</h2>
+          {schedule?.manualWithoutConfirmation && <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge label="Manual tanpa konfirmasi aktif" variant="warning" />
+            <p>Pakai kode atau pencarian peserta.</p>
+          </div>}
           {!rehearsal && unit && !unit.isOpen && <p>Absensi resmi di luar jadwal. Gunakan Uji scanner untuk mencoba perangkat sekarang tanpa mencatat hadir.</p>}
           {rehearsal && <AttendanceRehearsalPanel key={`${eventId}:${unitId}`} disabled={!eventId || !unit || busy}
             issue={(signal) => committeeApi<AttendanceRehearsal>(`/events/${eventId}/checkin/rehearsal/qr`, { method: "POST", signal, body: JSON.stringify(unit ? attendanceUnitSelection(unit) : {}) })}
@@ -174,7 +181,7 @@ export const OnSiteCheckinPage: React.FC = () => {
               <input value={input} type={/^(pqr|rqr)_/.test(input) ? "password" : "text"} disabled={busy || !scanAllowed} maxLength={512}
                 onChange={(change) => { setInput(change.target.value); setCandidate(null); }} autoComplete="off" spellCheck={false} />
             </label>
-            <div className="attendance-actions"><button type="submit" className="attendance-control" data-primary disabled={busy || !scanAllowed || !input.trim()}>
+            <div className="attendance-actions"><button ref={markButton} type="submit" className="attendance-control" data-primary disabled={busy || !scanAllowed || !input.trim()}>
               <ScanLine size={17} aria-hidden="true" /> {busy ? rehearsal ? "Memeriksa…" : "Mencatat…" : rehearsal ? "Uji QR" : "Catat hadir"}</button>
               <button type="button" className="attendance-control" disabled={busy || !scanAllowed}
                 onClick={() => camera.cameraState === "idle" ? void camera.startCamera() : camera.stopCamera()}>
@@ -195,10 +202,16 @@ export const OnSiteCheckinPage: React.FC = () => {
           {candidates && <div aria-live="polite">{candidates.length ? <ul className="grid gap-3">
             {candidates.map((person) => <li key={person.id} className="grid min-w-0 gap-2 border-t border-[var(--color-event-rule)] pt-3">
               <strong className="break-words">{person.ustadzName}</strong><p>{person.participantCode}{person.institutionName && ` · ${person.institutionName}`}</p>
+              {person.manualWithoutConfirmation && <div><StatusBadge label="Belum konfirmasi · bisa dicatat manual" variant="warning" /></div>}
               {person.blockReason && <p>Belum dapat dicatat: {person.blockReason}</p>}
               <div className="attendance-actions">
                 <button type="button" className="attendance-control" disabled={!scanAllowed || busy || !rehearsal && Boolean(person.blockReason)}
-                  onClick={() => { setCandidate(person); setInput(person.participantCode); setError(""); setTestResult(null); setNotice(`${person.ustadzName} dipilih. ${rehearsal ? "Tekan Uji QR untuk memeriksa tanpa mencatat hadir." : "Tekan Catat hadir untuk menyimpan."}`); }}>Pilih peserta</button>
+                  onClick={() => {
+                    camera.stopCamera();
+                    setCandidate(person); setInput(person.participantCode); setError(""); setTestResult(null);
+                    setNotice(`${person.ustadzName} dipilih. ${rehearsal ? "Tekan Uji QR untuk memeriksa tanpa mencatat hadir." : "Tekan Catat hadir untuk menyimpan."}`);
+                    requestAnimationFrame(() => markButton.current?.focus());
+                  }}>Pilih peserta</button>
                 <Link className="attendance-control" to={`/committee/attendance/${eventId}/${person.id}/report`}>Buka rapor</Link>
               </div>
             </li>)}
@@ -211,7 +224,7 @@ export const OnSiteCheckinPage: React.FC = () => {
         {logsError && <div className="attendance-feedback" data-tone="error" role="alert">{logsError}</div>}
         {logs.length ? <ol className="grid gap-3">{logs.map((log) => <li key={log.id} className="grid min-w-0 gap-1 border-t border-[var(--color-event-rule)] pt-3">
           <strong className="break-words">{log.ustadzName || log.participantCode || "Percobaan check-in"}</strong>
-          <p>{checkinMethodLabels[log.method] || log.method}{log.metadata?.kioskDeviceId && " · Kiosk"} · {formatEventDateTime(log.createdAt, timezone)} {eventTimezoneLabel(timezone)}</p>
+          <p>{checkinMethodLabels[log.method] || log.method}{log.metadata?.kioskDeviceId && " · Kiosk"}{log.metadata?.confirmationOverride && " · Tanpa konfirmasi"} · {formatEventDateTime(log.createdAt, timezone)} {eventTimezoneLabel(timezone)}</p>
           <div><StatusBadge label={log.result === "SUCCESS" ? "Tercatat" : log.result === "DUPLICATE" ? "Sudah tercatat" : "Gagal"}
             variant={log.result === "SUCCESS" ? "success" : log.result === "DUPLICATE" ? "warning" : "danger"} /></div>
           {log.failureReason && <p className="break-words">{log.failureReason}</p>}

@@ -51,6 +51,8 @@ type AttendanceRecap = {
     requiredUnits?: number;
     completionPercentage?: number;
     eligible?: boolean;
+    awaitingConfirmation?: boolean;
+    manualWithoutConfirmation?: boolean;
     statusCategory: string;
     unitStatuses?: Array<{ unitId: string; status: string }>;
   }>;
@@ -92,7 +94,7 @@ export const CommitteeOperationsPage: React.FC<{
   const [error, setError] = useState("");
   const [preview, setPreview] = useState(false);
   const [search, setSearch] = useState("");
-  const [attendanceFilter, setAttendanceFilter] = useState<"ALL" | "HADIR" | "TIDAK_HADIR" | "RIWAYAT">("ALL");
+  const [attendanceFilter, setAttendanceFilter] = useState<"ALL" | "HADIR" | "TIDAK_HADIR" | "RIWAYAT" | "UNCONFIRMED">("ALL");
   const activeAssignment = assignments.find((item) => item.eventId === eventId);
   const loadContext = useCallback(async () => {
     setLoading(true);
@@ -165,8 +167,10 @@ export const CommitteeOperationsPage: React.FC<{
         participant.participantCode.toLowerCase().includes(needle) ||
         (participant.institutionName || "").toLowerCase().includes(needle);
       const isAttended = (participant.totalUnitsAttended ?? participant.totalSessionsAttended) > 0;
-      const matchesStatus = attendanceFilter === "ALL" || (attendanceFilter === "RIWAYAT" ? participant.eligible === false
-        : participant.eligible !== false && (attendanceFilter === "HADIR" ? isAttended : !isAttended));
+      const matchesStatus = attendanceFilter === "ALL" ||
+        (attendanceFilter === "UNCONFIRMED" && participant.awaitingConfirmation) ||
+        (attendanceFilter === "RIWAYAT" && participant.eligible === false && !participant.manualWithoutConfirmation) ||
+        (participant.eligible !== false && (attendanceFilter === "HADIR" && isAttended || attendanceFilter === "TIDAK_HADIR" && !isAttended));
       return matchesSearch && matchesStatus;
     });
   }, [attendanceFilter, recap, search, eventId]);
@@ -358,7 +362,7 @@ export const CommitteeOperationsPage: React.FC<{
                   value={attendanceFilter}
                   onChange={(event) =>
                     setAttendanceFilter(
-                      event.target.value as "ALL" | "HADIR" | "TIDAK_HADIR" | "RIWAYAT",
+                      event.target.value as typeof attendanceFilter,
                     )
                   }
                   className="mt-2 min-h-[44px] w-full rounded-lg border border-slate-300 bg-white px-3 text-sm font-bold outline outline-2 outline-transparent focus-visible:outline-teal-700"
@@ -366,6 +370,7 @@ export const CommitteeOperationsPage: React.FC<{
                   <option value="ALL">Semua status</option>
                   <option value="HADIR">Sudah hadir</option>
                   <option value="TIDAK_HADIR">Belum hadir</option>
+                  <option value="UNCONFIRMED">Belum konfirmasi</option>
                   <option value="RIWAYAT">Riwayat di luar daftar wajib</option>
                 </select>
               </div>
@@ -392,14 +397,15 @@ export const CommitteeOperationsPage: React.FC<{
                     </p>
                   </div>
                   <p className="text-sm font-bold text-slate-700">
-                    {participant.eligible === false ? `${participant.totalUnitsAttended ?? participant.totalSessionsAttended} unit historis`
+                    {participant.manualWithoutConfirmation && participant.eligible === false ? "—"
+                      : participant.eligible === false ? `${participant.totalUnitsAttended ?? participant.totalSessionsAttended} unit historis`
                       : `${participant.totalUnitsAttended ?? participant.totalSessionsAttended}/${participant.requiredUnits ?? "—"} unit`}
                   </p>
                   <StatusBadge
-                    label={attendanceLabels[participant.statusCategory] || participant.statusCategory}
+                    label={participant.manualWithoutConfirmation && participant.eligible === false ? "Belum konfirmasi" : attendanceLabels[participant.statusCategory] || participant.statusCategory}
                     variant={participant.statusCategory === "HADIR_PENUH" ? "success" : participant.statusCategory === "TIDAK_HADIR" ? "danger" : participant.statusCategory === "BELUM_DIMULAI" ? "neutral" : "warning"}
                   />
-                  <Link to={`/committee/attendance/${eventId}/${participant.participantId}/report`} className="inline-flex min-h-[40px] items-center justify-center whitespace-nowrap rounded-lg border border-teal-300 bg-teal-50 px-3 text-xs font-black text-teal-900 hover:bg-teal-100">Rapor</Link>
+                  <Link to={`/committee/attendance/${eventId}/${participant.participantId}/report`} className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-lg border border-teal-300 bg-teal-50 px-3 text-xs font-black text-teal-900 hover:bg-teal-100">Rapor</Link>
                 </article>
               ))}
               {!filteredParticipants.length && (

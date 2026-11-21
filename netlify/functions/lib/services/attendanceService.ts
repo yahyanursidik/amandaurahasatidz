@@ -6,14 +6,15 @@ import {
   attendanceRosterCondition,
   DuplicateAttendanceError,
 } from "../repositories/attendanceRepository";
+import { readManualAttendancePolicy } from "../repositories/eventAttendancePolicyRepository";
 import { verifyQrTokenForCheckinService } from "./participantQrService";
 import { AppError, NotFoundError, ValidationError } from "../utils/errors";
 import { logError } from "../utils/logger";
 import {
-  ATTENDED_STATUSES, EXCUSED_STATUSES, CHECKIN_EVENT_STATUSES, buildRequiredAttendanceUnits, toCheckinUnit,
+  ATTENDED_STATUSES, EXCUSED_STATUSES, CHECKIN_EVENT_STATUSES, STAFF_MANUAL_ATTENDANCE_METHODS, buildRequiredAttendanceUnits, toCheckinUnit,
   type AttendanceMode, type AttendanceUnitSelection,
 } from "./attendanceModel";
-import { participantCheckinBlockReason } from "./deadlineService";
+import { awaitsManualAttendanceConfirmation, participantCheckinBlockReason } from "./deadlineService";
 import { getDbClient } from "../db/client";
 import { attendanceRecords, eventParticipants, events, institutions, ustadzProfiles } from "../db/schema";
 import { and, asc, eq, ilike, or, sql } from "drizzle-orm";
@@ -26,7 +27,7 @@ export async function searchEventCheckinParticipantsService(eventId: string, que
     id: eventParticipants.id, participantCode: eventParticipants.participantCode,
     ustadzName: ustadzProfiles.fullName, institutionName: institutions.name,
     approvalStatus: eventParticipants.approvalStatus,
-    confirmationStatus: eventParticipants.confirmationStatus,
+    confirmationStatus: eventParticipants.confirmationStatus, cancelledAt: eventParticipants.cancelledAt,
     attendanceConfirmationRequired: events.attendanceConfirmationRequired,
   }).from(eventParticipants).innerJoin(ustadzProfiles, eq(eventParticipants.ustadzId, ustadzProfiles.id))
     .innerJoin(events, eq(eventParticipants.eventId, events.id))
@@ -35,9 +36,14 @@ export async function searchEventCheckinParticipantsService(eventId: string, que
       ilike(ustadzProfiles.fullName, pattern), ilike(eventParticipants.participantCode, pattern), ilike(institutions.name, pattern),
     )))
     .orderBy(asc(ustadzProfiles.fullName), asc(eventParticipants.id)).limit(12);
-  return matches.map(({ attendanceConfirmationRequired, ...participant }) => ({
-    ...participant, blockReason: participantCheckinBlockReason(participant, { attendanceConfirmationRequired }),
-  }));
+  const check = (participant: (typeof matches)[number]) => awaitsManualAttendanceConfirmation(participant, participant);
+  const policy = matches.some(check) ? await readManualAttendancePolicy(eventId, db) : null;
+  return matches.map(({ attendanceConfirmationRequired, cancelledAt, ...participant }) => {
+    const manualWithoutConfirmation = Boolean(policy?.allowUnconfirmedManual &&
+      awaitsManualAttendanceConfirmation({ ...participant, cancelledAt }, { attendanceConfirmationRequired }));
+    return { ...participant, manualWithoutConfirmation, blockReason: manualWithoutConfirmation ? null
+      : participantCheckinBlockReason({ ...participant, cancelledAt }, { attendanceConfirmationRequired }) };
+  });
 }
 
 export async function getAttendanceCheckinUnitsService(eventId: string, now = new Date()) {
@@ -69,16 +75,18 @@ export async function getGateAttendanceSummaryService(eventId: string, unitId: s
   const unitCondition = unit.sessionId
     ? sql`ar.event_session_id = ${unit.sessionId}`
     : sql`ar.event_day_id = ${unit.dayId} and ar.event_session_id is null`;
-  const hasStatus = (statuses: string[]) => sql`exists (
+  const hasStatus = (statuses: string[], methods?: string[]) => sql`exists (
     select 1 from ${attendanceRecords} ar where ar.event_id = ${eventId}
       and ar.participant_id = ${eventParticipants.id} and ar.attendance_status in (${sql.join(statuses.map((status) => sql`${status}`), sql`, `)})
       and ${unitCondition}
+      ${methods ? sql`and ar.checkin_method in (${sql.join(methods.map((method) => sql`${method}`), sql`, `)})` : sql.empty()}
   )`;
   const [counts] = await getDbClient().select({
     total: sql<number>`count(*)::int`,
     present: sql<number>`count(*) filter (where ${hasStatus(ATTENDED_STATUSES)})::int`,
     excused: sql<number>`count(*) filter (where ${hasStatus(EXCUSED_STATUSES)})::int`,
-  }).from(eventParticipants).where(attendanceRosterCondition(eventId, schedule.confirmationRequired));
+  }).from(eventParticipants).where(attendanceRosterCondition(eventId, schedule.confirmationRequired,
+    hasStatus([...ATTENDED_STATUSES, ...EXCUSED_STATUSES, "ABSENT"], STAFF_MANUAL_ATTENDANCE_METHODS)));
   const total = counts?.total || 0;
   const present = counts?.present || 0;
   const excused = counts?.excused || 0;
@@ -86,7 +94,7 @@ export async function getGateAttendanceSummaryService(eventId: string, unitId: s
 }
 
 export async function getActiveSessionService(eventId: string) {
-  const schedule = await getAttendanceCheckinUnitsService(eventId);
+  const [schedule, policy] = await Promise.all([getAttendanceCheckinUnitsService(eventId), readManualAttendancePolicy(eventId)]);
   const active =
     schedule.openUnits.find((unit) => unit.type === "SESSION") ||
     schedule.openUnits[0] ||
@@ -97,6 +105,7 @@ export async function getActiveSessionService(eventId: string) {
     attendanceMode: schedule.attendanceMode,
     timezone: schedule.timezone,
     eventAllowsCheckin: schedule.eventAllowsCheckin,
+    manualWithoutConfirmation: schedule.confirmationRequired && policy.allowUnconfirmedManual,
     manualUnitCount: schedule.manualUnitCount,
     units: schedule.units,
     checkinWindow: active ? { isOpen: active.isOpen, openAt: active.openAt, closeAt: active.closeAt } : null,
@@ -115,7 +124,7 @@ export async function processOnSiteCheckinService(
   const actualMethod = qrTokenOrCode.trim().startsWith("pqr_") ? "QR_SCAN" : method === "SEARCH_SELECT" ? "SEARCH_SELECT" : "MANUAL_CODE";
   let participant: Awaited<ReturnType<typeof verifyQrTokenForCheckinService>>["participant"] | undefined;
   try {
-    const verified = await verifyQrTokenForCheckinService(eventId, qrTokenOrCode, actorUserId, requestId);
+    const verified = await verifyQrTokenForCheckinService(eventId, qrTokenOrCode, { staffManual: Boolean(actorUserId && !sourceDevice) });
     participant = verified.participant;
     const record = await recordCheckinTransactionRepository({
       eventId,
@@ -132,6 +141,7 @@ export async function processOnSiteCheckinService(
       status: "SUCCESS",
       checkinAt: record.checkinAt,
       attendanceStatus: record.attendanceStatus,
+      confirmationOverride: record.confirmationOverride,
       participant: {
         id: participant.id,
         participantCode: participant.participantCode,

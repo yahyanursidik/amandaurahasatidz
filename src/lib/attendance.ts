@@ -16,6 +16,14 @@ export type CheckinSchedule = {
   units: CheckinUnit[];
   manualUnitCount: number;
   eventAllowsCheckin: boolean;
+  manualWithoutConfirmation?: boolean;
+};
+
+export type ManualAttendancePolicy = {
+  available: boolean;
+  editable: boolean;
+  confirmationRequired: boolean;
+  allowUnconfirmedManual: boolean;
 };
 
 export const attendanceUnitSelection = (unit: CheckinUnit) => unit.type === "DAY" ? { dayId: unit.dayId } : { sessionId: unit.sessionId };
@@ -32,6 +40,7 @@ export const attendanceLabels: Record<string, string> = {
   TIDAK_HADIR: "Tidak hadir", BELUM_DIMULAI: "Belum tercatat", BELUM_DIATUR: "Belum diatur", TIDAK_WAJIB: "Di luar daftar presensi",
   PRESENT: "Hadir", LATE: "Terlambat", EXCUSED: "Izin", PERMITTED: "Diizinkan", ABSENT: "Tidak hadir",
   NOT_RECORDED: "Belum tercatat", NOT_REQUIRED: "Tidak wajib",
+  TERCATAT_MANUAL: "Tercatat manual",
 };
 
 export const checkinMethodLabels: Record<string, string> = {

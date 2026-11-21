@@ -1,15 +1,21 @@
 import React, { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
+import { useGetIdentity } from "@refinedev/core";
 import { AdminLayout } from "@/components/layouts/AdminLayout";
 import { PageHeader } from "@/components/common/PageHeader";
 import { EventForm, EventFormValues } from "@/components/admin/events/EventForm";
 import { EventWorkspaceNav } from "@/components/admin/events/EventWorkspaceNav";
+import { ManualAttendancePolicyPanel } from "@/components/admin/events/ManualAttendancePolicyPanel";
 import { eventApi } from "@/lib/eventApi";
 import { fromEventIso, toEventIso } from "@/lib/eventDateTime";
+import { participantStaffPermissions } from "@/lib/participantManagement";
+import type { AuthIdentity } from "@/lib/refine/authProvider";
 
 export const EventEditPage: React.FC = () => {
   const navigate = useNavigate();
   const { id = "" } = useParams<{ id: string }>();
+  const { data: identity } = useGetIdentity<AuthIdentity>();
+  const canManageAttendancePolicy = participantStaffPermissions(identity?.assignments, id).includes("events.update");
   const previewMode = import.meta.env.DEV && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);
   const [values, setValues] = useState<EventFormValues | null>(null);
   const [scheduleLocks, setScheduleLocks] = useState({ mode: false, timezone: false });
@@ -137,6 +143,7 @@ export const EventEditPage: React.FC = () => {
       <EventWorkspaceNav eventId={id} />
       {previewMode && <div role="status" className="mb-5 border-t-2 border-amber-500 bg-amber-50 p-3 text-xs text-amber-950">Mode pratinjau: formulir dapat dicoba, tetapi perubahan tidak disimpan.</div>}
       {error && <div id="event-submit-error" tabIndex={-1} role="alert" className="mb-5 border border-rose-300 bg-rose-50 p-4 text-sm font-semibold text-rose-900 focus-visible:outline focus-visible:outline-2 focus-visible:outline-rose-700">{error}</div>}
+      {values && !previewMode && <ManualAttendancePolicyPanel key={`attendance-policy-${id}`} eventId={id} canManage={canManageAttendancePolicy} />}
       {values ? <EventForm key={id} initialValues={values} lockIdentity lockAttendance={scheduleLocks.mode} lockTimezone={scheduleLocks.timezone} submitLabel="Simpan perubahan" submitting={submitting} onCancel={() => navigate(`/admin/events/${id}`)} onSubmit={submit} /> : !error && <div className="h-96 animate-pulse bg-slate-100" />}
     </AdminLayout>
   );

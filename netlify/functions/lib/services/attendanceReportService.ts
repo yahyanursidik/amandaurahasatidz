@@ -4,14 +4,16 @@ import { attendanceRecords, auditLogs, eventParticipants, ustadzProfiles, instit
 import { eq, and, or, exists, desc } from "drizzle-orm";
 import { NotFoundError, ValidationError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
-import { participantCheckinBlockReason } from "./deadlineService";
+import { awaitsManualAttendanceConfirmation, participantCheckinBlockReason } from "./deadlineService";
+import { readManualAttendancePolicy } from "../repositories/eventAttendancePolicyRepository";
 import {
   attendanceRosterCondition,
+  awaitingAttendanceConfirmationCondition,
   findAttendanceScheduleForEventRepository,
   recordAttendanceTransactionRepository,
 } from "../repositories/attendanceRepository";
 import {
-  ATTENDED_STATUSES, CHECKIN_EVENT_STATUSES, EXCUSED_STATUSES,
+  ATTENDED_STATUSES, CHECKIN_EVENT_STATUSES, EXCUSED_STATUSES, STAFF_MANUAL_ATTENDANCE_METHODS,
   type AttendanceMode, type AttendanceRecordLike, type AttendanceUnit,
   buildRequiredAttendanceUnits,
   summarizeParticipantAttendance,
@@ -43,6 +45,7 @@ export async function manualMarkAttendanceService(
       resourceId: inserted.id,
       eventId,
       reason: input.notes || `Penandaan presensi manual (${input.attendanceStatus}).`,
+      ...(inserted.confirmationOverride && { afterData: { confirmationOverride: true, confirmationStatus: "INVITED" } }),
       requestId,
     });
   }
@@ -100,6 +103,7 @@ const recapParticipantColumns = {
   institutionName: institutions.name,
   approvalStatus: eventParticipants.approvalStatus,
   confirmationStatus: eventParticipants.confirmationStatus,
+  cancelledAt: eventParticipants.cancelledAt,
 };
 
 const attendanceReportColumns = {
@@ -109,24 +113,35 @@ const attendanceReportColumns = {
   checkinMethod: attendanceRecords.checkinMethod,
 };
 
-function summarizeReportParticipant(participant: { id: string; participantCode: string; ustadzName: string; institutionName: string | null },
-  units: AttendanceUnit[], records: AttendanceRecordLike[], now: Date, blockReason: string | null, canMarkEvent: boolean) {
-  const eligible = !blockReason;
-  const summary = summarizeParticipantAttendance(units, records, now, eligible);
+function summarizeReportParticipant(
+  participant: { id: string; participantCode: string; ustadzName: string; institutionName: string | null;
+    approvalStatus: string; confirmationStatus: string; cancelledAt: Date | null },
+  units: AttendanceUnit[], records: AttendanceRecordLike[], now: Date,
+  event: { attendanceConfirmationRequired: boolean }, canMarkEvent: boolean, allowUnconfirmedManual: boolean,
+) {
+  const blockReason = participantCheckinBlockReason(participant, event);
+  const awaitingConfirmation = awaitsManualAttendanceConfirmation(participant, event);
+  const manualWithoutConfirmation = awaitingConfirmation && canMarkEvent && allowUnconfirmedManual;
+  const regular = summarizeParticipantAttendance(units, records, now, !blockReason);
+  const manualUnits = awaitingConfirmation ? regular.details.flatMap(({ unit, record }) =>
+    STAFF_MANUAL_ATTENDANCE_METHODS.includes(record?.checkinMethod || "") ? [unit] : []) : [];
+  const countedByManualRecord = manualUnits.length > 0;
+  const summary = countedByManualRecord ? summarizeParticipantAttendance(manualUnits, records, now) : regular;
   return {
     participantId: participant.id, participantCode: participant.participantCode, ustadzName: participant.ustadzName,
-    institutionName: participant.institutionName, eligible, blockReason,
+    institutionName: participant.institutionName, eligible: !blockReason || countedByManualRecord,
+    blockReason, awaitingConfirmation, manualWithoutConfirmation, countedByManualRecord,
     totalSessionsAttended: summary.details.filter(({ unit, status }) => unit.type === "SESSION" && ATTENDED_STATUSES.includes(status)).length,
     totalUnitsAttended: summary.attended,
     fulfilledUnits: summary.attended + summary.excused,
     requiredUnits: summary.required,
     completionPercentage: summary.completionPercentage,
-    statusCategory: summary.statusCategory,
-    unitStatuses: summary.details.map(({ unit, status, record }) => ({
+    statusCategory: countedByManualRecord ? "TERCATAT_MANUAL" : summary.statusCategory,
+    unitStatuses: regular.details.map(({ unit, status, record }) => ({
       unitId: unit.id, type: unit.type, title: unit.title, date: unit.date, dayId: unit.dayId, sessionId: unit.sessionId,
       qrEnabled: unit.qrEnabled, status, recordId: record?.id || null,
       checkinAt: record?.checkinAt || null, checkinMethod: record?.checkinMethod || null,
-      canMark: eligible && canMarkEvent && now >= unit.openAt,
+      canMark: canMarkEvent && (!blockReason || manualWithoutConfirmation) && now >= unit.openAt,
     })),
   };
 }
@@ -134,8 +149,10 @@ function summarizeReportParticipant(participant: { id: string; participantCode: 
 export async function getAttendanceSummaryRecapService(eventId: string) {
   const db = getDbClient();
 
-  const schedule = await findAttendanceScheduleForEventRepository(eventId);
+  const [schedule, policy] = await Promise.all([findAttendanceScheduleForEventRepository(eventId), readManualAttendancePolicy(eventId, db)]);
   if (!schedule) throw new NotFoundError("Event tidak ditemukan.");
+  const canMarkEvent = !schedule.event.archivedAt && [...CHECKIN_EVENT_STATUSES, "COMPLETED"].includes(schedule.event.status);
+  const includeUnconfirmed = canMarkEvent && schedule.event.attendanceConfirmationRequired && policy.allowUnconfirmedManual;
   const units = buildRequiredAttendanceUnits(
     schedule.event.attendanceMode as AttendanceMode,
     schedule.days,
@@ -149,6 +166,7 @@ export async function getAttendanceSummaryRecapService(eventId: string) {
       .leftJoin(institutions, eq(eventParticipants.institutionId, institutions.id))
       .where(and(eq(eventParticipants.eventId, eventId), or(
         attendanceRosterCondition(eventId, schedule.event.attendanceConfirmationRequired !== false),
+        includeUnconfirmed ? awaitingAttendanceConfirmationCondition() : undefined,
         // Retain genuine history after a participant becomes ineligible, but
         // never count those rows as absences in the live/official roster.
         exists(db.select({ id: attendanceRecords.id }).from(attendanceRecords).where(and(
@@ -164,14 +182,14 @@ export async function getAttendanceSummaryRecapService(eventId: string) {
   }
   const now = new Date();
   const participantDetails = participants.map((participant) => summarizeReportParticipant(participant, units,
-    byParticipant.get(participant.id) || [], now, participantCheckinBlockReason(participant, schedule.event), false));
+    byParticipant.get(participant.id) || [], now, schedule.event, canMarkEvent, policy.allowUnconfirmedManual));
   const eligibleParticipants = participantDetails.filter((item) => item.eligible);
 
   return {
     eventId,
     attendanceMode: schedule.event.attendanceMode,
     totalParticipants: eligibleParticipants.length,
-    historicalParticipantCount: participants.length - eligibleParticipants.length,
+    historicalParticipantCount: participantDetails.filter((item) => !item.eligible && !item.manualWithoutConfirmation).length,
     requiredUnits: units.map((unit) => ({
       id: unit.id,
       type: unit.type,
@@ -209,7 +227,7 @@ export async function getParticipantAttendanceReportService(eventId: string, par
     .where(and(eq(eventParticipants.id, participantId), eq(eventParticipants.eventId, eventId)))
     .limit(1))[0];
   if (!participant) throw new NotFoundError("Peserta tidak ditemukan pada event ini.");
-  const [schedule, [eventRecord], records] = await Promise.all([
+  const [schedule, [eventRecord], records, policy] = await Promise.all([
     findAttendanceScheduleForEventRepository(eventId),
     db.select({ id: events.id, code: events.code, name: events.name, startDate: events.startDate, endDate: events.endDate,
       venueName: events.venueName, attendanceMode: events.attendanceMode, timezone: events.timezone,
@@ -217,13 +235,14 @@ export async function getParticipantAttendanceReportService(eventId: string, par
     db.select(attendanceReportColumns).from(attendanceRecords)
       .where(and(eq(attendanceRecords.eventId, eventId), eq(attendanceRecords.participantId, participantId)))
       .orderBy(desc(attendanceRecords.checkinAt)),
+    readManualAttendancePolicy(eventId, db),
   ]);
   if (!schedule || !eventRecord) throw new NotFoundError("Event tidak ditemukan.");
   const units = buildRequiredAttendanceUnits(schedule.event.attendanceMode as AttendanceMode,
     schedule.days, schedule.sessions, schedule.event.timezone);
   const now = new Date();
   const canMarkEvent = !schedule.event.archivedAt && [...CHECKIN_EVENT_STATUSES, "COMPLETED"].includes(schedule.event.status);
-  const attendance = summarizeReportParticipant(participant, units, records, now, participantCheckinBlockReason(participant, schedule.event), canMarkEvent);
+  const attendance = summarizeReportParticipant(participant, units, records, now, schedule.event, canMarkEvent, policy.allowUnconfirmedManual);
   return {
     generatedAt: now,
     event: eventRecord,

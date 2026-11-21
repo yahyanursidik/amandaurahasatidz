@@ -79,7 +79,7 @@ export async function issueAttendanceRehearsalQrService(eventId: string, selecti
   return { ...context, qrToken, expiresAt, liveReady: context.blockers.length === 0, checkedAt: now };
 }
 
-export async function processAttendanceRehearsalService(eventId: string, qrTokenOrCode: string, selection: AttendanceUnitSelection) {
+export async function processAttendanceRehearsalService(eventId: string, qrTokenOrCode: string, selection: AttendanceUnitSelection, options: { staffManual?: boolean } = {}) {
   const now = new Date();
   const context = await rehearsalContext(eventId, selection, now);
   const token = qrTokenOrCode.trim();
@@ -93,7 +93,7 @@ export async function processAttendanceRehearsalService(eventId: string, qrToken
       participant: null, checkedAt: now, expiresAt: new Date(payload.expiresAt) };
   }
   let verified: Awaited<ReturnType<typeof verifyQrTokenForCheckinService>>;
-  try { verified = await verifyQrTokenForCheckinService(eventId, token); }
+  try { verified = await verifyQrTokenForCheckinService(eventId, token, options); }
   catch (error) {
     // A real participant's moderation requirements remain enforced. Only a known
     // policy refusal is rendered as a diagnosis; bad signatures/scope still fail.

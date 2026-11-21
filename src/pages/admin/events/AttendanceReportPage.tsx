@@ -20,7 +20,8 @@ type Report = {
   event: { code: string; name: string; startDate: string; endDate: string; venueName?: string | null; timezone: string };
   participant: { participantCode: string; registrationSource: string; ustadzName: string; institutionName?: string | null };
   attendance: { eligible: boolean; blockReason: string | null; fulfilledUnits: number; requiredUnits: number;
-    completionPercentage: number; statusCategory: string; unitStatuses: Unit[] };
+    completionPercentage: number; statusCategory: string; unitStatuses: Unit[];
+    awaitingConfirmation?: boolean; manualWithoutConfirmation?: boolean; countedByManualRecord?: boolean };
 };
 const statuses = ["PRESENT", "LATE", "EXCUSED", "PERMITTED", "ABSENT"];
 const statusVariant = (status: string) => ["PRESENT", "LATE", "HADIR_PENUH"].includes(status) ? "success" as const
@@ -51,6 +52,7 @@ export const AttendanceReportPage: React.FC = () => {
   activeScope.current = scope;
   const canMark = permissions.includes("attendance.record");
   const canCorrect = permissions.includes("attendance.correct");
+  const canManagePolicy = permissions.includes("events.update");
 
   useEffect(() => {
     const controller = new AbortController();
@@ -126,9 +128,19 @@ export const AttendanceReportPage: React.FC = () => {
         </header>
         <section className="grid gap-4 border-b border-[var(--color-event-rule)] p-5 sm:p-8 md:grid-cols-[minmax(0,1fr)_16rem]">
           <div><h2 className="break-words text-xl font-black">{report.participant.ustadzName}</h2><p className="mt-1 text-sm">{report.participant.participantCode} · {report.participant.institutionName || "Peserta individual"}</p>
-            {report.attendance.blockReason && <p className="mt-2 text-sm">Tidak dihitung dalam presensi wajib: {report.attendance.blockReason}</p>}</div>
-          <div>{report.attendance.eligible && <p className="mb-2 text-lg font-bold tabular-nums">{report.attendance.completionPercentage}% · {report.attendance.fulfilledUnits}/{report.attendance.requiredUnits} unit terpenuhi</p>}
-            <StatusBadge label={attendanceLabels[report.attendance.statusCategory] || report.attendance.statusCategory} variant={statusVariant(report.attendance.statusCategory)} /></div>
+            {report.attendance.awaitingConfirmation ? <div className="mt-3 grid gap-2">
+              <div><StatusBadge label="Belum konfirmasi" variant="warning" /></div>
+              <p className="text-sm">{report.attendance.manualWithoutConfirmation ? "Panitia dapat mencatat manual pada unit yang sudah dibuka."
+                : report.attendance.countedByManualRecord ? "Rekap mengikuti unit yang sudah dicatat manual."
+                : "Aktifkan pengecualian di pengaturan event untuk mencatat manual."}</p>
+              {canManagePolicy && !report.attendance.manualWithoutConfirmation && <Link to={`/admin/events/${id}/edit#presensi-manual`}
+                className="attendance-control attendance-report-actions w-fit">Pengaturan presensi</Link>}
+            </div> : report.attendance.blockReason && <p className="mt-2 text-sm">Presensi wajib tidak berlaku. {report.attendance.blockReason}</p>}</div>
+          <div>{report.attendance.eligible && <p className="mb-2 text-lg font-bold tabular-nums">{report.attendance.countedByManualRecord
+            ? `${report.attendance.requiredUnits} unit dicatat`
+            : `${report.attendance.completionPercentage}% · ${report.attendance.fulfilledUnits}/${report.attendance.requiredUnits} unit terpenuhi`}</p>}
+            {(!report.attendance.awaitingConfirmation || report.attendance.eligible) && <StatusBadge
+              label={attendanceLabels[report.attendance.statusCategory] || report.attendance.statusCategory} variant={statusVariant(report.attendance.statusCategory)} />}</div>
         </section>
         <section className="p-5 sm:p-8">
           <h2 className="text-lg font-black">Rincian hari dan sesi</h2>

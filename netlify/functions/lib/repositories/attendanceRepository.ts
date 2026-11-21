@@ -13,11 +13,12 @@ import {
   institutions,
 } from "../db/schema";
 import { eq, and, desc, isNull, asc, lte, gt, inArray, notInArray, or, sql, type SQL } from "drizzle-orm";
-import { assertParticipantEligibleForCheckin } from "../services/deadlineService";
+import { assertParticipantEligibleForCheckin, awaitsManualAttendanceConfirmation } from "../services/deadlineService";
+import { readManualAttendancePolicy } from "./eventAttendancePolicyRepository";
 import {
   ATTENDANCE_INACTIVE_CONFIRMATIONS, ATTENDED_STATUSES, CHECKIN_EVENT_STATUSES, EXCUSED_STATUSES, buildRequiredAttendanceUnits,
   calculateLatenessMinutes, findAttendanceUnit, isAttendanceEventOpen, isAttendanceWindowOpen, toCheckinUnit,
-  type AttendanceMode, type AttendanceUnitSelection,
+  STAFF_MANUAL_ATTENDANCE_METHODS, type AttendanceMode, type AttendanceUnitSelection,
 } from "../services/attendanceModel";
 import { ConflictError, NotFoundError, UnauthorizedError, ValidationError } from "../utils/errors";
 import { portalProfileOwnership } from "./portalProfileRepository";
@@ -28,6 +29,7 @@ export class DuplicateAttendanceError extends ConflictError {
 
 export function attendanceEligibilityCondition(confirmationRequired: boolean | SQL) {
   return and(eq(eventParticipants.approvalStatus, "APPROVED"),
+    isNull(eventParticipants.cancelledAt),
     notInArray(eventParticipants.confirmationStatus, ATTENDANCE_INACTIVE_CONFIRMATIONS),
     confirmationRequired === false ? undefined : or(
       eq(eventParticipants.confirmationStatus, "CONFIRMED"),
@@ -35,8 +37,15 @@ export function attendanceEligibilityCondition(confirmationRequired: boolean | S
     ))!;
 }
 
-export function attendanceRosterCondition(eventId: string, confirmationRequired: boolean) {
-  return and(eq(eventParticipants.eventId, eventId), attendanceEligibilityCondition(confirmationRequired))!;
+export function awaitingAttendanceConfirmationCondition() {
+  return and(attendanceEligibilityCondition(false), eq(eventParticipants.confirmationStatus, "INVITED"))!;
+}
+
+export function attendanceRosterCondition(eventId: string, confirmationRequired: boolean, manualRecord?: SQL) {
+  return and(eq(eventParticipants.eventId, eventId), or(
+    attendanceEligibilityCondition(confirmationRequired),
+    manualRecord && and(awaitingAttendanceConfirmationCondition(), manualRecord),
+  ))!;
 }
 
 /** Whole-event no-show is decided after completion, not while future units are still pending. */
@@ -211,7 +220,10 @@ export async function recordAttendanceTransactionRepository(data: AttendanceUnit
         : eq(eventParticipants.id, data.participantId!)))
       .limit(1).for("update");
     if (!participant) throw new NotFoundError("Peserta tidak ditemukan pada event ini.");
-    assertParticipantEligibleForCheckin(participant, event);
+    const confirmationOverride = Boolean(data.actorUserId && !data.sourceDevice && !data.locationTokenHash &&
+      data.expectedQrTokenVersion === undefined && STAFF_MANUAL_ATTENDANCE_METHODS.includes(data.method) &&
+      awaitsManualAttendanceConfirmation(participant, event) && (await readManualAttendancePolicy(event.id, tx)).allowUnconfirmedManual);
+    if (!confirmationOverride) assertParticipantEligibleForCheckin(participant, event);
     if (data.expectedQrTokenVersion !== undefined && participant.qrTokenVersion !== data.expectedQrTokenVersion) {
       throw new ValidationError("Token QR peserta sudah dirotasi. Minta peserta membuka kartu terbaru.");
     }
@@ -293,11 +305,12 @@ export async function recordAttendanceTransactionRepository(data: AttendanceUnit
       result: "SUCCESS",
       scannedBy: data.actorUserId || null,
       requestId: data.requestId || null,
-      metadata: { attendanceUnitId: unit.id, dayId: unit.dayId, ...(data.sourceDevice && { kioskDeviceId: data.sourceDevice }) },
+      metadata: { attendanceUnitId: unit.id, dayId: unit.dayId, ...(data.sourceDevice && { kioskDeviceId: data.sourceDevice }),
+        ...(confirmationOverride && { confirmationOverride, confirmationStatus: participant.confirmationStatus }) },
     });
 
     return { ...inserted[0], participantCode: participant.participantCode,
-      attendanceUnit: toCheckinUnit(unit, now, !manual), timezone: event.timezone };
+      attendanceUnit: toCheckinUnit(unit, now, !manual), timezone: event.timezone, confirmationOverride };
   });
 }
 

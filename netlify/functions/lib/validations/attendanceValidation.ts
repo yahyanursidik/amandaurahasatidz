@@ -8,6 +8,8 @@ const oneUnit = (data: { dayId?: string | null; sessionId?: string | null }) => 
 const unitError = "Pilih tepat satu hari atau sesi kehadiran.";
 const attendanceStatus = z.enum(["PRESENT", "LATE", "EXCUSED", "PERMITTED", "ABSENT"]);
 
+export const manualAttendancePolicySchema = z.object({ allowUnconfirmedManual: z.boolean() }).strict();
+
 export const selfCheckinSchema = z.object({
   eventId: z.string().uuid("ID event tidak valid"),
   ...unitSelection,

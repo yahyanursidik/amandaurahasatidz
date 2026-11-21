@@ -6,7 +6,7 @@ import { drizzle } from "drizzle-orm/pglite";
 import { and, eq } from "drizzle-orm";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import * as schema from "../../netlify/functions/lib/db/schema";
-import { hashToken } from "../../netlify/functions/lib/utils/token";
+import { hashToken, signParticipantQrToken } from "../../netlify/functions/lib/utils/token";
 import { createSessionToken } from "../../netlify/functions/lib/services/authService";
 import { handler } from "../../netlify/functions/api";
 import { querySegmentTargetsService } from "../../netlify/functions/lib/services/reminderService";
@@ -138,6 +138,101 @@ afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
 afterAll(async () => { await pg.close(); local.db = undefined; });
 
 describe("Gate QR, QR Lokasi, and attendance reports on a disposable PostgreSQL database", () => {
+  it("allows scoped staff to record approved, unconfirmed attendees through manual routes only", async () => {
+    const policy = `${attendanceA}/policy`;
+    const manual = (participantId: string, selection: { dayId: string } | { sessionId: string }) =>
+      post(`${attendanceA}/manual-mark`, officer, { participantId, ...selection, attendanceStatus: "PRESENT" });
+    const checkin = (qrTokenOrCode: string, method: string, selection: { dayId: string } | { sessionId: string }) =>
+      post(`/events/${eventA}/checkin`, officer, { qrTokenOrCode, method, ...selection });
+    const participantReport = () => request(`${attendanceA}/${pUnconfirmed}/report`, { user: officer });
+    expect((await request(policy, { user: officer })).data).toMatchObject({ available: true, allowUnconfirmedManual: false });
+    expect((await manual(pUnconfirmed, { sessionId: manualA })).status).toBe(422);
+    expect((await checkin("PAR-UJI-4", "MANUAL_CODE", { dayId: dayA })).status).toBe(422);
+    expect((await request(policy, { method: "PATCH", user: officer, body: { allowUnconfirmedManual: true } })).status).toBe(403);
+    expect((await patch(`${attendanceB}/policy`, { allowUnconfirmedManual: true })).status).toBe(403);
+    expect((await patch(policy, { allowUnconfirmedManual: true, attendanceConfirmationRequired: false })).status).toBe(422);
+    const enabled = await patch(policy, { allowUnconfirmedManual: true });
+    expect(enabled.status, JSON.stringify(enabled.error)).toBe(200);
+    expect(enabled.data).toMatchObject({ allowUnconfirmedManual: true, confirmationRequired: true });
+
+    const audit = await db.select().from(schema.auditLogs).where(eq(schema.auditLogs.action, "EVENT_MANUAL_ATTENDANCE_POLICY_UPDATED"));
+    expect(audit).toMatchObject([{ actorUserId: admin, eventId: eventA, beforeData: { allowUnconfirmedManual: false },
+      afterData: { allowUnconfirmedManual: true } }]);
+    expect((await request(`/events/${eventA}/sessions/active`, { user: officer })).data.manualWithoutConfirmation).toBe(true);
+    const search = await request(`/events/${eventA}/checkin/search`, { user: officer, query: { q: "PAR-UJI-4" } });
+    expect(search.data).toMatchObject([{ id: pUnconfirmed, manualWithoutConfirmation: true, blockReason: null }]);
+    const ready = await participantReport();
+    expect(ready.data.attendance).toMatchObject({ awaitingConfirmation: true, manualWithoutConfirmation: true, eligible: false });
+    expect(ready.data.attendance.unitStatuses.find((unit: any) => unit.sessionId === manualA).canMark).toBe(true);
+    expect(ready.data.attendance.unitStatuses.find((unit: any) => unit.dayId === nextDay).canMark).toBe(false);
+    expect((await manual(pUnconfirmed, { dayId: nextDay })).status).toBe(422);
+    expect((await manual(pPending, { sessionId: manualA })).status).toBe(422);
+    expect((await manual(pWithdrawn, { sessionId: manualA })).status).toBe(422);
+    expect((await manual(pB, { sessionId: manualA })).status).toBe(404);
+
+    const signed = signParticipantQrToken({ participantId: pUnconfirmed, eventId: eventA, version: 1 });
+    expect((await checkin(signed, "MANUAL_CODE", { dayId: dayA })).status).toBe(422);
+    expect((await request("/portal/qr", { user: unconfirmed, query: { participantId: pUnconfirmed } })).status).toBe(403);
+    const { data: location } = await issue({ dayId: dayA });
+    expect((await self(unconfirmed, location.rawToken, { dayId: dayA })).status).toBe(422);
+    const pairing = await post(`/events/${eventA}/kiosk/pairings`, admin, { label: "Meja uji manual" });
+    const activated = await post(`${kioskA}/pair`, undefined, { pairingToken: pairing.data.pairingToken });
+    const cookie = activated.headers["Set-Cookie"].split(";")[0];
+    expect((await post(`${kioskA}/checkin`, undefined, { qrToken: signed, dayId: dayA }, cookie)).status).toBe(422);
+    const unitSummary = (dayId: string) => request(`${kioskA}/summary`, { cookie, query: { unitId: `DAY:${dayId}` } });
+    expect((await unitSummary(dayA)).data).toMatchObject({ total: 4, present: 0 });
+    const beforeRecap = await request(`${attendanceA}/recap`, { user: officer });
+    expect(beforeRecap.data.totalParticipants).toBe(4);
+    expect(beforeRecap.data.participantDetails.find((row: any) => row.participantId === pUnconfirmed)).toMatchObject({ eligible: false, manualWithoutConfirmation: true });
+    const rehearsal = await post(`/events/${eventA}/checkin/rehearsal`, officer, { qrTokenOrCode: "PAR-UJI-4", dayId: dayA });
+    expect(rehearsal.data).toMatchObject({ liveReady: true, recorded: false });
+    expect(await db.select().from(schema.attendanceRecords)).toEqual([]);
+
+    await db.update(schema.events).set({ startDate: "2020-01-01" }).where(eq(schema.events.id, eventA));
+    await db.insert(schema.eventRecordings).values({ eventId: eventA, title: "Materi daurah", url: "https://www.youtube.com/watch?v=M7lc1UVf-VE", published: true });
+    expect((await request("/portal/materials", { user: unconfirmed })).data).toEqual([]);
+    const marked = await manual(pUnconfirmed, { sessionId: manualA });
+    expect(marked.status, JSON.stringify(marked.error)).toBe(200);
+    expect(marked.data).toMatchObject({ confirmationOverride: true, recordedBy: officer, checkinMethod: "MANUAL_MARK" });
+    expect((await checkin("PAR-UJI-4", "MANUAL_CODE", { dayId: dayA })).data).toMatchObject({ confirmationOverride: true });
+    expect((await checkin("PAR-UJI-4", "SEARCH_SELECT", { sessionId: sessionA })).data).toMatchObject({ confirmationOverride: true });
+    expect((await manual(pUnconfirmed, { dayId: dayA })).status).toBe(409);
+    expect((await unitSummary(dayA)).data).toMatchObject({ total: 5, present: 1 });
+    expect((await unitSummary(nextDay)).data).toMatchObject({ total: 4, present: 0 });
+    expect((await request("/portal/materials", { user: unconfirmed })).data).toMatchObject([{ id: eventA }]);
+    expect((await request("/portal/qr", { user: unconfirmed, query: { participantId: pUnconfirmed } })).status).toBe(403);
+    const [current] = await db.select().from(schema.eventParticipants).where(eq(schema.eventParticipants.id, pUnconfirmed));
+    expect(current).toMatchObject({ confirmationStatus: "INVITED", confirmedAt: null });
+    const logs = await db.select().from(schema.checkinLogs)
+      .where(and(eq(schema.checkinLogs.participantId, pUnconfirmed), eq(schema.checkinLogs.result, "SUCCESS")));
+    expect(logs).toHaveLength(3);
+    for (const log of logs) expect(log).toMatchObject({ scannedBy: officer, metadata: { confirmationOverride: true, confirmationStatus: "INVITED" } });
+
+    expect((await patch(policy, { allowUnconfirmedManual: false })).data.allowUnconfirmedManual).toBe(false);
+    vi.setSystemTime(new Date("2026-11-15T02:00:00Z"));
+    expect((await manual(pUnconfirmed, { dayId: nextDay })).status).toBe(422);
+    const after = await participantReport();
+    expect(after.data.attendance).toMatchObject({ eligible: true, manualWithoutConfirmation: false, countedByManualRecord: true,
+      requiredUnits: 3, statusCategory: "TERCATAT_MANUAL" });
+    expect(after.data.attendance.unitStatuses.find((unit: any) => unit.dayId === nextDay)).toMatchObject({ status: "NOT_REQUIRED", recordId: null, canMark: false });
+    const recap = await request(`${attendanceA}/recap`, { user: officer });
+    expect(recap.data.totalParticipants).toBe(5);
+    expect(recap.data.recapSummary.fullAttendance).toBe(0);
+  });
+
+  it("retains standard attendance before migrating the optional policy table", async () => {
+    await pg.exec("ALTER TABLE event_attendance_policies RENAME TO event_attendance_policies_pending_migration");
+    try {
+      expect((await request(`${attendanceA}/policy`, { user: admin })).data).toMatchObject({ available: false, allowUnconfirmedManual: false });
+      expect((await patch(`${attendanceA}/policy`, { allowUnconfirmedManual: true })).status).toBe(503);
+      expect((await post(`${attendanceA}/manual-mark`, officer, { participantId: pUnconfirmed, sessionId: manualA, attendanceStatus: "PRESENT" })).status).toBe(422);
+      expect((await post(`${attendanceA}/manual-mark`, officer, { participantId: pA, sessionId: manualA, attendanceStatus: "PRESENT" })).status).toBe(200);
+      expect((await request(`${attendanceA}/recap`, { user: officer })).status).toBe(200);
+    } finally {
+      await pg.exec("ALTER TABLE event_attendance_policies_pending_migration RENAME TO event_attendance_policies");
+    }
+  });
+
   it("issues a scoped QR and records only the authenticated participant; rejects a second scan by any method", async () => {
     const staffContext = await request("/committee/context", { user: officer });
     expect(staffContext.data.assignments.map((item: any) => item.eventId)).toEqual([eventA]);

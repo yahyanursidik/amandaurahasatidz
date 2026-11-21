@@ -49,6 +49,13 @@
 .attendance-feedback { padding: var(--space-event-sm); border-radius: var(--radius-event-control); font-weight: 650; }
 .attendance-feedback[data-tone=error] { background: var(--color-login-error-paper); color: var(--color-login-error); }
 .attendance-feedback[data-tone=success] { background: var(--color-portal-success-paper); color: var(--color-event-ink); }
+.attendance-panel .manual-attendance-choice {
+  display: flex; align-items: flex-start; gap: .75rem; min-height: 2.75rem; padding: .65rem .75rem;
+  border: 1px solid var(--color-event-rule); border-radius: var(--radius-event-control);
+  background: var(--color-portal-success-paper); font-size: .9375rem; cursor: pointer;
+}
+.manual-attendance-choice input { flex: none; width: 1.15rem; height: 1.15rem; margin-top: .15rem; accent-color: var(--color-event-accent); }
+.manual-attendance-choice input:focus-visible { outline: 3px solid var(--color-event-focus); outline-offset: 2px; }
 .attendance-workspace__qr { width: min(100%, 25rem); height: auto; aspect-ratio: 1; }
 .attendance-workspace__empty { min-height: 9rem; display: grid; align-content: center; gap: var(--space-event-xs); color: var(--color-event-muted); }
 .attendance-workspace__countdown { font-variant-numeric: tabular-nums; }

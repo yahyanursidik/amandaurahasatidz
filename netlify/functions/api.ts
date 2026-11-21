@@ -271,8 +271,10 @@ import { processSelfCheckinService } from "./lib/services/selfCheckinService";
 
 import {
   manualMarkAttendanceSchema,
+  manualAttendancePolicySchema,
   correctAttendanceSchema,
 } from "./lib/validations/attendanceValidation";
+import { getEventAttendancePolicyService, updateEventAttendancePolicyService } from "./lib/services/eventAttendancePolicyService";
 import {
   manualMarkAttendanceService,
   correctAttendanceRecordService,
@@ -1806,7 +1808,7 @@ export const handler: Handler = async (event, _context) => {
       const body = event.body ? JSON.parse(event.body) : {};
       const validated = validateRequestData(verifyQrTokenSchema, body);
       requirePermission(session, "attendance.record", validated.eventId);
-      const result = await verifyQrTokenForCheckinService(validated.eventId, validated.qrTokenOrCode, session.userId, requestId);
+      const result = await verifyQrTokenForCheckinService(validated.eventId, validated.qrTokenOrCode, { staffManual: true });
       return buildSuccessResponse(result, requestId);
     }
 
@@ -1901,7 +1903,8 @@ export const handler: Handler = async (event, _context) => {
       const eventId = sessActiveMatch[1];
       requireStaffAttendanceRead(userSession, eventId);
       const result = await getActiveSessionService(eventId);
-      return buildSuccessResponse(result, requestId);
+      const response = buildSuccessResponse(result, requestId);
+      return { ...response, headers: { ...response.headers, ...privateAttendanceHeaders } };
     }
 
     const rehearsalMatch = path.match(new RegExp(`^/events/(${attendanceUuid})/checkin/rehearsal(/qr)?$`, "i"));
@@ -1916,7 +1919,7 @@ export const handler: Handler = async (event, _context) => {
         ? await issueAttendanceRehearsalQrService(eventId, validateRequestData(attendanceRehearsalQrSchema, body))
         : await (async () => {
           const input = validateRequestData(attendanceRehearsalScanSchema, body);
-          return processAttendanceRehearsalService(eventId, input.qrTokenOrCode, input);
+          return processAttendanceRehearsalService(eventId, input.qrTokenOrCode, input, { staffManual: true });
         })();
       const response = buildSuccessResponse(result, requestId);
       return { ...response, headers: { ...response.headers, ...privateAttendanceHeaders } };
@@ -1990,6 +1993,22 @@ export const handler: Handler = async (event, _context) => {
     }
 
     // Attendance Management, Correction & Recap Endpoints
+    const attendancePolicyMatch = path.match(new RegExp(`^/events/(${attendanceUuid})/attendance/policy$`, "i"));
+    if (attendancePolicyMatch && (method === "GET" || method === "PATCH")) {
+      const eventId = attendancePolicyMatch[1];
+      const session = requireAuth(userSession);
+      requirePermission(session, method === "PATCH" ? "events.update" : "events.read", eventId);
+      if (method === "PATCH" && ["cross-site", "same-site"].includes(event.headers["sec-fetch-site"] || "")) {
+        throw new ForbiddenError("Ubah kebijakan presensi dari pengaturan event.");
+      }
+      const result = method === "GET" ? await getEventAttendancePolicyService(eventId) : await (async () => {
+        const input = validateRequestData(manualAttendancePolicySchema, event.body ? JSON.parse(event.body) : {});
+        return updateEventAttendancePolicyService(eventId, input.allowUnconfirmedManual, session.userId, requestId);
+      })();
+      const response = buildSuccessResponse(result, requestId);
+      return { ...response, headers: { ...response.headers, ...privateAttendanceHeaders } };
+    }
+
     const manualMarkMatch = path.match(/^\/events\/([a-f0-9-]+)\/attendance\/manual-mark$/i);
     if (manualMarkMatch && method === "POST") {
       const eventId = manualMarkMatch[1];

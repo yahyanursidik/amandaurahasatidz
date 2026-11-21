@@ -39,7 +39,15 @@
 - Undangan tanpa tenggat khusus memakai tenggat default event.
 - Form undangan publik menampilkan tenggat dan menonaktifkan pengiriman setelah lewat.
 - Kebijakan `REVIEW` mengembalikan konfirmasi terlambat ke peninjauan panitia.
-- QR, self check-in, dan presensi manual memeriksa konfirmasi serta persetujuan peserta.
+- QR pribadi, kiosk, dan check-in mandiri mengikuti persetujuan peserta dan aturan konfirmasi event.
+
+### Pengecualian presensi manual
+
+Buka **Event → Pengaturan → Presensi manual**, lalu aktifkan **Izinkan catat manual untuk peserta belum konfirmasi**. Pengelola event menyimpan pengaturan per event. Nilai awal nonaktif. Penugasan dengan izin mencatat presensi dapat memakai kode peserta atau pencarian pada **Scanner Peserta**, serta **Catat manual** di **Rapor Kehadiran**.
+
+Pengecualian berlaku bagi peserta aktif yang sudah disetujui dan masih berstatus belum konfirmasi. Catatan menyimpan petugas, unit, dan penggunaan pengecualian di log. Rekap menghitung unit yang dicatat. Unit lain tetap di luar daftar wajib sampai peserta memenuhi syarat presensi biasa. Perubahan pengaturan tercatat di audit.
+
+Terapkan `drizzle/0020_event_manual_attendance_policy.sql` pada database yang dipakai aplikasi. Pengaturan baru tersedia setelah migrasi selesai.
 
 ## Dampak lintas modul
 

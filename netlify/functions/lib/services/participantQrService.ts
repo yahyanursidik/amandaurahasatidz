@@ -4,9 +4,10 @@ import { eq, and, sql } from "drizzle-orm";
 import { signParticipantQrToken, verifyParticipantQrToken } from "../utils/token";
 import { ConflictError, NotFoundError, ValidationError, ForbiddenError } from "../utils/errors";
 import { createAuditLog } from "./auditService";
-import { assertParticipantEligibleForCheckin } from "./deadlineService";
+import { assertParticipantEligibleForCheckin, awaitsManualAttendanceConfirmation } from "./deadlineService";
 import { canDisplayAttendanceQr } from "./participantCardService";
 import { isAttendanceQrEventOpen } from "../repositories/attendanceRepository";
+import { readManualAttendancePolicy } from "../repositories/eventAttendancePolicyRepository";
 
 export interface ParticipantQrInfo {
   participantId: string;
@@ -94,8 +95,7 @@ export async function getParticipantQrTokenService(participantId: string): Promi
 export async function verifyQrTokenForCheckinService(
   currentEventId: string,
   qrTokenOrCode: string,
-  actorUserId?: string,
-  requestId = "req-qr-verify"
+  options: { staffManual?: boolean } = {},
 ) {
   const db = getDbClient();
 
@@ -117,6 +117,7 @@ export async function verifyQrTokenForCheckinService(
       qrTokenVersion: eventParticipants.qrTokenVersion,
       confirmationStatus: eventParticipants.confirmationStatus,
       approvalStatus: eventParticipants.approvalStatus,
+      cancelledAt: eventParticipants.cancelledAt,
       ustadzName: ustadzProfiles.fullName,
       institutionName: institutions.name,
     })
@@ -145,6 +146,7 @@ export async function verifyQrTokenForCheckinService(
         qrTokenVersion: eventParticipants.qrTokenVersion,
         confirmationStatus: eventParticipants.confirmationStatus,
         approvalStatus: eventParticipants.approvalStatus,
+        cancelledAt: eventParticipants.cancelledAt,
         ustadzName: ustadzProfiles.fullName,
         institutionName: institutions.name,
       })
@@ -178,11 +180,14 @@ export async function verifyQrTokenForCheckinService(
 
   const eventRecord = (await db.select().from(events).where(eq(events.id, currentEventId)).limit(1))[0];
   if (!eventRecord) throw new NotFoundError("Event check-in tidak ditemukan.");
-  assertParticipantEligibleForCheckin(p, eventRecord);
+  const confirmationOverride = !signedQr && options.staffManual === true && awaitsManualAttendanceConfirmation(p, eventRecord)
+    && (await readManualAttendancePolicy(currentEventId, db)).allowUnconfirmedManual;
+  if (!confirmationOverride) assertParticipantEligibleForCheckin(p, eventRecord);
 
   return {
     valid: true,
     qrTokenVersion: signedQr ? p.qrTokenVersion : undefined,
+    confirmationOverride,
     participant: {
       id: p.id,
       eventId: p.eventId,

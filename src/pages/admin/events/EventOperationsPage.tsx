@@ -44,6 +44,8 @@ type AttendanceRecap = {
     requiredUnits?: number;
     completionPercentage?: number;
     eligible?: boolean;
+    awaitingConfirmation?: boolean;
+    manualWithoutConfirmation?: boolean;
     statusCategory: string;
     unitStatuses?: Array<{ unitId: string; type: "DAY" | "SESSION"; title: string; date: string; status: string }>;
   }>;
@@ -90,6 +92,7 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
   const exportRequest = useRef<AbortController | null>(null);
   const [communicationRefreshKey, setCommunicationRefreshKey] = useState(0);
   const [attendanceSearch, setAttendanceSearch] = useState("");
+  const [onlyUnconfirmed, setOnlyUnconfirmed] = useState(false);
 
   const load = () => {
     if (mode === "communications") {
@@ -171,6 +174,7 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
         ? "Kelola pengumuman dan komunikasi kepada peserta berdasarkan segmentasi."
         : "Tinjau dan ekspor laporan khusus event tanpa mencampur data event lain.";
   const filteredParticipants = attendance?.participantDetails.filter((item) =>
+    (!onlyUnconfirmed || item.awaitingConfirmation) &&
     `${item.ustadzName} ${item.participantCode} ${item.institutionName || ""}`.toLocaleLowerCase("id-ID")
       .includes(attendanceSearch.trim().toLocaleLowerCase("id-ID"))) || [];
 
@@ -211,8 +215,11 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
               </div>
             ))}
           </section>
-          <p className="text-sm text-slate-600">Angka ringkasan mengikuti peserta yang memenuhi syarat check-in. Gunakan rapor untuk catat manual atau koreksi sesuai izin.</p>
-          <label className="relative block max-w-xl"><span className="sr-only">Cari peserta dalam rekap kehadiran</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-500" aria-hidden="true" /><input type="search" value={attendanceSearch} onChange={(event) => setAttendanceSearch(event.target.value)} placeholder="Cari nama, kode, atau lembaga" className="min-h-11 w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700" /></label>
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="relative block min-w-0 max-w-xl flex-1 basis-56"><span className="sr-only">Cari peserta dalam rekap kehadiran</span><Search className="absolute left-3 top-3.5 h-4 w-4 text-slate-500" aria-hidden="true" /><input type="search" value={attendanceSearch} onChange={(event) => setAttendanceSearch(event.target.value)} placeholder="Cari nama, kode, atau lembaga" className="min-h-11 w-full rounded-lg border border-slate-300 bg-white pl-10 pr-3 text-sm focus-visible:outline focus-visible:outline-2 focus-visible:outline-emerald-700" /></label>
+            <button type="button" aria-pressed={onlyUnconfirmed} onClick={() => setOnlyUnconfirmed((value) => !value)}
+              className={`min-h-11 rounded-lg border px-3 text-sm font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-700 ${onlyUnconfirmed ? "border-emerald-800 bg-emerald-800 text-white" : "border-slate-400 bg-white text-slate-800"}`}>Belum konfirmasi</button>
+          </div>
           <div className="overflow-hidden border border-slate-200 bg-white">
             <div className="hidden grid-cols-[9rem_minmax(12rem,1fr)_minmax(10rem,1fr)_8rem_9rem_7rem] gap-3 bg-slate-50 px-4 py-3 text-[10px] font-black uppercase tracking-wide text-slate-500 lg:grid">
               <span>Kode</span><span>Asatidz</span><span>Lembaga</span><span>Unit hadir</span><span>Status</span><span>Rapor</span>
@@ -224,14 +231,16 @@ export const EventOperationsPage: React.FC<Props> = ({ mode }) => {
                     <span className="font-mono font-bold text-emerald-800">{participant.participantCode}</span>
                     <span className="font-black text-slate-900">{participant.ustadzName}</span>
                     <span className="text-slate-500">{participant.institutionName || "Individu"}</span>
-                    <span className="font-bold tabular-nums text-slate-700">{participant.eligible === false ? `${participant.totalUnitsAttended ?? participant.totalSessionsAttended} historis`
+                    <span className="font-bold tabular-nums text-slate-700">{participant.manualWithoutConfirmation && participant.eligible === false ? "—"
+                      : participant.eligible === false ? `${participant.totalUnitsAttended ?? participant.totalSessionsAttended} historis`
                       : `${participant.totalUnitsAttended ?? participant.totalSessionsAttended}/${participant.requiredUnits ?? "—"}`}</span>
-                    <StatusBadge label={attendanceStatusLabel[participant.statusCategory] || participant.statusCategory.replaceAll("_", " ")} variant={participant.statusCategory === "HADIR_PENUH" ? "success" : participant.statusCategory === "TIDAK_HADIR" ? "danger" : participant.statusCategory === "BELUM_DIMULAI" ? "neutral" : "warning"} />
-                    <Link to={`/admin/events/${id}/attendance/${participant.participantId}/report`} className="inline-flex min-h-[40px] items-center justify-center whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-3 font-bold text-emerald-900 hover:bg-emerald-100">Buka rapor</Link>
+                    <StatusBadge label={participant.manualWithoutConfirmation && participant.eligible === false ? "Belum konfirmasi"
+                      : attendanceStatusLabel[participant.statusCategory] || participant.statusCategory.replaceAll("_", " ")} variant={participant.statusCategory === "HADIR_PENUH" ? "success" : participant.statusCategory === "TIDAK_HADIR" ? "danger" : participant.statusCategory === "BELUM_DIMULAI" ? "neutral" : "warning"} />
+                    <Link to={`/admin/events/${id}/attendance/${participant.participantId}/report`} className="inline-flex min-h-11 items-center justify-center whitespace-nowrap rounded-lg border border-emerald-300 bg-emerald-50 px-3 font-bold text-emerald-900 hover:bg-emerald-100">Buka rapor</Link>
                   </li>
                 ))}
               </ul>
-            ) : <div className="p-10 text-center text-sm text-slate-600">{attendanceSearch ? "Tidak ada peserta yang cocok." : "Belum ada data kehadiran untuk event ini."}</div>}
+            ) : <div className="p-10 text-center text-sm text-slate-600">{attendanceSearch || onlyUnconfirmed ? "Tidak ada peserta yang cocok." : "Belum ada data kehadiran untuk event ini."}</div>}
           </div>
           {attendance?.requiredUnits?.length ? (
             <section className="border border-slate-200 bg-white">
