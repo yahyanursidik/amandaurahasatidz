@@ -80,7 +80,7 @@ describe("attendance rehearsal API authorization and privacy", () => {
     expect(mocks.issue).toHaveBeenCalledWith(eventId, { dayId });
     const scan = await request(base, { dayId, qrTokenOrCode: "P-TEST" });
     expect(scan).toMatchObject({ status: 200, data: { mode: "REHEARSAL", recorded: false } });
-    expect(mocks.run).toHaveBeenCalledWith(eventId, "P-TEST", { dayId, qrTokenOrCode: "P-TEST" });
+    expect(mocks.run).toHaveBeenCalledWith(eventId, "P-TEST", { dayId, qrTokenOrCode: "P-TEST" }, { staffManual: true });
     for (const input of [null, {}, { dayId, sessionId: otherEvent }, { dayId, mode: "LIVE" }, { dayId, now: "2099-01-01" }]) {
       expect((await request(`${base}/qr`, input)).status).toBe(422);
     }

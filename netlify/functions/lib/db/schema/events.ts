@@ -47,6 +47,11 @@ export const events = pgTable(
   ]
 );
 
+export const eventAttendancePolicies = pgTable("event_attendance_policies", {
+  eventId: uuid("event_id").primaryKey().references(() => events.id, { onDelete: "cascade" }),
+  allowUnconfirmedManual: boolean("allow_unconfirmed_manual").notNull().default(false),
+});
+
 export const eventRecordings = pgTable(
   "event_recordings",
   {

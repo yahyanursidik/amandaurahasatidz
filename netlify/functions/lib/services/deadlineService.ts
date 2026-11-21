@@ -12,6 +12,13 @@ type DeadlineEvent = {
   lateConfirmationPolicy?: string | null;
 };
 
+type CheckinParticipant = { confirmationStatus: string; approvalStatus: string; cancelledAt?: Date | null };
+
+export function awaitsManualAttendanceConfirmation(participant: CheckinParticipant, event: DeadlineEvent) {
+  return event.attendanceConfirmationRequired !== false && participant.approvalStatus === "APPROVED" &&
+    participant.confirmationStatus === "INVITED" && !participant.cancelledAt;
+}
+
 const asDate = (value?: Date | string | null) => value ? new Date(value) : null;
 const eventOffsets: Record<string, string> = {
   "Asia/Jakarta": "+07:00",
@@ -53,7 +60,7 @@ export function assertAttendanceConfirmationAllowed(event: DeadlineEvent, now = 
 }
 
 export function assertParticipantEligibleForCheckin(
-  participant: { confirmationStatus: string; approvalStatus: string; participantCode?: string },
+  participant: CheckinParticipant,
   event: DeadlineEvent
 ) {
   const reason = participantCheckinBlockReason(participant, event);
@@ -61,10 +68,10 @@ export function assertParticipantEligibleForCheckin(
 }
 
 export function participantCheckinBlockReason(
-  participant: { confirmationStatus: string; approvalStatus: string }, event: DeadlineEvent,
+  participant: CheckinParticipant, event: DeadlineEvent,
 ): string | null {
   const stage = registrationStage({ ...participant, attendanceConfirmationRequired: event.attendanceConfirmationRequired });
-  if (stage === "INACTIVE") return participant.confirmationStatus === "REPLACED"
+  if (participant.cancelledAt || stage === "INACTIVE") return participant.confirmationStatus === "REPLACED"
     ? "peserta telah diganti." : "kepesertaan dibatalkan atau berhalangan.";
   if (stage === "AWAITING_CONFIRMATION") return "peserta belum mengonfirmasi kehadiran.";
   return stage === "READY" ? null : "data peserta belum disetujui panitia.";

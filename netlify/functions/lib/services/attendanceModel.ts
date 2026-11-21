@@ -8,6 +8,7 @@ export {
 } from "../../../../src/lib/registrationStatus";
 export const ATTENDED_STATUSES = ["PRESENT", "LATE"];
 export const EXCUSED_STATUSES = ["EXCUSED", "PERMITTED"];
+export const STAFF_MANUAL_ATTENDANCE_METHODS = ["MANUAL_MARK", "MANUAL_CODE", "SEARCH_SELECT"];
 
 export type AttendanceUnitSelection = { dayId?: string | null; sessionId?: string | null };
 
